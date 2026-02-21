@@ -11,7 +11,7 @@ pub struct TradeFilter {
 
 pub trait TradeRepository: Send + Sync {
     fn add_trade(&self, trade: &Trade) -> Result<(), String>;
-    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64) -> Result<(), String>;
+    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), String>;
     fn list_trades(&self, filter: &TradeFilter) -> Result<Vec<Trade>, String>;
     fn get_trade(&self, id: &str) -> Result<Option<Trade>, String>;
 }

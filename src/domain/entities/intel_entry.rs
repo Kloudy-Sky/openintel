@@ -47,6 +47,10 @@ impl IntelEntry {
 
     /// Text representation for embedding/search
     pub fn searchable_text(&self) -> String {
-        format!("{} {}", self.title, self.body)
+        if self.tags.is_empty() {
+            format!("{} {}", self.title, self.body)
+        } else {
+            format!("{} {} {}", self.title, self.body, self.tags.join(" "))
+        }
     }
 }

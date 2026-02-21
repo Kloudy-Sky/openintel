@@ -28,8 +28,8 @@ impl TradeUseCase {
         Ok(trade)
     }
 
-    pub fn resolve(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64) -> Result<(), String> {
-        self.repo.resolve_trade(id, outcome, pnl_cents)
+    pub fn resolve(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), String> {
+        self.repo.resolve_trade(id, outcome, pnl_cents, exit_price)
     }
 
     pub fn list(

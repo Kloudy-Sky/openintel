@@ -33,6 +33,16 @@ impl VoyageProvider {
             model: model.unwrap_or_else(|| "voyage-3-lite".to_string()),
         }
     }
+
+    fn model_dimension(model: &str) -> usize {
+        match model {
+            "voyage-3-lite" => 512,
+            "voyage-3" => 1024,
+            "voyage-3-large" | "voyage-large-2" => 1536,
+            "voyage-code-3" => 1024,
+            _ => 512, // default fallback
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -66,6 +76,6 @@ impl EmbeddingProvider for VoyageProvider {
     }
 
     fn dimension(&self) -> usize {
-        512 // voyage-3-lite default
+        Self::model_dimension(&self.model)
     }
 }

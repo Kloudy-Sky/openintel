@@ -25,7 +25,10 @@ impl SqliteTradeRepo {
             id: row.get(0)?,
             ticker: row.get(1)?,
             series_ticker: row.get(2)?,
-            direction: dir_str.parse().unwrap_or(TradeDirection::Long),
+            direction: dir_str.parse().map_err(|_| {
+                eprintln!("Warning: invalid direction '{}' in trade, defaulting to Long", dir_str);
+                rusqlite::Error::InvalidParameterName(dir_str.clone())
+            }).unwrap_or(TradeDirection::Long),
             contracts: row.get(4)?,
             entry_price: row.get(5)?,
             exit_price: row.get(6)?,
@@ -64,11 +67,11 @@ impl TradeRepository for SqliteTradeRepo {
         Ok(())
     }
 
-    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64) -> Result<(), String> {
+    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let rows = conn.execute(
-            "UPDATE trades SET outcome = ?1, pnl_cents = ?2, resolved_at = ?3 WHERE id = ?4",
-            params![outcome.to_string(), pnl_cents, chrono::Utc::now().to_rfc3339(), id],
+            "UPDATE trades SET outcome = ?1, pnl_cents = ?2, resolved_at = ?3, exit_price = ?4 WHERE id = ?5",
+            params![outcome.to_string(), pnl_cents, chrono::Utc::now().to_rfc3339(), exit_price, id],
         ).map_err(|e| format!("Failed to resolve trade: {e}"))?;
         if rows == 0 {
             return Err(format!("Trade not found: {id}"));
@@ -94,7 +97,8 @@ impl TradeRepository for SqliteTradeRepo {
         }
         sql.push_str(" ORDER BY created_at DESC");
         if let Some(limit) = filter.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
+            sql.push_str(&format!(" LIMIT ?{}", param_values.len() + 1));
+            param_values.push(Box::new(limit as i64));
         }
 
         let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();

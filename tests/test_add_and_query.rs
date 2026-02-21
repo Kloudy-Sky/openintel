@@ -1,4 +1,3 @@
-use openintel::domain::entities::intel_entry::IntelEntry;
 use openintel::domain::values::category::Category;
 use openintel::domain::values::confidence::Confidence;
 use openintel::infrastructure::embeddings::noop::NoopProvider;

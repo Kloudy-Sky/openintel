@@ -53,8 +53,11 @@ impl OpenIntel {
     ) -> Result<Self, String> {
         // Open 3 connections for different repos (SQLite handles concurrent reads)
         let conn1 = Connection::open(db_path).map_err(|e| format!("DB error: {e}"))?;
+        conn1.pragma_update(None, "journal_mode", "WAL").map_err(|e| format!("WAL error: {e}"))?;
         let conn2 = Connection::open(db_path).map_err(|e| format!("DB error: {e}"))?;
+        conn2.pragma_update(None, "journal_mode", "WAL").map_err(|e| format!("WAL error: {e}"))?;
         let conn3 = Connection::open(db_path).map_err(|e| format!("DB error: {e}"))?;
+        conn3.pragma_update(None, "journal_mode", "WAL").map_err(|e| format!("WAL error: {e}"))?;
 
         // Run migrations on first connection
         run_migrations(&conn1)?;
@@ -72,4 +75,12 @@ impl OpenIntel {
             reindex: ReindexUseCase::new(intel_repo, embedder, vector_store),
         })
     }
+
+    // Delegating methods for encapsulation
+    pub fn add_intel(&self) -> &AddIntelUseCase { &self.add_intel }
+    pub fn search(&self) -> &SearchUseCase { &self.search }
+    pub fn query(&self) -> &QueryUseCase { &self.query }
+    pub fn trade(&self) -> &TradeUseCase { &self.trade }
+    pub fn stats(&self) -> &StatsUseCase { &self.stats }
+    pub fn reindex(&self) -> &ReindexUseCase { &self.reindex }
 }

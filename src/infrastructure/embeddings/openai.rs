@@ -59,6 +59,11 @@ impl EmbeddingProvider for OpenAiProvider {
     }
 
     fn dimension(&self) -> usize {
-        1536 // text-embedding-3-small default
+        match self.model.as_str() {
+            "text-embedding-3-small" => 1536,
+            "text-embedding-3-large" => 3072,
+            "text-embedding-ada-002" => 1536,
+            _ => 1536, // default fallback
+        }
     }
 }

@@ -65,6 +65,9 @@ pub enum Commands {
         outcome: String,
         /// P&L in cents
         pnl_cents: i64,
+        /// Optional exit price
+        #[arg(long)]
+        exit_price: Option<f64>,
     },
     /// List trades
     Trades {

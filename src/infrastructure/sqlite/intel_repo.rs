@@ -26,7 +26,10 @@ impl SqliteIntelRepo {
 
         Ok(IntelEntry {
             id: row.get(0)?,
-            category: cat_str.parse().unwrap_or(Category::General),
+            category: cat_str.parse().map_err(|_| {
+                eprintln!("Warning: invalid category '{}' in entry, defaulting to General", cat_str);
+                rusqlite::Error::InvalidParameterName(cat_str.clone())
+            }).unwrap_or(Category::General),
             title: row.get(2)?,
             body: row.get(3)?,
             source: row.get(4)?,
@@ -81,13 +84,15 @@ impl IntelRepository for SqliteIntelRepo {
             param_values.push(Box::new(since.to_rfc3339()));
         }
         if let Some(tag) = &filter.tag {
-            sql.push_str(&format!(" AND tags LIKE ?{}", param_values.len() + 1));
-            param_values.push(Box::new(format!("%\"{tag}\"%")));
+            sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_values.len() + 1));
+            let escaped_tag = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            param_values.push(Box::new(format!("%\"{escaped_tag}\"%")));
         }
 
         sql.push_str(" ORDER BY created_at DESC");
         if let Some(limit) = filter.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
+            sql.push_str(&format!(" LIMIT ?{}", param_values.len() + 1));
+            param_values.push(Box::new(limit as i64));
         }
 
         let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
@@ -122,10 +127,6 @@ impl IntelRepository for SqliteIntelRepo {
         ).map_err(|e| e.to_string())?;
         let mut rows = stmt.query_map(params![id], Self::row_to_entry).map_err(|e| e.to_string())?;
         Ok(rows.next().and_then(|r| r.ok()))
-    }
-
-    fn export(&self, filter: &QueryFilter) -> Result<Vec<IntelEntry>, String> {
-        self.query(filter)
     }
 
     fn stats(&self) -> Result<IntelStats, String> {

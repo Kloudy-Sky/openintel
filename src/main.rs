@@ -32,8 +32,8 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), String> {
             let data: serde_json::Value = serde_json::from_str(&json)
                 .map_err(|e| format!("Invalid JSON: {e}"))?;
 
-            let title = data["title"].as_str().unwrap_or("").to_string();
-            let body = data["body"].as_str().unwrap_or("").to_string();
+            let title = data["title"].as_str().ok_or("Missing required field: title")?.to_string();
+            let body = data["body"].as_str().ok_or("Missing required field: body")?.to_string();
             let source = data["source"].as_str().map(|s| s.to_string());
             let tags: Vec<String> = data["tags"].as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
@@ -88,9 +88,9 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), String> {
             let trade = oi.trade.add(ticker, series_ticker, direction, contracts, entry_price, thesis)?;
             println!("{}", serde_json::to_string_pretty(&trade).unwrap());
         }
-        Commands::TradeResolve { id, outcome, pnl_cents } => {
+        Commands::TradeResolve { id, outcome, pnl_cents, exit_price } => {
             let out: TradeOutcome = outcome.parse()?;
-            oi.trade.resolve(&id, out, pnl_cents)?;
+            oi.trade.resolve(&id, out, pnl_cents, exit_price)?;
             println!("Trade {id} resolved as {outcome} ({pnl_cents} cents)");
         }
         Commands::Trades { limit, since, resolved } => {

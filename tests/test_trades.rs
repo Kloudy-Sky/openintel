@@ -31,7 +31,7 @@ fn test_add_and_list_trade() {
 fn test_resolve_trade() {
     let oi = setup();
     let trade = oi.trade.add("TSLA".into(), None, TradeDirection::Short, 5, 200.0, None).unwrap();
-    oi.trade.resolve(&trade.id, TradeOutcome::Win, 5000).unwrap();
+    oi.trade.resolve(&trade.id, TradeOutcome::Win, 5000, None).unwrap();
 
     let trades = oi.trade.list(Some(10), None, Some(true)).unwrap();
     assert_eq!(trades.len(), 1);
@@ -44,7 +44,7 @@ fn test_filter_unresolved() {
     let oi = setup();
     let t1 = oi.trade.add("A".into(), None, TradeDirection::Long, 1, 10.0, None).unwrap();
     oi.trade.add("B".into(), None, TradeDirection::Short, 1, 20.0, None).unwrap();
-    oi.trade.resolve(&t1.id, TradeOutcome::Loss, -100).unwrap();
+    oi.trade.resolve(&t1.id, TradeOutcome::Loss, -100, None).unwrap();
 
     let unresolved = oi.trade.list(None, None, Some(false)).unwrap();
     assert_eq!(unresolved.len(), 1);

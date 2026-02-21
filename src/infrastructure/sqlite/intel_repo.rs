@@ -98,6 +98,10 @@ impl IntelRepository for SqliteIntelRepo {
             sql.push_str(&format!(" AND created_at >= ?{}", param_values.len() + 1));
             param_values.push(Box::new(since.to_rfc3339()));
         }
+        if let Some(until) = &filter.until {
+            sql.push_str(&format!(" AND created_at <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(until.to_rfc3339()));
+        }
         if let Some(tag) = &filter.tag {
             sql.push_str(&format!(
                 " AND tags LIKE ?{} ESCAPE '\\'",
@@ -130,18 +134,49 @@ impl IntelRepository for SqliteIntelRepo {
     }
 
     fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
+        self.search_with_time(text, limit, None, None)
+    }
+
+    fn search_with_time(
+        &self,
+        text: &str,
+        limit: usize,
+        since: Option<DateTime<chrono::Utc>>,
+        until: Option<DateTime<chrono::Utc>>,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
         let pattern = format!("%{text}%");
-        let mut stmt = conn.prepare(
-            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
-             FROM intel_entries WHERE title LIKE ?1 OR body LIKE ?1
-             ORDER BY created_at DESC LIMIT ?2"
-        ).map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut sql = String::from(
+            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at FROM intel_entries WHERE (title LIKE ?1 OR body LIKE ?1)",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(pattern));
+
+        if let Some(since) = &since {
+            sql.push_str(&format!(" AND created_at >= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(since.to_rfc3339()));
+        }
+        if let Some(until) = &until {
+            sql.push_str(&format!(" AND created_at <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(until.to_rfc3339()));
+        }
+
+        sql.push_str(&format!(
+            " ORDER BY created_at DESC LIMIT ?{}",
+            param_values.len() + 1
+        ));
+        param_values.push(Box::new(limit as i64));
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let entries = stmt
-            .query_map(params![pattern, limit as i64], Self::row_to_entry)
+            .query_map(params_refs.as_slice(), Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();

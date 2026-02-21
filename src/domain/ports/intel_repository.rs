@@ -8,6 +8,7 @@ pub struct QueryFilter {
     pub category: Option<Category>,
     pub tag: Option<String>,
     pub since: Option<DateTime<Utc>>,
+    pub until: Option<DateTime<Utc>>,
     pub limit: Option<usize>,
 }
 
@@ -29,6 +30,13 @@ pub trait IntelRepository: Send + Sync {
     fn add(&self, entry: &IntelEntry) -> Result<(), DomainError>;
     fn query(&self, filter: &QueryFilter) -> Result<Vec<IntelEntry>, DomainError>;
     fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError>;
+    fn search_with_time(
+        &self,
+        text: &str,
+        limit: usize,
+        since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
+    ) -> Result<Vec<IntelEntry>, DomainError>;
     fn get_by_id(&self, id: &str) -> Result<Option<IntelEntry>, DomainError>;
     fn stats(&self) -> Result<IntelStats, DomainError>;
     fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, DomainError>;

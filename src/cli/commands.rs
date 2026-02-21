@@ -26,12 +26,30 @@ pub enum Commands {
         since: Option<String>,
         #[arg(long)]
         tag: Option<String>,
+        /// Start of date range (ISO-8601)
+        #[arg(long)]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Keyword search
     Search {
         text: String,
         #[arg(long, default_value = "10")]
         limit: usize,
+        /// Start of date range (ISO-8601)
+        #[arg(long)]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Semantic (vector) search
     Semantic {
@@ -77,6 +95,15 @@ pub enum Commands {
         since: Option<String>,
         #[arg(long)]
         resolved: Option<bool>,
+        /// Start of date range (ISO-8601)
+        #[arg(long)]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Export entries as JSON
     Export {
@@ -84,6 +111,15 @@ pub enum Commands {
         since: Option<String>,
         #[arg(long)]
         category: Option<String>,
+        /// Start of date range (ISO-8601)
+        #[arg(long)]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Reindex entries missing vector embeddings
     Reindex,

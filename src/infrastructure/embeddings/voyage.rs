@@ -33,7 +33,10 @@ impl VoyageProvider {
             client: Client::new(),
             api_key,
             model: model.unwrap_or_else(|| "voyage-4-lite".to_string()),
-            base_url: base_url.unwrap_or_else(|| "https://api.voyageai.com".to_string()),
+            base_url: base_url
+                .unwrap_or_else(|| "https://api.voyageai.com".to_string())
+                .trim_end_matches('/')
+                .to_string(),
         }
     }
 

@@ -66,14 +66,27 @@ impl OpenIntel {
         let embedder: Arc<dyn EmbeddingProvider> = match provider.as_str() {
             "voyage" => {
                 let api_key = voyage_key.or(generic_key).unwrap_or_default();
+                if api_key.is_empty() {
+                    eprintln!("WARNING: Voyage provider selected but no API key found (set VOYAGE_API_KEY or OPENINTEL_EMBEDDING_API_KEY)");
+                }
                 let base_url = std::env::var("VOYAGE_API_BASE").ok();
                 Arc::new(VoyageProvider::new(api_key, model, base_url))
             }
             "openai" => {
                 let api_key = openai_key.or(generic_key).unwrap_or_default();
+                if api_key.is_empty() {
+                    eprintln!("WARNING: OpenAI provider selected but no API key found (set OPENAI_API_KEY or OPENINTEL_EMBEDDING_API_KEY)");
+                }
                 Arc::new(OpenAiProvider::new(api_key, model))
             }
-            _ => Arc::new(NoopProvider),
+            "noop" | "" => Arc::new(NoopProvider),
+            unknown => {
+                eprintln!(
+                    "WARNING: Unknown embedding provider '{}', falling back to noop",
+                    unknown
+                );
+                Arc::new(NoopProvider)
+            }
         };
 
         Self::with_providers(db_path, embedder)

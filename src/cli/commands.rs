@@ -1,0 +1,87 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(name = "openintel", about = "Structured intelligence knowledge base")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Add an intel entry
+    Add {
+        /// Category (market, newsletter, social, trading, opportunity, competitor, general)
+        category: String,
+        /// JSON data with title, body, source, tags, confidence, actionable, metadata
+        json: String,
+    },
+    /// Query entries by category
+    Query {
+        /// Category to filter by
+        category: String,
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Keyword search
+    Search {
+        text: String,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Semantic (vector) search
+    Semantic {
+        query: String,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Hybrid search (semantic + keyword with RRF)
+    Think {
+        query: String,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Show database statistics
+    Stats,
+    /// List tags with counts
+    Tags {
+        /// Optional category filter
+        category: Option<String>,
+    },
+    /// Add a trade
+    TradeAdd {
+        /// JSON with ticker, series_ticker, direction, contracts, entry_price, thesis
+        json: String,
+    },
+    /// Resolve a trade
+    TradeResolve {
+        /// Trade ID
+        id: String,
+        /// Outcome (win, loss, scratch)
+        outcome: String,
+        /// P&L in cents
+        pnl_cents: i64,
+    },
+    /// List trades
+    Trades {
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        resolved: Option<bool>,
+    },
+    /// Export entries as JSON
+    Export {
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        category: Option<String>,
+    },
+    /// Reindex entries missing vector embeddings
+    Reindex,
+}

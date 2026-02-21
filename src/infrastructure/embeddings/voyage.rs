@@ -62,7 +62,7 @@ impl EmbeddingProvider for VoyageProvider {
         };
 
         let url = format!("{}/v1/embeddings", self.base_url);
-        
+
         let resp = self
             .client
             .post(&url)

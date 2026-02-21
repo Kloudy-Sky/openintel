@@ -44,14 +44,14 @@ impl OpenIntel {
         // Read embedding configuration from environment
         let mut provider = std::env::var("OPENINTEL_EMBEDDING_PROVIDER").ok();
         let model = std::env::var("OPENINTEL_EMBEDDING_MODEL").ok();
-        
+
         // Read provider-specific API keys
         let voyage_key = std::env::var("VOYAGE_API_KEY").ok();
         let openai_key = std::env::var("OPENAI_API_KEY").ok();
-        
+
         // Fallback to generic API key for backward compatibility
         let generic_key = std::env::var("OPENINTEL_EMBEDDING_API_KEY").ok();
-        
+
         // Auto-detect provider if not explicitly set
         if provider.is_none() {
             if voyage_key.is_some() {
@@ -60,9 +60,9 @@ impl OpenIntel {
                 provider = Some("openai".to_string());
             }
         }
-        
+
         let provider = provider.unwrap_or_else(|| "noop".to_string());
-        
+
         let embedder: Arc<dyn EmbeddingProvider> = match provider.as_str() {
             "voyage" => {
                 let api_key = voyage_key.or(generic_key).unwrap_or_default();

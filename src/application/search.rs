@@ -18,15 +18,26 @@ impl SearchUseCase {
         embedder: Arc<dyn EmbeddingProvider>,
         vector_store: Arc<dyn VectorStore>,
     ) -> Self {
-        Self { repo, embedder, vector_store }
+        Self {
+            repo,
+            embedder,
+            vector_store,
+        }
     }
 
     pub fn keyword_search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
         self.repo.search(text, limit)
     }
 
-    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
-        let vectors = self.embedder.embed(&[query.to_string()], InputType::Query).await?;
+    pub async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
+        let vectors = self
+            .embedder
+            .embed(&[query.to_string()], InputType::Query)
+            .await?;
         if vectors.is_empty() {
             return Ok(vec![]);
         }
@@ -40,13 +51,21 @@ impl SearchUseCase {
         Ok(entries)
     }
 
-    pub async fn hybrid_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
+    pub async fn hybrid_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
         let k = 60.0_f64;
         let fetch_limit = limit * 3;
 
         let keyword_results = self.repo.search(query, fetch_limit)?;
 
-        let semantic_ids: Vec<(String, f64)> = match self.embedder.embed(&[query.to_string()], InputType::Query).await {
+        let semantic_ids: Vec<(String, f64)> = match self
+            .embedder
+            .embed(&[query.to_string()], InputType::Query)
+            .await
+        {
             Ok(vectors) if !vectors.is_empty() => {
                 self.vector_store.search_similar(&vectors[0], fetch_limit)?
             }
@@ -69,7 +88,9 @@ impl SearchUseCase {
         for (rank, entry) in keyword_results.iter().enumerate() {
             let rrf = 0.3 / (k + rank as f64 + 1.0);
             *scores.entry(entry.id.clone()).or_default() += rrf;
-            entries_map.entry(entry.id.clone()).or_insert_with(|| entry.clone());
+            entries_map
+                .entry(entry.id.clone())
+                .or_insert_with(|| entry.clone());
         }
 
         let mut sorted: Vec<_> = scores.into_iter().collect();

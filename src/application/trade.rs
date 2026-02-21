@@ -24,12 +24,25 @@ impl TradeUseCase {
         entry_price: f64,
         thesis: Option<String>,
     ) -> Result<Trade, DomainError> {
-        let trade = Trade::new(ticker, series_ticker, direction, contracts, entry_price, thesis);
+        let trade = Trade::new(
+            ticker,
+            series_ticker,
+            direction,
+            contracts,
+            entry_price,
+            thesis,
+        );
         self.repo.add_trade(&trade)?;
         Ok(trade)
     }
 
-    pub fn resolve(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), DomainError> {
+    pub fn resolve(
+        &self,
+        id: &str,
+        outcome: TradeOutcome,
+        pnl_cents: i64,
+        exit_price: Option<f64>,
+    ) -> Result<(), DomainError> {
         self.repo.resolve_trade(id, outcome, pnl_cents, exit_price)
     }
 
@@ -39,6 +52,10 @@ impl TradeUseCase {
         since: Option<DateTime<Utc>>,
         resolved: Option<bool>,
     ) -> Result<Vec<Trade>, DomainError> {
-        self.repo.list_trades(&TradeFilter { limit, since, resolved })
+        self.repo.list_trades(&TradeFilter {
+            limit,
+            since,
+            resolved,
+        })
     }
 }

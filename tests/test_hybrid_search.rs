@@ -17,23 +17,35 @@ async fn test_hybrid_search_falls_back_to_keyword() {
 
     // Add entries
     for i in 0..5 {
-        oi.add_intel.execute(
+        oi.add_intel(
             Category::Market,
             format!("Market signal {i}"),
             format!("Analysis of market trend {i}"),
-            None, vec!["market".into()], None, None, None,
-        ).await.unwrap();
+            None,
+            vec!["market".into()],
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
     }
 
-    oi.add_intel.execute(
+    oi.add_intel(
         Category::General,
         "Unrelated entry".into(),
         "Nothing about markets".into(),
-        None, vec![], None, None, None,
-    ).await.unwrap();
+        None,
+        vec![],
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     // Hybrid search with noop embedder should still return keyword results
-    let results = oi.search.hybrid_search("market signal", 3).await.unwrap();
+    let results = oi.hybrid_search("market signal", 3).await.unwrap();
     assert!(!results.is_empty());
     assert!(results.len() <= 3);
 }
@@ -41,6 +53,6 @@ async fn test_hybrid_search_falls_back_to_keyword() {
 #[tokio::test]
 async fn test_hybrid_search_empty_db() {
     let oi = setup();
-    let results = oi.search.hybrid_search("anything", 10).await.unwrap();
+    let results = oi.hybrid_search("anything", 10).await.unwrap();
     assert!(results.is_empty());
 }

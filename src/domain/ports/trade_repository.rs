@@ -12,7 +12,13 @@ pub struct TradeFilter {
 
 pub trait TradeRepository: Send + Sync {
     fn add_trade(&self, trade: &Trade) -> Result<(), DomainError>;
-    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), DomainError>;
+    fn resolve_trade(
+        &self,
+        id: &str,
+        outcome: TradeOutcome,
+        pnl_cents: i64,
+        exit_price: Option<f64>,
+    ) -> Result<(), DomainError>;
     fn list_trades(&self, filter: &TradeFilter) -> Result<Vec<Trade>, DomainError>;
     fn get_trade(&self, id: &str) -> Result<Option<Trade>, DomainError>;
 }

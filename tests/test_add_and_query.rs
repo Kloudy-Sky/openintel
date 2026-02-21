@@ -11,7 +11,7 @@ fn setup() -> OpenIntel {
 #[tokio::test]
 async fn test_add_and_query_by_category() {
     let oi = setup();
-    oi.add_intel.execute(
+    oi.add_intel(
         Category::Market,
         "BTC rally".into(),
         "Bitcoin surging past 100k".into(),
@@ -20,9 +20,11 @@ async fn test_add_and_query_by_category() {
         Some(0.8),
         Some(true),
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    oi.add_intel.execute(
+    oi.add_intel(
         Category::Newsletter,
         "Weekly digest".into(),
         "Summary of macro events".into(),
@@ -31,9 +33,11 @@ async fn test_add_and_query_by_category() {
         None,
         None,
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    let results = oi.query.execute(Some(Category::Market), None, None, None).unwrap();
+    let results = oi.query(Some(Category::Market), None, None, None).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "BTC rally");
     assert!(results[0].actionable);
@@ -42,7 +46,7 @@ async fn test_add_and_query_by_category() {
 #[tokio::test]
 async fn test_query_by_tag() {
     let oi = setup();
-    oi.add_intel.execute(
+    oi.add_intel(
         Category::Market,
         "Tagged entry".into(),
         "Body".into(),
@@ -51,9 +55,11 @@ async fn test_query_by_tag() {
         None,
         None,
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    oi.add_intel.execute(
+    oi.add_intel(
         Category::Market,
         "Other entry".into(),
         "Body".into(),
@@ -62,9 +68,13 @@ async fn test_query_by_tag() {
         None,
         None,
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    let results = oi.query.execute(Some(Category::Market), Some("alpha".into()), None, None).unwrap();
+    let results = oi
+        .query(Some(Category::Market), Some("alpha".into()), None, None)
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Tagged entry");
 }
@@ -73,7 +83,7 @@ async fn test_query_by_tag() {
 async fn test_stats() {
     let oi = setup();
     for i in 0..5 {
-        oi.add_intel.execute(
+        oi.add_intel(
             Category::Market,
             format!("Entry {i}"),
             "Body".into(),
@@ -82,10 +92,12 @@ async fn test_stats() {
             None,
             Some(i % 2 == 0),
             None,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
     }
 
-    let stats = oi.stats.stats().unwrap();
+    let stats = oi.stats().unwrap();
     assert_eq!(stats.total_entries, 5);
     assert_eq!(stats.actionable_count, 3); // 0,2,4
 }

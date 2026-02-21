@@ -48,13 +48,18 @@ impl VoyageProvider {
 
 #[async_trait::async_trait]
 impl EmbeddingProvider for VoyageProvider {
-    async fn embed(&self, texts: &[String], input_type: InputType) -> Result<Vec<Vec<f32>>, DomainError> {
+    async fn embed(
+        &self,
+        texts: &[String],
+        input_type: InputType,
+    ) -> Result<Vec<Vec<f32>>, DomainError> {
         let it = match input_type {
             InputType::Document => "document",
             InputType::Query => "query",
         };
 
-        let resp = self.client
+        let resp = self
+            .client
             .post("https://api.voyageai.com/v1/embeddings")
             .bearer_auth(&self.api_key)
             .json(&VoyageRequest {
@@ -69,10 +74,15 @@ impl EmbeddingProvider for VoyageProvider {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(DomainError::Embedding(format!("Voyage API {status}: {body}")));
+            return Err(DomainError::Embedding(format!(
+                "Voyage API {status}: {body}"
+            )));
         }
 
-        let result: VoyageResponse = resp.json().await.map_err(|e| DomainError::Parse(format!("Parse error: {e}")))?;
+        let result: VoyageResponse = resp
+            .json()
+            .await
+            .map_err(|e| DomainError::Parse(format!("Parse error: {e}")))?;
         Ok(result.data.into_iter().map(|d| d.embedding).collect())
     }
 

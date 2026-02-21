@@ -37,8 +37,13 @@ impl OpenAiProvider {
 
 #[async_trait::async_trait]
 impl EmbeddingProvider for OpenAiProvider {
-    async fn embed(&self, texts: &[String], _input_type: InputType) -> Result<Vec<Vec<f32>>, DomainError> {
-        let resp = self.client
+    async fn embed(
+        &self,
+        texts: &[String],
+        _input_type: InputType,
+    ) -> Result<Vec<Vec<f32>>, DomainError> {
+        let resp = self
+            .client
             .post("https://api.openai.com/v1/embeddings")
             .bearer_auth(&self.api_key)
             .json(&OpenAiRequest {
@@ -52,10 +57,15 @@ impl EmbeddingProvider for OpenAiProvider {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(DomainError::Embedding(format!("OpenAI API {status}: {body}")));
+            return Err(DomainError::Embedding(format!(
+                "OpenAI API {status}: {body}"
+            )));
         }
 
-        let result: OpenAiResponse = resp.json().await.map_err(|e| DomainError::Parse(format!("Parse error: {e}")))?;
+        let result: OpenAiResponse = resp
+            .json()
+            .await
+            .map_err(|e| DomainError::Parse(format!("Parse error: {e}")))?;
         Ok(result.data.into_iter().map(|d| d.embedding).collect())
     }
 

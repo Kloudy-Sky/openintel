@@ -21,6 +21,11 @@ impl QueryUseCase {
         since: Option<DateTime<Utc>>,
         limit: Option<usize>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
-        self.repo.query(&QueryFilter { category, tag, since, limit })
+        self.repo.query(&QueryFilter {
+            category,
+            tag,
+            since,
+            limit,
+        })
     }
 }

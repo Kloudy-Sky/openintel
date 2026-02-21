@@ -9,7 +9,9 @@ pub struct SqliteVectorStore {
 
 impl SqliteVectorStore {
     pub fn new(conn: Connection) -> Self {
-        Self { conn: Mutex::new(conn) }
+        Self {
+            conn: Mutex::new(conn),
+        }
     }
 
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
@@ -27,7 +29,11 @@ impl SqliteVectorStore {
             norm_b += y * y;
         }
         let denom = norm_a.sqrt() * norm_b.sqrt();
-        if denom == 0.0 { 0.0 } else { dot / denom }
+        if denom == 0.0 {
+            0.0
+        } else {
+            dot / denom
+        }
     }
 
     fn serialize_vector(v: &[f32]) -> Vec<u8> {
@@ -35,7 +41,8 @@ impl SqliteVectorStore {
     }
 
     fn deserialize_vector(bytes: &[u8]) -> Vec<f32> {
-        bytes.chunks_exact(4)
+        bytes
+            .chunks_exact(4)
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect()
     }
@@ -43,31 +50,45 @@ impl SqliteVectorStore {
 
 impl VectorStore for SqliteVectorStore {
     fn store(&self, id: &str, vector: &[f32]) -> Result<(), DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let blob = Self::serialize_vector(vector);
         conn.execute(
             "INSERT OR REPLACE INTO vectors (id, vector) VALUES (?1, ?2)",
             params![id, blob],
-        ).map_err(|e| DomainError::Database(format!("Failed to store vector: {e}")))?;
+        )
+        .map_err(|e| DomainError::Database(format!("Failed to store vector: {e}")))?;
         Ok(())
     }
 
-    fn search_similar(&self, vector: &[f32], limit: usize) -> Result<Vec<(String, f64)>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut stmt = conn.prepare("SELECT id, vector FROM vectors")
+    fn search_similar(
+        &self,
+        vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, f64)>, DomainError> {
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut results: Vec<(String, f64)> = stmt.query_map([], |row| {
-            let id: String = row.get(0)?;
-            let blob: Vec<u8> = row.get(1)?;
-            Ok((id, blob))
-        }).map_err(|e| DomainError::Database(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .map(|(id, blob)| {
-            let stored = Self::deserialize_vector(&blob);
-            let sim = Self::cosine_similarity(vector, &stored);
-            (id, sim)
-        })
-        .collect();
+        let mut stmt = conn
+            .prepare("SELECT id, vector FROM vectors")
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut results: Vec<(String, f64)> = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let blob: Vec<u8> = row.get(1)?;
+                Ok((id, blob))
+            })
+            .map_err(|e| DomainError::Database(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .map(|(id, blob)| {
+                let stored = Self::deserialize_vector(&blob);
+                let sim = Self::cosine_similarity(vector, &stored);
+                (id, sim)
+            })
+            .collect();
 
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         results.truncate(limit);
@@ -75,23 +96,34 @@ impl VectorStore for SqliteVectorStore {
     }
 
     fn has_vector(&self, id: &str) -> Result<bool, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM vectors WHERE id = ?1",
-            params![id],
-            |r| r.get(0),
-        ).map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM vectors WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         Ok(count > 0)
     }
 
     fn get_stored_dimension(&self) -> Result<Option<usize>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut stmt = conn.prepare("SELECT vector FROM vectors LIMIT 1")
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut rows = stmt.query_map([], |row| {
-            let blob: Vec<u8> = row.get(0)?;
-            Ok(blob.len() / 4) // f32 = 4 bytes
-        }).map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT vector FROM vectors LIMIT 1")
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut rows = stmt
+            .query_map([], |row| {
+                let blob: Vec<u8> = row.get(0)?;
+                Ok(blob.len() / 4) // f32 = 4 bytes
+            })
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         Ok(rows.next().and_then(|r| r.ok()))
     }
 }

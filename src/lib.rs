@@ -41,7 +41,8 @@ pub struct OpenIntel {
 
 impl OpenIntel {
     pub fn new(db_path: &str) -> Result<Self, DomainError> {
-        let provider = std::env::var("OPENINTEL_EMBEDDING_PROVIDER").unwrap_or_else(|_| "noop".into());
+        let provider =
+            std::env::var("OPENINTEL_EMBEDDING_PROVIDER").unwrap_or_else(|_| "noop".into());
         let api_key = std::env::var("OPENINTEL_EMBEDDING_API_KEY").unwrap_or_default();
         let model = std::env::var("OPENINTEL_EMBEDDING_MODEL").ok();
 
@@ -58,14 +59,24 @@ impl OpenIntel {
         db_path: &str,
         embedder: Arc<dyn EmbeddingProvider>,
     ) -> Result<Self, DomainError> {
-        let conn1 = Connection::open(db_path).map_err(|e| DomainError::Database(format!("DB error: {e}")))?;
-        conn1.pragma_update(None, "journal_mode", "WAL").map_err(|e| DomainError::Database(format!("WAL error: {e}")))?;
-        let conn2 = Connection::open(db_path).map_err(|e| DomainError::Database(format!("DB error: {e}")))?;
-        conn2.pragma_update(None, "journal_mode", "WAL").map_err(|e| DomainError::Database(format!("WAL error: {e}")))?;
-        let conn3 = Connection::open(db_path).map_err(|e| DomainError::Database(format!("DB error: {e}")))?;
-        conn3.pragma_update(None, "journal_mode", "WAL").map_err(|e| DomainError::Database(format!("WAL error: {e}")))?;
+        let open = |path: &str| -> Result<Connection, DomainError> {
+            let conn = if path == ":memory:" {
+                Connection::open_in_memory()
+            } else {
+                Connection::open(path)
+            }
+            .map_err(|e| DomainError::Database(format!("DB error: {e}")))?;
+            if path != ":memory:" {
+                conn.pragma_update(None, "journal_mode", "WAL")
+                    .map_err(|e| DomainError::Database(format!("WAL error: {e}")))?;
+            }
+            run_migrations(&conn)?;
+            Ok(conn)
+        };
 
-        run_migrations(&conn1)?;
+        let conn1 = open(db_path)?;
+        let conn2 = open(db_path)?;
+        let conn3 = open(db_path)?;
 
         let intel_repo: Arc<dyn IntelRepository> = Arc::new(SqliteIntelRepo::new(conn1));
         let trade_repo: Arc<dyn TradeRepository> = Arc::new(SqliteTradeRepo::new(conn2));
@@ -85,8 +96,16 @@ impl OpenIntel {
         }
 
         Ok(Self {
-            add_intel_uc: AddIntelUseCase::new(intel_repo.clone(), embedder.clone(), vector_store.clone()),
-            search_uc: SearchUseCase::new(intel_repo.clone(), embedder.clone(), vector_store.clone()),
+            add_intel_uc: AddIntelUseCase::new(
+                intel_repo.clone(),
+                embedder.clone(),
+                vector_store.clone(),
+            ),
+            search_uc: SearchUseCase::new(
+                intel_repo.clone(),
+                embedder.clone(),
+                vector_store.clone(),
+            ),
             query_uc: QueryUseCase::new(intel_repo.clone()),
             trade_uc: TradeUseCase::new(trade_repo),
             stats_uc: StatsUseCase::new(intel_repo.clone()),
@@ -95,6 +114,7 @@ impl OpenIntel {
     }
 
     // Delegating methods
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_intel(
         &self,
         category: Category,
@@ -106,18 +126,30 @@ impl OpenIntel {
         actionable: Option<bool>,
         metadata: Option<serde_json::Value>,
     ) -> Result<IntelEntry, DomainError> {
-        self.add_intel_uc.execute(category, title, body, source, tags, confidence, actionable, metadata).await
+        self.add_intel_uc
+            .execute(
+                category, title, body, source, tags, confidence, actionable, metadata,
+            )
+            .await
     }
 
     pub fn keyword_search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
         self.search_uc.keyword_search(text, limit)
     }
 
-    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
+    pub async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
         self.search_uc.semantic_search(query, limit).await
     }
 
-    pub async fn hybrid_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
+    pub async fn hybrid_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
         self.search_uc.hybrid_search(query, limit).await
     }
 
@@ -140,10 +172,23 @@ impl OpenIntel {
         entry_price: f64,
         thesis: Option<String>,
     ) -> Result<Trade, DomainError> {
-        self.trade_uc.add(ticker, series_ticker, direction, contracts, entry_price, thesis)
+        self.trade_uc.add(
+            ticker,
+            series_ticker,
+            direction,
+            contracts,
+            entry_price,
+            thesis,
+        )
     }
 
-    pub fn trade_resolve(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), DomainError> {
+    pub fn trade_resolve(
+        &self,
+        id: &str,
+        outcome: TradeOutcome,
+        pnl_cents: i64,
+        exit_price: Option<f64>,
+    ) -> Result<(), DomainError> {
         self.trade_uc.resolve(id, outcome, pnl_cents, exit_price)
     }
 

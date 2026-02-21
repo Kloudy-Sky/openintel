@@ -5,7 +5,11 @@ pub struct NoopProvider;
 
 #[async_trait::async_trait]
 impl EmbeddingProvider for NoopProvider {
-    async fn embed(&self, texts: &[String], _input_type: InputType) -> Result<Vec<Vec<f32>>, DomainError> {
+    async fn embed(
+        &self,
+        texts: &[String],
+        _input_type: InputType,
+    ) -> Result<Vec<Vec<f32>>, DomainError> {
         Ok(texts.iter().map(|_| vec![]).collect())
     }
 

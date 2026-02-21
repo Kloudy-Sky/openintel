@@ -19,9 +19,14 @@ impl AddIntelUseCase {
         embedder: Arc<dyn EmbeddingProvider>,
         vector_store: Arc<dyn VectorStore>,
     ) -> Self {
-        Self { repo, embedder, vector_store }
+        Self {
+            repo,
+            embedder,
+            vector_store,
+        }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
         category: Category,
@@ -33,9 +38,17 @@ impl AddIntelUseCase {
         actionable: Option<bool>,
         metadata: Option<serde_json::Value>,
     ) -> Result<IntelEntry, DomainError> {
-        let conf = Confidence::new(confidence.unwrap_or(0.5))
-            .map_err(|e| DomainError::InvalidInput(e))?;
-        let entry = IntelEntry::new(category, title, body, source, tags, conf, actionable.unwrap_or(false), metadata);
+        let conf = Confidence::new(confidence.unwrap_or(0.5)).map_err(DomainError::InvalidInput)?;
+        let entry = IntelEntry::new(
+            category,
+            title,
+            body,
+            source,
+            tags,
+            conf,
+            actionable.unwrap_or(false),
+            metadata,
+        );
 
         self.repo.add(&entry)?;
 

@@ -1,4 +1,5 @@
 use crate::domain::entities::intel_entry::IntelEntry;
+use crate::domain::error::DomainError;
 use crate::domain::ports::embedding_port::{EmbeddingProvider, InputType};
 use crate::domain::ports::intel_repository::IntelRepository;
 use crate::domain::ports::vector_store::VectorStore;
@@ -31,8 +32,9 @@ impl AddIntelUseCase {
         confidence: Option<f64>,
         actionable: Option<bool>,
         metadata: Option<serde_json::Value>,
-    ) -> Result<IntelEntry, String> {
-        let conf = Confidence::new(confidence.unwrap_or(0.5))?;
+    ) -> Result<IntelEntry, DomainError> {
+        let conf = Confidence::new(confidence.unwrap_or(0.5))
+            .map_err(|e| DomainError::InvalidInput(e))?;
         let entry = IntelEntry::new(category, title, body, source, tags, conf, actionable.unwrap_or(false), metadata);
 
         self.repo.add(&entry)?;
@@ -43,7 +45,7 @@ impl AddIntelUseCase {
             Ok(vectors) if !vectors.is_empty() => {
                 let _ = self.vector_store.store(&entry.id, &vectors[0]);
             }
-            _ => {} // noop provider or failure — that's fine
+            _ => {}
         }
 
         Ok(entry)

@@ -1,4 +1,5 @@
 use crate::domain::entities::trade::Trade;
+use crate::domain::error::DomainError;
 use crate::domain::ports::trade_repository::*;
 use crate::domain::values::trade_direction::TradeDirection;
 use crate::domain::values::trade_outcome::TradeOutcome;
@@ -44,8 +45,8 @@ impl SqliteTradeRepo {
 }
 
 impl TradeRepository for SqliteTradeRepo {
-    fn add_trade(&self, trade: &Trade) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    fn add_trade(&self, trade: &Trade) -> Result<(), DomainError> {
+        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO trades (id, ticker, series_ticker, direction, contracts, entry_price, exit_price, thesis, outcome, pnl_cents, created_at, resolved_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -63,24 +64,24 @@ impl TradeRepository for SqliteTradeRepo {
                 trade.created_at.to_rfc3339(),
                 trade.resolved_at.map(|dt| dt.to_rfc3339()),
             ],
-        ).map_err(|e| format!("Failed to add trade: {e}"))?;
+        ).map_err(|e| DomainError::Database(format!("Failed to add trade: {e}")))?;
         Ok(())
     }
 
-    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), DomainError> {
+        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
         let rows = conn.execute(
             "UPDATE trades SET outcome = ?1, pnl_cents = ?2, resolved_at = ?3, exit_price = ?4 WHERE id = ?5",
             params![outcome.to_string(), pnl_cents, chrono::Utc::now().to_rfc3339(), exit_price, id],
-        ).map_err(|e| format!("Failed to resolve trade: {e}"))?;
+        ).map_err(|e| DomainError::Database(format!("Failed to resolve trade: {e}")))?;
         if rows == 0 {
-            return Err(format!("Trade not found: {id}"));
+            return Err(DomainError::NotFound(format!("Trade not found: {id}")));
         }
         Ok(())
     }
 
-    fn list_trades(&self, filter: &TradeFilter) -> Result<Vec<Trade>, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    fn list_trades(&self, filter: &TradeFilter) -> Result<Vec<Trade>, DomainError> {
+        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
         let mut sql = String::from("SELECT id, ticker, series_ticker, direction, contracts, entry_price, exit_price, thesis, outcome, pnl_cents, created_at, resolved_at FROM trades WHERE 1=1");
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -102,20 +103,20 @@ impl TradeRepository for SqliteTradeRepo {
         }
 
         let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(&sql).map_err(|e| DomainError::Database(e.to_string()))?;
         let trades = stmt.query_map(params_refs.as_slice(), Self::row_to_trade)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();
         Ok(trades)
     }
 
-    fn get_trade(&self, id: &str) -> Result<Option<Trade>, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    fn get_trade(&self, id: &str) -> Result<Option<Trade>, DomainError> {
+        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, ticker, series_ticker, direction, contracts, entry_price, exit_price, thesis, outcome, pnl_cents, created_at, resolved_at FROM trades WHERE id = ?1"
-        ).map_err(|e| e.to_string())?;
-        let mut rows = stmt.query_map(params![id], Self::row_to_trade).map_err(|e| e.to_string())?;
+        ).map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut rows = stmt.query_map(params![id], Self::row_to_trade).map_err(|e| DomainError::Database(e.to_string()))?;
         Ok(rows.next().and_then(|r| r.ok()))
     }
 }

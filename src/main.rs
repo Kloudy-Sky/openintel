@@ -25,12 +25,11 @@ async fn main() {
     }
 }
 
-async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), String> {
+async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         Commands::Add { category, json } => {
-            let cat: Category = category.parse()?;
-            let data: serde_json::Value = serde_json::from_str(&json)
-                .map_err(|e| format!("Invalid JSON: {e}"))?;
+            let cat: Category = category.parse().map_err(|e: String| e)?;
+            let data: serde_json::Value = serde_json::from_str(&json)?;
 
             let title = data["title"].as_str().ok_or("Missing required field: title")?.to_string();
             let body = data["body"].as_str().ok_or("Missing required field: body")?.to_string();
@@ -42,70 +41,69 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), String> {
             let actionable = data["actionable"].as_bool();
             let metadata = data.get("metadata").cloned();
 
-            let entry = oi.add_intel.execute(cat, title, body, source, tags, confidence, actionable, metadata).await?;
+            let entry = oi.add_intel(cat, title, body, source, tags, confidence, actionable, metadata).await?;
             println!("{}", serde_json::to_string_pretty(&entry).unwrap());
         }
         Commands::Query { category, limit, since, tag } => {
-            let cat: Category = category.parse()?;
+            let cat: Category = category.parse().map_err(|e: String| e)?;
             let since_dt = parse_date(&since)?;
-            let entries = oi.query.execute(Some(cat), tag, since_dt, Some(limit))?;
+            let entries = oi.query(Some(cat), tag, since_dt, Some(limit))?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Search { text, limit } => {
-            let entries = oi.search.keyword_search(&text, limit)?;
+            let entries = oi.keyword_search(&text, limit)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Semantic { query, limit } => {
-            let entries = oi.search.semantic_search(&query, limit).await?;
+            let entries = oi.semantic_search(&query, limit).await?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Think { query, limit } => {
-            let entries = oi.search.hybrid_search(&query, limit).await?;
+            let entries = oi.hybrid_search(&query, limit).await?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Stats => {
-            let stats = oi.stats.stats()?;
+            let stats = oi.stats()?;
             println!("{}", serde_json::to_string_pretty(&stats).unwrap());
         }
         Commands::Tags { category } => {
-            let cat = category.map(|c| c.parse()).transpose()?;
-            let tags = oi.stats.tags(cat)?;
+            let cat = category.map(|c| c.parse()).transpose().map_err(|e: String| e)?;
+            let tags = oi.tags(cat)?;
             for t in &tags {
                 println!("{}: {}", t.tag, t.count);
             }
         }
         Commands::TradeAdd { json } => {
-            let data: serde_json::Value = serde_json::from_str(&json)
-                .map_err(|e| format!("Invalid JSON: {e}"))?;
+            let data: serde_json::Value = serde_json::from_str(&json)?;
 
             let ticker = data["ticker"].as_str().ok_or("ticker required")?.to_string();
             let series_ticker = data["series_ticker"].as_str().map(String::from);
-            let direction: TradeDirection = data["direction"].as_str().ok_or("direction required")?.parse()?;
+            let direction: TradeDirection = data["direction"].as_str().ok_or("direction required")?.parse().map_err(|e: String| e)?;
             let contracts = data["contracts"].as_i64().ok_or("contracts required")?;
             let entry_price = data["entry_price"].as_f64().ok_or("entry_price required")?;
             let thesis = data["thesis"].as_str().map(String::from);
 
-            let trade = oi.trade.add(ticker, series_ticker, direction, contracts, entry_price, thesis)?;
+            let trade = oi.trade_add(ticker, series_ticker, direction, contracts, entry_price, thesis)?;
             println!("{}", serde_json::to_string_pretty(&trade).unwrap());
         }
         Commands::TradeResolve { id, outcome, pnl_cents, exit_price } => {
-            let out: TradeOutcome = outcome.parse()?;
-            oi.trade.resolve(&id, out, pnl_cents, exit_price)?;
+            let out: TradeOutcome = outcome.parse().map_err(|e: String| e)?;
+            oi.trade_resolve(&id, out, pnl_cents, exit_price)?;
             println!("Trade {id} resolved as {outcome} ({pnl_cents} cents)");
         }
         Commands::Trades { limit, since, resolved } => {
             let since_dt = parse_date(&since)?;
-            let trades = oi.trade.list(Some(limit), since_dt, resolved)?;
+            let trades = oi.trade_list(Some(limit), since_dt, resolved)?;
             println!("{}", serde_json::to_string_pretty(&trades).unwrap());
         }
         Commands::Export { since, category } => {
             let since_dt = parse_date(&since)?;
-            let cat = category.map(|c| c.parse()).transpose()?;
-            let entries = oi.query.execute(cat, None, since_dt, None)?;
+            let cat = category.map(|c| c.parse()).transpose().map_err(|e: String| e)?;
+            let entries = oi.query(cat, None, since_dt, None)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Reindex => {
-            let count = oi.reindex.execute().await?;
+            let count = oi.reindex().await?;
             println!("Reindexed {count} entries");
         }
     }
@@ -116,7 +114,6 @@ fn parse_date(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>
     match s {
         None => Ok(None),
         Some(s) => {
-            // Try RFC3339 first, then YYYY-MM-DD
             if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
                 return Ok(Some(dt.with_timezone(&chrono::Utc)));
             }

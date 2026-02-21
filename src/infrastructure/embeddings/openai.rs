@@ -1,3 +1,4 @@
+use crate::domain::error::DomainError;
 use crate::domain::ports::embedding_port::{EmbeddingProvider, InputType};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,7 @@ impl OpenAiProvider {
 
 #[async_trait::async_trait]
 impl EmbeddingProvider for OpenAiProvider {
-    async fn embed(&self, texts: &[String], _input_type: InputType) -> Result<Vec<Vec<f32>>, String> {
+    async fn embed(&self, texts: &[String], _input_type: InputType) -> Result<Vec<Vec<f32>>, DomainError> {
         let resp = self.client
             .post("https://api.openai.com/v1/embeddings")
             .bearer_auth(&self.api_key)
@@ -46,15 +47,15 @@ impl EmbeddingProvider for OpenAiProvider {
             })
             .send()
             .await
-            .map_err(|e| format!("OpenAI API error: {e}"))?;
+            .map_err(|e| DomainError::Embedding(format!("OpenAI API error: {e}")))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(format!("OpenAI API {status}: {body}"));
+            return Err(DomainError::Embedding(format!("OpenAI API {status}: {body}")));
         }
 
-        let result: OpenAiResponse = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+        let result: OpenAiResponse = resp.json().await.map_err(|e| DomainError::Parse(format!("Parse error: {e}")))?;
         Ok(result.data.into_iter().map(|d| d.embedding).collect())
     }
 
@@ -63,7 +64,7 @@ impl EmbeddingProvider for OpenAiProvider {
             "text-embedding-3-small" => 1536,
             "text-embedding-3-large" => 3072,
             "text-embedding-ada-002" => 1536,
-            _ => 1536, // default fallback
+            _ => 1536,
         }
     }
 }

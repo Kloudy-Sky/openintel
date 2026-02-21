@@ -1,4 +1,5 @@
 use crate::domain::entities::intel_entry::IntelEntry;
+use crate::domain::error::DomainError;
 use crate::domain::values::category::Category;
 use chrono::{DateTime, Utc};
 
@@ -25,11 +26,11 @@ pub struct TagCount {
 }
 
 pub trait IntelRepository: Send + Sync {
-    fn add(&self, entry: &IntelEntry) -> Result<(), String>;
-    fn query(&self, filter: &QueryFilter) -> Result<Vec<IntelEntry>, String>;
-    fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, String>;
-    fn get_by_id(&self, id: &str) -> Result<Option<IntelEntry>, String>;
-    fn stats(&self) -> Result<IntelStats, String>;
-    fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, String>;
-    fn entries_missing_vectors(&self) -> Result<Vec<IntelEntry>, String>;
+    fn add(&self, entry: &IntelEntry) -> Result<(), DomainError>;
+    fn query(&self, filter: &QueryFilter) -> Result<Vec<IntelEntry>, DomainError>;
+    fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError>;
+    fn get_by_id(&self, id: &str) -> Result<Option<IntelEntry>, DomainError>;
+    fn stats(&self) -> Result<IntelStats, DomainError>;
+    fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, DomainError>;
+    fn entries_missing_vectors(&self) -> Result<Vec<IntelEntry>, DomainError>;
 }

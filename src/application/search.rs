@@ -1,4 +1,5 @@
 use crate::domain::entities::intel_entry::IntelEntry;
+use crate::domain::error::DomainError;
 use crate::domain::ports::embedding_port::{EmbeddingProvider, InputType};
 use crate::domain::ports::intel_repository::IntelRepository;
 use crate::domain::ports::vector_store::VectorStore;
@@ -20,13 +21,11 @@ impl SearchUseCase {
         Self { repo, embedder, vector_store }
     }
 
-    /// Keyword search (FTS)
-    pub fn keyword_search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, String> {
+    pub fn keyword_search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
         self.repo.search(text, limit)
     }
 
-    /// Semantic (vector) search
-    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, String> {
+    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
         let vectors = self.embedder.embed(&[query.to_string()], InputType::Query).await?;
         if vectors.is_empty() {
             return Ok(vec![]);
@@ -41,18 +40,12 @@ impl SearchUseCase {
         Ok(entries)
     }
 
-    /// Hybrid search using Reciprocal Rank Fusion (RRF)
-    /// 70% semantic + 30% keyword weighting
-    pub async fn hybrid_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, String> {
-        let k = 60.0_f64; // RRF constant
-
-        // Get more candidates than needed for better fusion
+    pub async fn hybrid_search(&self, query: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
+        let k = 60.0_f64;
         let fetch_limit = limit * 3;
 
-        // Keyword results
         let keyword_results = self.repo.search(query, fetch_limit)?;
 
-        // Semantic results
         let semantic_ids: Vec<(String, f64)> = match self.embedder.embed(&[query.to_string()], InputType::Query).await {
             Ok(vectors) if !vectors.is_empty() => {
                 self.vector_store.search_similar(&vectors[0], fetch_limit)?
@@ -60,11 +53,9 @@ impl SearchUseCase {
             _ => vec![],
         };
 
-        // RRF scoring
         let mut scores: HashMap<String, f64> = HashMap::new();
         let mut entries_map: HashMap<String, IntelEntry> = HashMap::new();
 
-        // Semantic scores (weight 0.7)
         for (rank, (id, _)) in semantic_ids.iter().enumerate() {
             let rrf = 0.7 / (k + rank as f64 + 1.0);
             *scores.entry(id.clone()).or_default() += rrf;
@@ -75,14 +66,12 @@ impl SearchUseCase {
             }
         }
 
-        // Keyword scores (weight 0.3)
         for (rank, entry) in keyword_results.iter().enumerate() {
             let rrf = 0.3 / (k + rank as f64 + 1.0);
             *scores.entry(entry.id.clone()).or_default() += rrf;
             entries_map.entry(entry.id.clone()).or_insert_with(|| entry.clone());
         }
 
-        // Sort by combined score
         let mut sorted: Vec<_> = scores.into_iter().collect();
         sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 

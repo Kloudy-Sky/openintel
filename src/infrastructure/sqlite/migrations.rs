@@ -1,11 +1,12 @@
+use crate::domain::error::DomainError;
 use rusqlite::Connection;
 
 const CURRENT_VERSION: i32 = 1;
 
-pub fn run_migrations(conn: &Connection) -> Result<(), String> {
+pub fn run_migrations(conn: &Connection) -> Result<(), DomainError> {
     let user_version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| format!("Failed to read user_version: {e}"))?;
+        .map_err(|e| DomainError::Database(format!("Failed to read user_version: {e}")))?;
 
     if user_version < 1 {
         conn.execute_batch(
@@ -49,14 +50,11 @@ pub fn run_migrations(conn: &Connection) -> Result<(), String> {
             CREATE INDEX IF NOT EXISTS idx_trades_created ON trades(created_at);
             CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);
             "
-        ).map_err(|e| format!("Migration v1 failed: {e}"))?;
+        ).map_err(|e| DomainError::Database(format!("Migration v1 failed: {e}")))?;
     }
 
-    // Future migrations go here:
-    // if user_version < 2 { ... }
-
     conn.pragma_update(None, "user_version", CURRENT_VERSION)
-        .map_err(|e| format!("Failed to update user_version: {e}"))?;
+        .map_err(|e| DomainError::Database(format!("Failed to update user_version: {e}")))?;
 
     Ok(())
 }

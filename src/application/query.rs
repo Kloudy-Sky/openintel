@@ -1,4 +1,5 @@
 use crate::domain::entities::intel_entry::IntelEntry;
+use crate::domain::error::DomainError;
 use crate::domain::ports::intel_repository::{IntelRepository, QueryFilter};
 use crate::domain::values::category::Category;
 use chrono::{DateTime, Utc};
@@ -19,7 +20,7 @@ impl QueryUseCase {
         tag: Option<String>,
         since: Option<DateTime<Utc>>,
         limit: Option<usize>,
-    ) -> Result<Vec<IntelEntry>, String> {
+    ) -> Result<Vec<IntelEntry>, DomainError> {
         self.repo.query(&QueryFilter { category, tag, since, limit })
     }
 }

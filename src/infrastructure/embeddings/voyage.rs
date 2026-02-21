@@ -1,3 +1,4 @@
+use crate::domain::error::DomainError;
 use crate::domain::ports::embedding_port::{EmbeddingProvider, InputType};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -40,14 +41,14 @@ impl VoyageProvider {
             "voyage-3" => 1024,
             "voyage-3-large" | "voyage-large-2" => 1536,
             "voyage-code-3" => 1024,
-            _ => 512, // default fallback
+            _ => 512,
         }
     }
 }
 
 #[async_trait::async_trait]
 impl EmbeddingProvider for VoyageProvider {
-    async fn embed(&self, texts: &[String], input_type: InputType) -> Result<Vec<Vec<f32>>, String> {
+    async fn embed(&self, texts: &[String], input_type: InputType) -> Result<Vec<Vec<f32>>, DomainError> {
         let it = match input_type {
             InputType::Document => "document",
             InputType::Query => "query",
@@ -63,15 +64,15 @@ impl EmbeddingProvider for VoyageProvider {
             })
             .send()
             .await
-            .map_err(|e| format!("Voyage API error: {e}"))?;
+            .map_err(|e| DomainError::Embedding(format!("Voyage API error: {e}")))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(format!("Voyage API {status}: {body}"));
+            return Err(DomainError::Embedding(format!("Voyage API {status}: {body}")));
         }
 
-        let result: VoyageResponse = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+        let result: VoyageResponse = resp.json().await.map_err(|e| DomainError::Parse(format!("Parse error: {e}")))?;
         Ok(result.data.into_iter().map(|d| d.embedding).collect())
     }
 

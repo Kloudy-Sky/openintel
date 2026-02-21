@@ -1,3 +1,4 @@
+use crate::domain::error::DomainError;
 use crate::domain::ports::embedding_port::{EmbeddingProvider, InputType};
 use crate::domain::ports::intel_repository::IntelRepository;
 use crate::domain::ports::vector_store::VectorStore;
@@ -18,14 +19,13 @@ impl ReindexUseCase {
         Self { repo, embedder, vector_store }
     }
 
-    pub async fn execute(&self) -> Result<usize, String> {
+    pub async fn execute(&self) -> Result<usize, DomainError> {
         let entries = self.repo.entries_missing_vectors()?;
         let total = entries.len();
         if total == 0 {
             return Ok(0);
         }
 
-        // Batch embed in chunks of 32
         for chunk in entries.chunks(32) {
             let texts: Vec<String> = chunk.iter().map(|e| e.searchable_text()).collect();
             let vectors = self.embedder.embed(&texts, InputType::Document).await?;

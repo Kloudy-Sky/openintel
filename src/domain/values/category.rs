@@ -220,14 +220,8 @@ mod tests {
 
     #[test]
     fn test_case_insensitive_and_hyphen_normalization() {
-        assert_eq!(
-            Category::from_str("MARKET").unwrap(),
-            Category::Market
-        );
-        assert_eq!(
-            Category::from_str("Trade-Loss").unwrap(),
-            Category::Trade
-        );
+        assert_eq!(Category::from_str("MARKET").unwrap(), Category::Market);
+        assert_eq!(Category::from_str("Trade-Loss").unwrap(), Category::Trade);
         assert_eq!(
             Category::from_str("CRYPTO_SIGNAL").unwrap(),
             Category::Crypto

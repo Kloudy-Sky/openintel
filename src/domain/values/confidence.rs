@@ -7,7 +7,9 @@ pub struct Confidence(f64);
 impl Confidence {
     pub fn new(value: f64) -> Result<Self, String> {
         if !(0.0..=1.0).contains(&value) {
-            return Err(format!("Confidence must be between 0.0 and 1.0, got {value}"));
+            return Err(format!(
+                "Confidence must be between 0.0 and 1.0, got {value}"
+            ));
         }
         Ok(Confidence(value))
     }

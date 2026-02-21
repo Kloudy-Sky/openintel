@@ -13,7 +13,9 @@ pub struct SqliteIntelRepo {
 
 impl SqliteIntelRepo {
     pub fn new(conn: Connection) -> Self {
-        Self { conn: Mutex::new(conn) }
+        Self {
+            conn: Mutex::new(conn),
+        }
     }
 
     fn row_to_entry(row: &rusqlite::Row) -> Result<IntelEntry, rusqlite::Error> {
@@ -27,10 +29,16 @@ impl SqliteIntelRepo {
 
         Ok(IntelEntry {
             id: row.get(0)?,
-            category: cat_str.parse().map_err(|_| {
-                eprintln!("Warning: invalid category '{}' in entry, defaulting to General", cat_str);
-                rusqlite::Error::InvalidParameterName(cat_str.clone())
-            }).unwrap_or(Category::General),
+            category: cat_str
+                .parse()
+                .map_err(|_| {
+                    eprintln!(
+                        "Warning: invalid category '{}' in entry, defaulting to General",
+                        cat_str
+                    );
+                    rusqlite::Error::InvalidParameterName(cat_str.clone())
+                })
+                .unwrap_or(Category::General),
             title: row.get(2)?,
             body: row.get(3)?,
             source: row.get(4)?,
@@ -50,7 +58,10 @@ impl SqliteIntelRepo {
 
 impl IntelRepository for SqliteIntelRepo {
     fn add(&self, entry: &IntelEntry) -> Result<(), DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO intel_entries (id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -72,7 +83,10 @@ impl IntelRepository for SqliteIntelRepo {
     }
 
     fn query(&self, filter: &QueryFilter) -> Result<Vec<IntelEntry>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let mut sql = String::from("SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at FROM intel_entries WHERE 1=1");
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -85,8 +99,14 @@ impl IntelRepository for SqliteIntelRepo {
             param_values.push(Box::new(since.to_rfc3339()));
         }
         if let Some(tag) = &filter.tag {
-            sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_values.len() + 1));
-            let escaped_tag = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            sql.push_str(&format!(
+                " AND tags LIKE ?{} ESCAPE '\\'",
+                param_values.len() + 1
+            ));
+            let escaped_tag = tag
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
             param_values.push(Box::new(format!("%\"{escaped_tag}\"%")));
         }
 
@@ -96,9 +116,13 @@ impl IntelRepository for SqliteIntelRepo {
             param_values.push(Box::new(limit as i64));
         }
 
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql).map_err(|e| DomainError::Database(e.to_string()))?;
-        let entries = stmt.query_map(params_refs.as_slice(), Self::row_to_entry)
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let entries = stmt
+            .query_map(params_refs.as_slice(), Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();
@@ -106,14 +130,18 @@ impl IntelRepository for SqliteIntelRepo {
     }
 
     fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let pattern = format!("%{text}%");
         let mut stmt = conn.prepare(
             "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
              FROM intel_entries WHERE title LIKE ?1 OR body LIKE ?1
              ORDER BY created_at DESC LIMIT ?2"
         ).map_err(|e| DomainError::Database(e.to_string()))?;
-        let entries = stmt.query_map(params![pattern, limit as i64], Self::row_to_entry)
+        let entries = stmt
+            .query_map(params![pattern, limit as i64], Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();
@@ -121,41 +149,71 @@ impl IntelRepository for SqliteIntelRepo {
     }
 
     fn get_by_id(&self, id: &str) -> Result<Option<IntelEntry>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
              FROM intel_entries WHERE id = ?1"
         ).map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut rows = stmt.query_map(params![id], Self::row_to_entry).map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut rows = stmt
+            .query_map(params![id], Self::row_to_entry)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         Ok(rows.next().and_then(|r| r.ok()))
     }
 
     fn stats(&self) -> Result<IntelStats, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
-        let total: usize = conn.query_row("SELECT COUNT(*) FROM intel_entries", [], |r| r.get(0))
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let actionable: usize = conn.query_row("SELECT COUNT(*) FROM intel_entries WHERE actionable = 1", [], |r| r.get(0))
+        let total: usize = conn
+            .query_row("SELECT COUNT(*) FROM intel_entries", [], |r| r.get(0))
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let actionable: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intel_entries WHERE actionable = 1",
+                [],
+                |r| r.get(0),
+            )
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let mut stmt = conn.prepare("SELECT category, COUNT(*) FROM intel_entries GROUP BY category")
+        let mut stmt = conn
+            .prepare("SELECT category, COUNT(*) FROM intel_entries GROUP BY category")
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let by_category: Vec<(String, usize)> = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
-        }).map_err(|e| DomainError::Database(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
+        let by_category: Vec<(String, usize)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })
+            .map_err(|e| DomainError::Database(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
 
-        let total_tags: usize = conn.query_row(
-            "SELECT COUNT(DISTINCT value) FROM intel_entries, json_each(tags)",
-            [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_tags: usize = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT value) FROM intel_entries, json_each(tags)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        Ok(IntelStats { total_entries: total, by_category, total_tags, actionable_count: actionable })
+        Ok(IntelStats {
+            total_entries: total,
+            by_category,
+            total_tags,
+            actionable_count: actionable,
+        })
     }
 
     fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
-        let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(cat) = category {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(cat) =
+            category
+        {
             (
                 "SELECT value, COUNT(*) as cnt FROM intel_entries, json_each(tags) WHERE category = ?1 GROUP BY value ORDER BY cnt DESC".into(),
                 vec![Box::new(cat.to_string()) as Box<dyn rusqlite::types::ToSql>],
@@ -166,23 +224,35 @@ impl IntelRepository for SqliteIntelRepo {
                 vec![],
             )
         };
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql).map_err(|e| DomainError::Database(e.to_string()))?;
-        let tags = stmt.query_map(params_refs.as_slice(), |row| {
-            Ok(TagCount { tag: row.get(0)?, count: row.get(1)? })
-        }).map_err(|e| DomainError::Database(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let tags = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                Ok(TagCount {
+                    tag: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            })
+            .map_err(|e| DomainError::Database(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
         Ok(tags)
     }
 
     fn entries_missing_vectors(&self) -> Result<Vec<IntelEntry>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
              FROM intel_entries WHERE id NOT IN (SELECT id FROM vectors)"
         ).map_err(|e| DomainError::Database(e.to_string()))?;
-        let entries = stmt.query_map([], Self::row_to_entry)
+        let entries = stmt
+            .query_map([], Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();

@@ -13,7 +13,9 @@ pub struct SqliteTradeRepo {
 
 impl SqliteTradeRepo {
     pub fn new(conn: Connection) -> Self {
-        Self { conn: Mutex::new(conn) }
+        Self {
+            conn: Mutex::new(conn),
+        }
     }
 
     fn row_to_trade(row: &rusqlite::Row) -> Result<Trade, rusqlite::Error> {
@@ -26,10 +28,16 @@ impl SqliteTradeRepo {
             id: row.get(0)?,
             ticker: row.get(1)?,
             series_ticker: row.get(2)?,
-            direction: dir_str.parse().map_err(|_| {
-                eprintln!("Warning: invalid direction '{}' in trade, defaulting to Long", dir_str);
-                rusqlite::Error::InvalidParameterName(dir_str.clone())
-            }).unwrap_or(TradeDirection::Long),
+            direction: dir_str
+                .parse()
+                .map_err(|_| {
+                    eprintln!(
+                        "Warning: invalid direction '{}' in trade, defaulting to Long",
+                        dir_str
+                    );
+                    rusqlite::Error::InvalidParameterName(dir_str.clone())
+                })
+                .unwrap_or(TradeDirection::Long),
             contracts: row.get(4)?,
             entry_price: row.get(5)?,
             exit_price: row.get(6)?,
@@ -39,14 +47,21 @@ impl SqliteTradeRepo {
             created_at: DateTime::parse_from_rfc3339(&created_str)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now()),
-            resolved_at: resolved_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&chrono::Utc))),
+            resolved_at: resolved_str.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+            }),
         })
     }
 }
 
 impl TradeRepository for SqliteTradeRepo {
     fn add_trade(&self, trade: &Trade) -> Result<(), DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO trades (id, ticker, series_ticker, direction, contracts, entry_price, exit_price, thesis, outcome, pnl_cents, created_at, resolved_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -68,8 +83,17 @@ impl TradeRepository for SqliteTradeRepo {
         Ok(())
     }
 
-    fn resolve_trade(&self, id: &str, outcome: TradeOutcome, pnl_cents: i64, exit_price: Option<f64>) -> Result<(), DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+    fn resolve_trade(
+        &self,
+        id: &str,
+        outcome: TradeOutcome,
+        pnl_cents: i64,
+        exit_price: Option<f64>,
+    ) -> Result<(), DomainError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let rows = conn.execute(
             "UPDATE trades SET outcome = ?1, pnl_cents = ?2, resolved_at = ?3, exit_price = ?4 WHERE id = ?5",
             params![outcome.to_string(), pnl_cents, chrono::Utc::now().to_rfc3339(), exit_price, id],
@@ -81,7 +105,10 @@ impl TradeRepository for SqliteTradeRepo {
     }
 
     fn list_trades(&self, filter: &TradeFilter) -> Result<Vec<Trade>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let mut sql = String::from("SELECT id, ticker, series_ticker, direction, contracts, entry_price, exit_price, thesis, outcome, pnl_cents, created_at, resolved_at FROM trades WHERE 1=1");
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -102,9 +129,13 @@ impl TradeRepository for SqliteTradeRepo {
             param_values.push(Box::new(limit as i64));
         }
 
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql).map_err(|e| DomainError::Database(e.to_string()))?;
-        let trades = stmt.query_map(params_refs.as_slice(), Self::row_to_trade)
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let trades = stmt
+            .query_map(params_refs.as_slice(), Self::row_to_trade)
             .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();
@@ -112,11 +143,16 @@ impl TradeRepository for SqliteTradeRepo {
     }
 
     fn get_trade(&self, id: &str) -> Result<Option<Trade>, DomainError> {
-        let conn = self.conn.lock().map_err(|e| DomainError::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, ticker, series_ticker, direction, contracts, entry_price, exit_price, thesis, outcome, pnl_cents, created_at, resolved_at FROM trades WHERE id = ?1"
         ).map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut rows = stmt.query_map(params![id], Self::row_to_trade).map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut rows = stmt
+            .query_map(params![id], Self::row_to_trade)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         Ok(rows.next().and_then(|r| r.ok()))
     }
 }

@@ -8,6 +8,10 @@ pub enum InputType {
 
 #[async_trait::async_trait]
 pub trait EmbeddingProvider: Send + Sync {
-    async fn embed(&self, texts: &[String], input_type: InputType) -> Result<Vec<Vec<f32>>, DomainError>;
+    async fn embed(
+        &self,
+        texts: &[String],
+        input_type: InputType,
+    ) -> Result<Vec<Vec<f32>>, DomainError>;
     fn dimension(&self) -> usize;
 }

@@ -19,6 +19,7 @@ pub struct IntelEntry {
 }
 
 impl IntelEntry {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         category: Category,
         title: String,

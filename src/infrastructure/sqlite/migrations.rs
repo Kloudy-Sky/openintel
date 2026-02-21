@@ -49,8 +49,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DomainError> {
             CREATE INDEX IF NOT EXISTS idx_intel_created ON intel_entries(created_at);
             CREATE INDEX IF NOT EXISTS idx_trades_created ON trades(created_at);
             CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);
-            "
-        ).map_err(|e| DomainError::Database(format!("Migration v1 failed: {e}")))?;
+            ",
+        )
+        .map_err(|e| DomainError::Database(format!("Migration v1 failed: {e}")))?;
     }
 
     conn.pragma_update(None, "user_version", CURRENT_VERSION)

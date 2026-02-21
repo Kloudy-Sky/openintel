@@ -16,7 +16,11 @@ impl ReindexUseCase {
         embedder: Arc<dyn EmbeddingProvider>,
         vector_store: Arc<dyn VectorStore>,
     ) -> Self {
-        Self { repo, embedder, vector_store }
+        Self {
+            repo,
+            embedder,
+            vector_store,
+        }
     }
 
     pub async fn execute(&self) -> Result<usize, DomainError> {

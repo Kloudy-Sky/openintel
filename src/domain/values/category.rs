@@ -133,19 +133,35 @@ mod tests {
             ("heartbeat", Category::Heartbeat),
         ];
         for (input, expected) in cases {
-            assert_eq!(Category::from_str(input).unwrap(), expected, "failed for {input}");
+            assert_eq!(
+                Category::from_str(input).unwrap(),
+                expected,
+                "failed for {input}"
+            );
         }
     }
 
     #[test]
     fn test_display_roundtrip_all_variants() {
         let variants = [
-            Category::Market, Category::Newsletter, Category::Social,
-            Category::Trading, Category::Opportunity, Category::Competitor,
-            Category::General, Category::Signal, Category::Catalyst,
-            Category::Weather, Category::Macro, Category::Sentiment,
-            Category::Research, Category::Position, Category::Trade,
-            Category::Economic, Category::Crypto, Category::Portfolio,
+            Category::Market,
+            Category::Newsletter,
+            Category::Social,
+            Category::Trading,
+            Category::Opportunity,
+            Category::Competitor,
+            Category::General,
+            Category::Signal,
+            Category::Catalyst,
+            Category::Weather,
+            Category::Macro,
+            Category::Sentiment,
+            Category::Research,
+            Category::Position,
+            Category::Trade,
+            Category::Economic,
+            Category::Crypto,
+            Category::Portfolio,
             Category::Heartbeat,
         ];
         for variant in variants {
@@ -157,28 +173,65 @@ mod tests {
 
     #[test]
     fn test_aliases() {
-        assert_eq!(Category::from_str("market_signal").unwrap(), Category::Signal);
-        assert_eq!(Category::from_str("market_analysis").unwrap(), Category::Market);
-        assert_eq!(Category::from_str("economic_data").unwrap(), Category::Economic);
-        assert_eq!(Category::from_str("crypto_signal").unwrap(), Category::Crypto);
-        assert_eq!(Category::from_str("portfolio_status").unwrap(), Category::Portfolio);
-        assert_eq!(Category::from_str("portfolio_update").unwrap(), Category::Portfolio);
-        assert_eq!(Category::from_str("heartbeat_summary").unwrap(), Category::Heartbeat);
-        assert_eq!(Category::from_str("weather_signal").unwrap(), Category::Weather);
+        assert_eq!(
+            Category::from_str("market_signal").unwrap(),
+            Category::Signal
+        );
+        assert_eq!(
+            Category::from_str("market_analysis").unwrap(),
+            Category::Market
+        );
+        assert_eq!(
+            Category::from_str("economic_data").unwrap(),
+            Category::Economic
+        );
+        assert_eq!(
+            Category::from_str("crypto_signal").unwrap(),
+            Category::Crypto
+        );
+        assert_eq!(
+            Category::from_str("portfolio_status").unwrap(),
+            Category::Portfolio
+        );
+        assert_eq!(
+            Category::from_str("portfolio_update").unwrap(),
+            Category::Portfolio
+        );
+        assert_eq!(
+            Category::from_str("heartbeat_summary").unwrap(),
+            Category::Heartbeat
+        );
+        assert_eq!(
+            Category::from_str("weather_signal").unwrap(),
+            Category::Weather
+        );
     }
 
     #[test]
     fn test_trade_loss_maps_to_trade_not_trading() {
         let result = Category::from_str("trade_loss").unwrap();
-        assert_eq!(result, Category::Trade, "trade_loss should map to Trade, not Trading");
+        assert_eq!(
+            result,
+            Category::Trade,
+            "trade_loss should map to Trade, not Trading"
+        );
         assert_ne!(result, Category::Trading);
     }
 
     #[test]
     fn test_case_insensitive_and_hyphen_normalization() {
-        assert_eq!(Category::from_str("MARKET").unwrap(), Category::Market);
-        assert_eq!(Category::from_str("Trade-Loss").unwrap(), Category::Trade);
-        assert_eq!(Category::from_str("CRYPTO_SIGNAL").unwrap(), Category::Crypto);
+        assert_eq!(
+            Category::from_str("MARKET").unwrap(),
+            Category::Market
+        );
+        assert_eq!(
+            Category::from_str("Trade-Loss").unwrap(),
+            Category::Trade
+        );
+        assert_eq!(
+            Category::from_str("CRYPTO_SIGNAL").unwrap(),
+            Category::Crypto
+        );
     }
 
     #[test]

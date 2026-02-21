@@ -7,6 +7,7 @@ pub struct VoyageProvider {
     client: Client,
     api_key: String,
     model: String,
+    base_url: String,
 }
 
 #[derive(Serialize)]
@@ -27,16 +28,21 @@ struct VoyageEmbedding {
 }
 
 impl VoyageProvider {
-    pub fn new(api_key: String, model: Option<String>) -> Self {
+    pub fn new(api_key: String, model: Option<String>, base_url: Option<String>) -> Self {
         Self {
             client: Client::new(),
             api_key,
-            model: model.unwrap_or_else(|| "voyage-3-lite".to_string()),
+            model: model.unwrap_or_else(|| "voyage-4-lite".to_string()),
+            base_url: base_url
+                .unwrap_or_else(|| "https://api.voyageai.com".to_string())
+                .trim_end_matches('/')
+                .to_string(),
         }
     }
 
     fn model_dimension(model: &str) -> usize {
         match model {
+            "voyage-4-lite" => 512,
             "voyage-3-lite" => 512,
             "voyage-3" => 1024,
             "voyage-3-large" | "voyage-large-2" => 1536,
@@ -58,9 +64,11 @@ impl EmbeddingProvider for VoyageProvider {
             InputType::Query => "query",
         };
 
+        let url = format!("{}/v1/embeddings", self.base_url);
+
         let resp = self
             .client
-            .post("https://api.voyageai.com/v1/embeddings")
+            .post(&url)
             .bearer_auth(&self.api_key)
             .json(&VoyageRequest {
                 input: texts.to_vec(),

@@ -41,15 +41,52 @@ pub struct OpenIntel {
 
 impl OpenIntel {
     pub fn new(db_path: &str) -> Result<Self, DomainError> {
-        let provider =
-            std::env::var("OPENINTEL_EMBEDDING_PROVIDER").unwrap_or_else(|_| "noop".into());
-        let api_key = std::env::var("OPENINTEL_EMBEDDING_API_KEY").unwrap_or_default();
+        // Read embedding configuration from environment
+        let mut provider = std::env::var("OPENINTEL_EMBEDDING_PROVIDER").ok();
         let model = std::env::var("OPENINTEL_EMBEDDING_MODEL").ok();
 
+        // Read provider-specific API keys
+        let voyage_key = std::env::var("VOYAGE_API_KEY").ok();
+        let openai_key = std::env::var("OPENAI_API_KEY").ok();
+
+        // Fallback to generic API key for backward compatibility
+        let generic_key = std::env::var("OPENINTEL_EMBEDDING_API_KEY").ok();
+
+        // Auto-detect provider if not explicitly set
+        if provider.is_none() {
+            if voyage_key.is_some() {
+                provider = Some("voyage".to_string());
+            } else if openai_key.is_some() {
+                provider = Some("openai".to_string());
+            }
+        }
+
+        let provider = provider.unwrap_or_else(|| "noop".to_string());
+
         let embedder: Arc<dyn EmbeddingProvider> = match provider.as_str() {
-            "voyage" => Arc::new(VoyageProvider::new(api_key, model)),
-            "openai" => Arc::new(OpenAiProvider::new(api_key, model)),
-            _ => Arc::new(NoopProvider),
+            "voyage" => {
+                let api_key = voyage_key.or(generic_key).unwrap_or_default();
+                if api_key.is_empty() {
+                    eprintln!("WARNING: Voyage provider selected but no API key found (set VOYAGE_API_KEY or OPENINTEL_EMBEDDING_API_KEY)");
+                }
+                let base_url = std::env::var("VOYAGE_API_BASE").ok();
+                Arc::new(VoyageProvider::new(api_key, model, base_url))
+            }
+            "openai" => {
+                let api_key = openai_key.or(generic_key).unwrap_or_default();
+                if api_key.is_empty() {
+                    eprintln!("WARNING: OpenAI provider selected but no API key found (set OPENAI_API_KEY or OPENINTEL_EMBEDDING_API_KEY)");
+                }
+                Arc::new(OpenAiProvider::new(api_key, model))
+            }
+            "noop" | "" => Arc::new(NoopProvider),
+            unknown => {
+                eprintln!(
+                    "WARNING: Unknown embedding provider '{}', falling back to noop",
+                    unknown
+                );
+                Arc::new(NoopProvider)
+            }
         };
 
         Self::with_providers(db_path, embedder)

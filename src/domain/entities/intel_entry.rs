@@ -59,6 +59,17 @@ impl IntelEntry {
         )
     }
 
+    /// Confidence adjusted for time decay at a specific point in time.
+    /// Use this when computing decay for multiple entries to avoid per-call clock drift.
+    pub fn decayed_confidence_at(&self, now: chrono::DateTime<chrono::Utc>) -> f64 {
+        crate::domain::values::decay::decayed_confidence_at(
+            self.confidence.value(),
+            &self.category,
+            &self.created_at,
+            now,
+        )
+    }
+
     /// Text representation for embedding/search
     pub fn searchable_text(&self) -> String {
         if self.tags.is_empty() {

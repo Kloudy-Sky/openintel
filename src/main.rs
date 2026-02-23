@@ -101,9 +101,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             };
             let mut entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
             if decay {
+                let now = chrono::Utc::now();
                 entries.sort_by(|a, b| {
-                    b.decayed_confidence()
-                        .partial_cmp(&a.decayed_confidence())
+                    b.decayed_confidence_at(now)
+                        .partial_cmp(&a.decayed_confidence_at(now))
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
             }

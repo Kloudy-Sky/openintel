@@ -40,8 +40,13 @@ pub fn half_life_hours(category: &Category) -> f64 {
 /// Returns `confidence * 0.5^(age_hours / half_life_hours)`.
 /// Minimum floor of 0.01 to avoid zero-confidence entries.
 pub fn decayed_confidence(confidence: f64, category: &Category, created_at: &DateTime<Utc>) -> f64 {
-    let now = Utc::now();
-    let age_hours = (now - *created_at).num_minutes() as f64 / 60.0;
+    decayed_confidence_at(confidence, category, created_at, Utc::now())
+}
+
+/// Calculate decayed confidence at a specific point in time.
+/// Use this variant when computing decay for multiple entries to avoid per-call clock drift.
+pub fn decayed_confidence_at(confidence: f64, category: &Category, created_at: &DateTime<Utc>, now: DateTime<Utc>) -> f64 {
+    let age_hours = (now - *created_at).num_seconds() as f64 / 3600.0;
     if age_hours <= 0.0 {
         return confidence;
     }

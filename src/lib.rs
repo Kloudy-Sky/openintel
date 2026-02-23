@@ -222,7 +222,7 @@ impl OpenIntel {
         limit: Option<usize>,
         exclude_source_type: Option<SourceType>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
-        self.query_uc.execute(category, tag, since, until, limit)
+        self.query_uc.execute(category, tag, since, until, limit, exclude_source_type)
     }
 
     pub fn trade_add(

@@ -43,7 +43,7 @@ async fn test_add_and_query_by_category() {
     .unwrap();
 
     let results = oi
-        .query(Some(Category::Market), None, None, None, None)
+        .query(Some(Category::Market), None, None, None, None, None)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "BTC rally");
@@ -87,6 +87,7 @@ async fn test_query_by_tag() {
         .query(
             Some(Category::Market),
             Some("alpha".into()),
+            None,
             None,
             None,
             None,
@@ -161,7 +162,7 @@ async fn test_dedup_same_title_same_category() {
     assert_eq!(r2.entry.id, r1.entry.id);
 
     let all = oi
-        .query(Some(Category::Market), None, None, None, None)
+        .query(Some(Category::Market), None, None, None, None, None)
         .unwrap();
     assert_eq!(all.len(), 1);
 }
@@ -277,7 +278,7 @@ async fn test_skip_dedup_flag() {
     assert!(!r2.deduplicated);
 
     let all = oi
-        .query(Some(Category::Market), None, None, None, None)
+        .query(Some(Category::Market), None, None, None, None, None)
         .unwrap();
     assert_eq!(all.len(), 2);
 }
@@ -317,7 +318,7 @@ async fn test_source_type_filtering() {
 
     // All entries
     let all = oi
-        .query(Some(Category::Market), None, None, None, None)
+        .query(Some(Category::Market), None, None, None, None, None)
         .unwrap();
     assert_eq!(all.len(), 2);
 
@@ -325,6 +326,7 @@ async fn test_source_type_filtering() {
     let external_only = oi
         .query(
             Some(Category::Market),
+            None,
             None,
             None,
             None,
@@ -357,7 +359,9 @@ async fn test_query_with_date_range() {
         vec!["recent".into()],
         None,
         None,
+        SourceType::default(),
         None,
+        false,
     )
     .await
     .unwrap();
@@ -365,7 +369,7 @@ async fn test_query_with_date_range() {
     // Query with --from (since) set to 1 hour ago should return the entry
     let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
     let results = oi
-        .query(Some(Category::Market), None, Some(one_hour_ago), None, None)
+        .query(Some(Category::Market), None, Some(one_hour_ago), None, None, None)
         .unwrap();
     assert_eq!(results.len(), 1);
 
@@ -378,13 +382,14 @@ async fn test_query_with_date_range() {
             Some(one_hour_future),
             None,
             None,
+            None,
         )
         .unwrap();
     assert_eq!(results.len(), 0);
 
     // Query with --to (until) set to 1 hour ago should return nothing
     let results = oi
-        .query(Some(Category::Market), None, None, Some(one_hour_ago), None)
+        .query(Some(Category::Market), None, None, Some(one_hour_ago), None, None)
         .unwrap();
     assert_eq!(results.len(), 0);
 
@@ -395,6 +400,7 @@ async fn test_query_with_date_range() {
             None,
             None,
             Some(one_hour_future),
+            None,
             None,
         )
         .unwrap();
@@ -413,7 +419,9 @@ async fn test_keyword_search_with_time() {
         vec![],
         None,
         None,
+        SourceType::default(),
         None,
+        false,
     )
     .await
     .unwrap();

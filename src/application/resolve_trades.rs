@@ -1,5 +1,5 @@
 use crate::domain::error::DomainError;
-use crate::domain::ports::resolution_source::{ResolutionResult, ResolutionSource};
+use crate::domain::ports::resolution_source::ResolutionSource;
 use crate::domain::ports::trade_repository::{TradeFilter, TradeRepository};
 use serde::Serialize;
 use std::sync::Arc;
@@ -50,7 +50,6 @@ impl ResolveTradesUseCase {
             limit: None,
             since: None,
             resolved: Some(false),
-            ..Default::default()
         })?;
 
         let checked = open_trades.len();
@@ -133,7 +132,6 @@ impl ResolveTradesUseCase {
             limit: None,
             since: None,
             resolved: Some(false),
-            ..Default::default()
         })?;
 
         let checked = open_trades.len();

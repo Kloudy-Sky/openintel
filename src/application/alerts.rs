@@ -21,7 +21,7 @@ pub struct AlertScan {
 #[derive(Debug, Serialize)]
 pub struct Alert {
     pub severity: AlertSeverity,
-    pub kind: String,
+    pub kind: AlertKind,
     pub title: String,
     pub detail: String,
     /// Related entry IDs
@@ -34,6 +34,14 @@ pub enum AlertSeverity {
     Info,
     Warning,
     Critical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertKind {
+    TagConcentration,
+    VolumeSpike,
+    ActionableCluster,
 }
 
 impl AlertsUseCase {
@@ -106,7 +114,7 @@ impl AlertsUseCase {
 
             alerts.push(Alert {
                 severity,
-                kind: "tag_concentration".into(),
+                kind: AlertKind::TagConcentration,
                 title: format!(
                     "Tag '{}' mentioned {} times (threshold: {})",
                     tag, count, threshold
@@ -125,9 +133,9 @@ impl AlertsUseCase {
         window_hours: u32,
         alerts: &mut Vec<Alert>,
     ) {
-        let mut cat_entries: HashMap<String, Vec<&IntelEntry>> = HashMap::new();
+        let mut by_category: HashMap<String, Vec<&IntelEntry>> = HashMap::new();
         for entry in entries {
-            cat_entries
+            by_category
                 .entry(entry.category.to_string())
                 .or_default()
                 .push(entry);
@@ -137,7 +145,7 @@ impl AlertsUseCase {
         let baseline = (2.0 * window_hours as f64 / 24.0).max(1.0);
         let spike_threshold = (baseline * 3.0) as usize; // 3x normal = spike
 
-        for (category, cat_entries) in &cat_entries {
+        for (category, cat_entries) in &by_category {
             let count = cat_entries.len();
             if count >= spike_threshold {
                 let severity = if count >= spike_threshold * 2 {
@@ -149,9 +157,9 @@ impl AlertsUseCase {
                 let entry_ids: Vec<String> = cat_entries.iter().map(|e| e.id.clone()).collect();
                 alerts.push(Alert {
                     severity,
-                    kind: "volume_spike".into(),
+                    kind: AlertKind::VolumeSpike,
                     title: format!(
-                        "Volume spike in '{}': {} entries ({}x baseline)",
+                        "Volume spike in '{}': {} entries ({:.1}x baseline)",
                         category,
                         count,
                         count as f64 / baseline
@@ -189,7 +197,7 @@ impl AlertsUseCase {
 
             alerts.push(Alert {
                 severity,
-                kind: "actionable_cluster".into(),
+                kind: AlertKind::ActionableCluster,
                 title: format!(
                     "{} high-confidence actionable items detected",
                     actionable.len()

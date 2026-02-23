@@ -1,3 +1,4 @@
+use openintel::application::alerts::{AlertKind, AlertSeverity};
 use openintel::domain::values::category::Category;
 use openintel::infrastructure::embeddings::noop::NoopProvider;
 use openintel::OpenIntel;
@@ -19,7 +20,7 @@ async fn test_scan_empty_db() {
 async fn test_tag_concentration_alert() {
     let oi = setup();
 
-    // Add 5 entries all tagged "btc"
+    // Add 5 entries all tagged "btc" → Warning severity
     for i in 0..5 {
         oi.add_intel(
             Category::Market,
@@ -41,17 +42,48 @@ async fn test_tag_concentration_alert() {
     let tag_alert = scan
         .alerts
         .iter()
-        .find(|a| a.kind == "tag_concentration")
+        .find(|a| a.kind == AlertKind::TagConcentration)
         .expect("Should have tag concentration alert");
     assert!(tag_alert.title.contains("btc"));
     assert!(tag_alert.title.contains("5"));
+    assert_eq!(tag_alert.severity, AlertSeverity::Warning);
+}
+
+#[tokio::test]
+async fn test_tag_concentration_critical() {
+    let oi = setup();
+
+    // Add 10 entries all tagged "crash" → Critical severity
+    for i in 0..10 {
+        oi.add_intel(
+            Category::Market,
+            format!("Crash signal {i}"),
+            format!("Market crash indicator {i}"),
+            None,
+            vec!["crash".into()],
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let scan = oi.scan_alerts(24).unwrap();
+    let tag_alert = scan
+        .alerts
+        .iter()
+        .find(|a| a.kind == AlertKind::TagConcentration)
+        .expect("Should have tag concentration alert");
+    assert_eq!(tag_alert.severity, AlertSeverity::Critical);
+    assert!(tag_alert.title.contains("10"));
 }
 
 #[tokio::test]
 async fn test_volume_spike_alert() {
     let oi = setup();
 
-    // Add 7+ entries in one category (baseline is ~2 per 24h, spike threshold = 6)
+    // Add 7 entries in one category (baseline ~2 per 24h, spike threshold = 6)
     for i in 0..7 {
         oi.add_intel(
             Category::Market,
@@ -68,18 +100,19 @@ async fn test_volume_spike_alert() {
     }
 
     let scan = oi.scan_alerts(24).unwrap();
-    let volume_alert = scan.alerts.iter().find(|a| a.kind == "volume_spike");
-    assert!(
-        volume_alert.is_some(),
-        "Should detect volume spike with 7 entries"
-    );
+    let volume_alert = scan
+        .alerts
+        .iter()
+        .find(|a| a.kind == AlertKind::VolumeSpike)
+        .expect("Should detect volume spike with 7 entries");
+    assert_eq!(volume_alert.severity, AlertSeverity::Warning);
 }
 
 #[tokio::test]
 async fn test_actionable_cluster_alert() {
     let oi = setup();
 
-    // Add 3 high-confidence actionable entries
+    // Add 3 high-confidence actionable entries → Warning severity
     for i in 0..3 {
         oi.add_intel(
             Category::Market,
@@ -96,8 +129,41 @@ async fn test_actionable_cluster_alert() {
     }
 
     let scan = oi.scan_alerts(24).unwrap();
-    let cluster_alert = scan.alerts.iter().find(|a| a.kind == "actionable_cluster");
-    assert!(cluster_alert.is_some(), "Should detect actionable cluster");
+    let cluster_alert = scan
+        .alerts
+        .iter()
+        .find(|a| a.kind == AlertKind::ActionableCluster)
+        .expect("Should detect actionable cluster");
+    assert_eq!(cluster_alert.severity, AlertSeverity::Warning);
+}
+
+#[tokio::test]
+async fn test_actionable_cluster_critical() {
+    let oi = setup();
+
+    // Add 5 high-confidence actionable entries → Critical severity
+    for i in 0..5 {
+        oi.add_intel(
+            Category::Market,
+            format!("Critical signal {i}"),
+            format!("Urgent trade idea {i}"),
+            None,
+            vec![],
+            Some(0.95),
+            Some(true),
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let scan = oi.scan_alerts(24).unwrap();
+    let cluster_alert = scan
+        .alerts
+        .iter()
+        .find(|a| a.kind == AlertKind::ActionableCluster)
+        .expect("Should detect actionable cluster");
+    assert_eq!(cluster_alert.severity, AlertSeverity::Critical);
 }
 
 #[tokio::test]

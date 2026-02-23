@@ -1,5 +1,6 @@
 use openintel::domain::values::category::Category;
 use openintel::domain::values::confidence::Confidence;
+use openintel::domain::values::source_type::SourceType;
 use openintel::infrastructure::embeddings::noop::NoopProvider;
 use openintel::OpenIntel;
 use std::sync::Arc;
@@ -19,7 +20,9 @@ async fn test_add_and_query_by_category() {
         vec!["btc".into(), "crypto".into()],
         Some(0.8),
         Some(true),
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -32,12 +35,14 @@ async fn test_add_and_query_by_category() {
         vec!["macro".into()],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();
 
-    let results = oi.query(Some(Category::Market), None, None, None).unwrap();
+    let results = oi.query(Some(Category::Market), None, None, None, None).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "BTC rally");
     assert!(results[0].actionable);
@@ -54,7 +59,9 @@ async fn test_query_by_tag() {
         vec!["alpha".into(), "beta".into()],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -67,13 +74,15 @@ async fn test_query_by_tag() {
         vec!["gamma".into()],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();
 
     let results = oi
-        .query(Some(Category::Market), Some("alpha".into()), None, None)
+        .query(Some(Category::Market), Some("alpha".into()), None, None, None)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Tagged entry");
@@ -91,7 +100,9 @@ async fn test_stats() {
             vec!["tag1".into()],
             None,
             Some(i % 2 == 0),
+            SourceType::External,
             None,
+            true, // skip dedup since titles are unique anyway
         )
         .await
         .unwrap();
@@ -100,6 +111,208 @@ async fn test_stats() {
     let stats = oi.stats().unwrap();
     assert_eq!(stats.total_entries, 5);
     assert_eq!(stats.actionable_count, 3); // 0,2,4
+}
+
+#[tokio::test]
+async fn test_dedup_same_title_same_category() {
+    let oi = setup();
+    let r1 = oi
+        .add_intel(
+            Category::Market,
+            "Fed cuts rates".into(),
+            "First report".into(),
+            None,
+            vec![],
+            None,
+            None,
+            SourceType::External,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(!r1.deduplicated);
+
+    // Same title, same category — should dedup
+    let r2 = oi
+        .add_intel(
+            Category::Market,
+            "Fed cuts rates".into(),
+            "Second report from different source".into(),
+            None,
+            vec![],
+            None,
+            None,
+            SourceType::External,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(r2.deduplicated);
+    assert_eq!(r2.entry.id, r1.entry.id);
+
+    let all = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    assert_eq!(all.len(), 1);
+}
+
+#[tokio::test]
+async fn test_dedup_case_insensitive() {
+    let oi = setup();
+    let r1 = oi
+        .add_intel(
+            Category::Market,
+            "BTC Rally".into(),
+            "Body".into(),
+            None,
+            vec![],
+            None,
+            None,
+            SourceType::External,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(!r1.deduplicated);
+
+    let r2 = oi
+        .add_intel(
+            Category::Market,
+            "btc rally".into(),
+            "Different body".into(),
+            None,
+            vec![],
+            None,
+            None,
+            SourceType::External,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(r2.deduplicated);
+}
+
+#[tokio::test]
+async fn test_dedup_different_category_not_deduped() {
+    let oi = setup();
+    oi.add_intel(
+        Category::Market,
+        "Fed cuts rates".into(),
+        "Body".into(),
+        None,
+        vec![],
+        None,
+        None,
+        SourceType::External,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let r2 = oi
+        .add_intel(
+            Category::Newsletter,
+            "Fed cuts rates".into(),
+            "Same title different category".into(),
+            None,
+            vec![],
+            None,
+            None,
+            SourceType::External,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(!r2.deduplicated);
+}
+
+#[tokio::test]
+async fn test_skip_dedup_flag() {
+    let oi = setup();
+    oi.add_intel(
+        Category::Market,
+        "Repeating signal".into(),
+        "First".into(),
+        None,
+        vec![],
+        None,
+        None,
+        SourceType::External,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // With skip_dedup=true, should add regardless
+    let r2 = oi
+        .add_intel(
+            Category::Market,
+            "Repeating signal".into(),
+            "Force add".into(),
+            None,
+            vec![],
+            None,
+            None,
+            SourceType::External,
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(!r2.deduplicated);
+
+    let all = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    assert_eq!(all.len(), 2);
+}
+
+#[tokio::test]
+async fn test_source_type_filtering() {
+    let oi = setup();
+    oi.add_intel(
+        Category::Market,
+        "External signal".into(),
+        "From newsletter".into(),
+        None,
+        vec![],
+        None,
+        None,
+        SourceType::External,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    oi.add_intel(
+        Category::Market,
+        "Internal note".into(),
+        "Agent heartbeat log".into(),
+        None,
+        vec![],
+        None,
+        None,
+        SourceType::Internal,
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    // All entries
+    let all = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    assert_eq!(all.len(), 2);
+
+    // Exclude internal
+    let external_only = oi
+        .query(Some(Category::Market), None, None, None, Some(SourceType::Internal))
+        .unwrap();
+    assert_eq!(external_only.len(), 1);
+    assert_eq!(external_only[0].title, "External signal");
 }
 
 #[test]

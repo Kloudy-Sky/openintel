@@ -1,6 +1,7 @@
 use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::error::DomainError;
 use crate::domain::values::category::Category;
+use crate::domain::values::source_type::SourceType;
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Default)]
@@ -9,6 +10,8 @@ pub struct QueryFilter {
     pub tag: Option<String>,
     pub since: Option<DateTime<Utc>>,
     pub limit: Option<usize>,
+    /// Exclude entries with this source type from results
+    pub exclude_source_type: Option<SourceType>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -33,4 +36,11 @@ pub trait IntelRepository: Send + Sync {
     fn stats(&self) -> Result<IntelStats, DomainError>;
     fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, DomainError>;
     fn entries_missing_vectors(&self) -> Result<Vec<IntelEntry>, DomainError>;
+    /// Find a duplicate entry: same category, similar title, within a time window.
+    fn find_duplicate(
+        &self,
+        category: &Category,
+        title: &str,
+        window: chrono::Duration,
+    ) -> Result<Option<IntelEntry>, DomainError>;
 }

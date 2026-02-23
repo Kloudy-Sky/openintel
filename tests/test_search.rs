@@ -1,4 +1,5 @@
 use openintel::domain::values::category::Category;
+use openintel::domain::values::source_type::SourceType;
 use openintel::infrastructure::embeddings::noop::NoopProvider;
 use openintel::OpenIntel;
 use std::sync::Arc;
@@ -18,7 +19,9 @@ async fn test_keyword_search() {
         vec![],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -31,7 +34,9 @@ async fn test_keyword_search() {
         vec![],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -59,7 +64,9 @@ async fn test_search_body_match() {
         vec![],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();

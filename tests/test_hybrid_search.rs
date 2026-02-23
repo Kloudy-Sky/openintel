@@ -3,6 +3,7 @@
 //! we test the keyword path and verify the fusion doesn't crash.
 
 use openintel::domain::values::category::Category;
+use openintel::domain::values::source_type::SourceType;
 use openintel::infrastructure::embeddings::noop::NoopProvider;
 use openintel::OpenIntel;
 use std::sync::Arc;
@@ -25,7 +26,9 @@ async fn test_hybrid_search_falls_back_to_keyword() {
             vec!["market".into()],
             None,
             None,
+            SourceType::External,
             None,
+            true, // skip dedup
         )
         .await
         .unwrap();
@@ -39,7 +42,9 @@ async fn test_hybrid_search_falls_back_to_keyword() {
         vec![],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();

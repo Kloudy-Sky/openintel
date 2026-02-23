@@ -26,12 +26,18 @@ pub enum Commands {
         since: Option<String>,
         #[arg(long)]
         tag: Option<String>,
+        /// Exclude internal (agent-generated) entries
+        #[arg(long)]
+        exclude_internal: bool,
     },
     /// Keyword search
     Search {
         text: String,
         #[arg(long, default_value = "10")]
         limit: usize,
+        /// Exclude internal (agent-generated) entries
+        #[arg(long)]
+        exclude_internal: bool,
     },
     /// Semantic (vector) search
     Semantic {
@@ -84,6 +90,9 @@ pub enum Commands {
         since: Option<String>,
         #[arg(long)]
         category: Option<String>,
+        /// Exclude internal (agent-generated) entries
+        #[arg(long)]
+        exclude_internal: bool,
     },
     /// Reindex entries missing vector embeddings
     Reindex,

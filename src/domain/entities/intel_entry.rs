@@ -1,5 +1,6 @@
 use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
+use crate::domain::values::source_type::SourceType;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,7 @@ pub struct IntelEntry {
     pub tags: Vec<String>,
     pub confidence: Confidence,
     pub actionable: bool,
+    pub source_type: SourceType,
     pub metadata: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -28,6 +30,7 @@ impl IntelEntry {
         tags: Vec<String>,
         confidence: Confidence,
         actionable: bool,
+        source_type: SourceType,
         metadata: Option<serde_json::Value>,
     ) -> Self {
         let now = Utc::now();
@@ -40,6 +43,7 @@ impl IntelEntry {
             tags,
             confidence,
             actionable,
+            source_type,
             metadata,
             created_at: now,
             updated_at: now,

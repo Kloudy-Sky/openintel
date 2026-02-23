@@ -3,9 +3,14 @@ use crate::domain::error::DomainError;
 use crate::domain::ports::intel_repository::*;
 use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
+use crate::domain::values::source_type::SourceType;
 use chrono::DateTime;
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
+
+/// Column list used in all SELECT queries. source_type is added via ALTER TABLE
+/// so it appears after the original columns.
+const SELECT_COLS: &str = "id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at, source_type";
 
 pub struct SqliteIntelRepo {
     conn: Mutex<Connection>,
@@ -26,6 +31,7 @@ impl SqliteIntelRepo {
         let metadata_str: Option<String> = row.get(8)?;
         let created_str: String = row.get(9)?;
         let updated_str: String = row.get(10)?;
+        let source_type_str: String = row.get(11)?;
 
         Ok(IntelEntry {
             id: row.get(0)?,
@@ -45,6 +51,7 @@ impl SqliteIntelRepo {
             tags: serde_json::from_str(&tags_str).unwrap_or_default(),
             confidence: Confidence::new(conf_val).unwrap_or_default(),
             actionable: actionable_int != 0,
+            source_type: source_type_str.parse().unwrap_or_default(),
             metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
             created_at: DateTime::parse_from_rfc3339(&created_str)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
@@ -63,8 +70,8 @@ impl IntelRepository for SqliteIntelRepo {
             .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
         conn.execute(
-            "INSERT INTO intel_entries (id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO intel_entries (id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at, source_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 entry.id,
                 entry.category.to_string(),
@@ -77,6 +84,7 @@ impl IntelRepository for SqliteIntelRepo {
                 entry.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap_or_default()),
                 entry.created_at.to_rfc3339(),
                 entry.updated_at.to_rfc3339(),
+                entry.source_type.to_string(),
             ],
         ).map_err(|e| DomainError::Database(format!("Failed to add entry: {e}")))?;
         Ok(())
@@ -87,7 +95,7 @@ impl IntelRepository for SqliteIntelRepo {
             .conn
             .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut sql = String::from("SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at FROM intel_entries WHERE 1=1");
+        let mut sql = format!("SELECT {} FROM intel_entries WHERE 1=1", SELECT_COLS);
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(cat) = &filter.category {
@@ -104,10 +112,14 @@ impl IntelRepository for SqliteIntelRepo {
                 param_values.len() + 1
             ));
             let escaped_tag = tag
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
             param_values.push(Box::new(format!("%\"{escaped_tag}\"%")));
+        }
+        if let Some(exclude) = &filter.exclude_source_type {
+            sql.push_str(&format!(" AND source_type != ?{}", param_values.len() + 1));
+            param_values.push(Box::new(exclude.to_string()));
         }
 
         sql.push_str(" ORDER BY created_at DESC");
@@ -135,11 +147,13 @@ impl IntelRepository for SqliteIntelRepo {
             .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
         let pattern = format!("%{text}%");
-        let mut stmt = conn.prepare(
-            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
-             FROM intel_entries WHERE title LIKE ?1 OR body LIKE ?1
-             ORDER BY created_at DESC LIMIT ?2"
-        ).map_err(|e| DomainError::Database(e.to_string()))?;
+        let sql = format!(
+            "SELECT {} FROM intel_entries WHERE title LIKE ?1 OR body LIKE ?1 ORDER BY created_at DESC LIMIT ?2",
+            SELECT_COLS
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let entries = stmt
             .query_map(params![pattern, limit as i64], Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?
@@ -153,10 +167,10 @@ impl IntelRepository for SqliteIntelRepo {
             .conn
             .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
-             FROM intel_entries WHERE id = ?1"
-        ).map_err(|e| DomainError::Database(e.to_string()))?;
+        let sql = format!("SELECT {} FROM intel_entries WHERE id = ?1", SELECT_COLS);
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let mut rows = stmt
             .query_map(params![id], Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?;
@@ -247,15 +261,46 @@ impl IntelRepository for SqliteIntelRepo {
             .conn
             .lock()
             .map_err(|e| DomainError::Database(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at
-             FROM intel_entries WHERE id NOT IN (SELECT id FROM vectors)"
-        ).map_err(|e| DomainError::Database(e.to_string()))?;
+        let sql = format!(
+            "SELECT {} FROM intel_entries WHERE id NOT IN (SELECT id FROM vectors)",
+            SELECT_COLS
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
         let entries = stmt
             .query_map([], Self::row_to_entry)
             .map_err(|e| DomainError::Database(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();
         Ok(entries)
+    }
+
+    fn find_duplicate(
+        &self,
+        category: &Category,
+        title: &str,
+        window: chrono::Duration,
+    ) -> Result<Option<IntelEntry>, DomainError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let since = (chrono::Utc::now() - window).to_rfc3339();
+        // Normalize: case-insensitive exact match on title within the time window and category.
+        let sql = format!(
+            "SELECT {} FROM intel_entries WHERE category = ?1 AND LOWER(title) = LOWER(?2) AND created_at >= ?3 LIMIT 1",
+            SELECT_COLS
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let mut rows = stmt
+            .query_map(
+                params![category.to_string(), title, since],
+                Self::row_to_entry,
+            )
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        Ok(rows.next().and_then(|r| r.ok()))
     }
 }

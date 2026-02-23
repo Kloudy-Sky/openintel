@@ -9,6 +9,7 @@ pub struct QueryFilter {
     pub category: Option<Category>,
     pub tag: Option<String>,
     pub since: Option<DateTime<Utc>>,
+    pub until: Option<DateTime<Utc>>,
     pub limit: Option<usize>,
     /// Exclude entries with this source type from results
     pub exclude_source_type: Option<SourceType>,
@@ -31,7 +32,18 @@ pub struct TagCount {
 pub trait IntelRepository: Send + Sync {
     fn add(&self, entry: &IntelEntry) -> Result<(), DomainError>;
     fn query(&self, filter: &QueryFilter) -> Result<Vec<IntelEntry>, DomainError>;
-    fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError>;
+    /// Keyword search with optional time bounds. This is the only required search method.
+    fn search_with_time(
+        &self,
+        text: &str,
+        limit: usize,
+        since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
+    ) -> Result<Vec<IntelEntry>, DomainError>;
+    /// Convenience wrapper — delegates to `search_with_time` with no time bounds.
+    fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
+        self.search_with_time(text, limit, None, None)
+    }
     fn get_by_id(&self, id: &str) -> Result<Option<IntelEntry>, DomainError>;
     fn stats(&self) -> Result<IntelStats, DomainError>;
     fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, DomainError>;

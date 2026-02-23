@@ -116,6 +116,10 @@ impl TradeRepository for SqliteTradeRepo {
             sql.push_str(&format!(" AND created_at >= ?{}", param_values.len() + 1));
             param_values.push(Box::new(since.to_rfc3339()));
         }
+        if let Some(until) = &filter.until {
+            sql.push_str(&format!(" AND created_at <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(until.to_rfc3339()));
+        }
         if let Some(resolved) = filter.resolved {
             if resolved {
                 sql.push_str(" AND outcome IS NOT NULL");

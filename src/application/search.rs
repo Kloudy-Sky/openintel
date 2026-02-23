@@ -29,6 +29,16 @@ impl SearchUseCase {
         self.repo.search(text, limit)
     }
 
+    pub fn keyword_search_with_time(
+        &self,
+        text: &str,
+        limit: usize,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+        until: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
+        self.repo.search_with_time(text, limit, since, until)
+    }
+
     pub async fn semantic_search(
         &self,
         query: &str,

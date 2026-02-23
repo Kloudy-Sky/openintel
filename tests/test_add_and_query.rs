@@ -343,3 +343,92 @@ fn test_confidence_validation() {
     assert!(Confidence::new(-0.1).is_err());
     assert!(Confidence::new(1.1).is_err());
 }
+
+#[tokio::test]
+async fn test_query_with_date_range() {
+    let oi = setup();
+
+    // Add entries
+    oi.add_intel(
+        Category::Market,
+        "Recent entry".into(),
+        "Just happened".into(),
+        None,
+        vec!["recent".into()],
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Query with --from (since) set to 1 hour ago should return the entry
+    let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
+    let results = oi
+        .query(Some(Category::Market), None, Some(one_hour_ago), None, None)
+        .unwrap();
+    assert_eq!(results.len(), 1);
+
+    // Query with --from set to 1 hour in the future should return nothing
+    let one_hour_future = chrono::Utc::now() + chrono::Duration::hours(1);
+    let results = oi
+        .query(
+            Some(Category::Market),
+            None,
+            Some(one_hour_future),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(results.len(), 0);
+
+    // Query with --to (until) set to 1 hour ago should return nothing
+    let results = oi
+        .query(Some(Category::Market), None, None, Some(one_hour_ago), None)
+        .unwrap();
+    assert_eq!(results.len(), 0);
+
+    // Query with --to set to 1 hour in the future should return the entry
+    let results = oi
+        .query(
+            Some(Category::Market),
+            None,
+            None,
+            Some(one_hour_future),
+            None,
+        )
+        .unwrap();
+    assert_eq!(results.len(), 1);
+}
+
+#[tokio::test]
+async fn test_keyword_search_with_time() {
+    let oi = setup();
+
+    oi.add_intel(
+        Category::Market,
+        "Bitcoin analysis".into(),
+        "BTC is looking bullish".into(),
+        None,
+        vec![],
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Search with time range that includes the entry
+    let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
+    let results = oi
+        .keyword_search_with_time("Bitcoin", 10, Some(one_hour_ago), None)
+        .unwrap();
+    assert_eq!(results.len(), 1);
+
+    // Search with time range that excludes the entry
+    let one_hour_future = chrono::Utc::now() + chrono::Duration::hours(1);
+    let results = oi
+        .keyword_search_with_time("Bitcoin", 10, Some(one_hour_future), None)
+        .unwrap();
+    assert_eq!(results.len(), 0);
+}

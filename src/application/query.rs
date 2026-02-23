@@ -20,6 +20,7 @@ impl QueryUseCase {
         category: Option<Category>,
         tag: Option<String>,
         since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
         limit: Option<usize>,
         exclude_source_type: Option<SourceType>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
@@ -27,6 +28,7 @@ impl QueryUseCase {
             category,
             tag,
             since,
+            until,
             limit,
             exclude_source_type,
         })

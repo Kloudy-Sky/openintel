@@ -250,9 +250,7 @@ fn parse_date_as_start(
 }
 
 /// Parse a date string as an upper bound (end of day for YYYY-MM-DD).
-fn parse_date_as_end(
-    s: &Option<String>,
-) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+fn parse_date_as_end(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
     parse_date_inner(s, true)
 }
 

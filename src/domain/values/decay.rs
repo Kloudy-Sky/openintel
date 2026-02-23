@@ -6,19 +6,19 @@ use chrono::{DateTime, Utc};
 pub fn half_life_hours(category: &Category) -> f64 {
     match category {
         // Fast-decaying: market signals are stale within days
-        Category::Market => 72.0,       // 3 days
-        Category::Crypto => 48.0,       // 2 days
-        Category::Trading => 120.0,     // 5 days
-        Category::Catalyst => 96.0,     // 4 days
-        Category::Economic => 24.0,     // 1 day (events pass quickly)
-        Category::Signal => 72.0,       // 3 days
+        Category::Market => 72.0,   // 3 days
+        Category::Crypto => 48.0,   // 2 days
+        Category::Trading => 120.0, // 5 days
+        Category::Catalyst => 96.0, // 4 days
+        Category::Economic => 24.0, // 1 day (events pass quickly)
+        Category::Signal => 72.0,   // 3 days
 
         // Medium-decaying: news and social signals
-        Category::Newsletter => 168.0,  // 7 days
-        Category::Social => 120.0,      // 5 days
-        Category::Sentiment => 120.0,   // 5 days
-        Category::Macro => 336.0,       // 14 days
-        Category::Weather => 24.0,      // 1 day
+        Category::Newsletter => 168.0, // 7 days
+        Category::Social => 120.0,     // 5 days
+        Category::Sentiment => 120.0,  // 5 days
+        Category::Macro => 336.0,      // 14 days
+        Category::Weather => 24.0,     // 1 day
 
         // Slow-decaying: strategic intel stays relevant longer
         Category::Competitor => 720.0,  // 30 days
@@ -27,23 +27,19 @@ pub fn half_life_hours(category: &Category) -> f64 {
         Category::Research => 720.0,    // 30 days
 
         // Portfolio/position tracking
-        Category::Portfolio => 720.0,   // 30 days
-        Category::Position => 168.0,    // 7 days
-        Category::Trade => 168.0,       // 7 days
+        Category::Portfolio => 720.0, // 30 days
+        Category::Position => 168.0,  // 7 days
+        Category::Trade => 168.0,     // 7 days
 
         // System
-        Category::Heartbeat => 24.0,    // 1 day
+        Category::Heartbeat => 24.0, // 1 day
     }
 }
 
 /// Calculate decayed confidence using exponential decay.
 /// Returns `confidence * 0.5^(age_hours / half_life_hours)`.
 /// Minimum floor of 0.01 to avoid zero-confidence entries.
-pub fn decayed_confidence(
-    confidence: f64,
-    category: &Category,
-    created_at: &DateTime<Utc>,
-) -> f64 {
+pub fn decayed_confidence(confidence: f64, category: &Category, created_at: &DateTime<Utc>) -> f64 {
     let now = Utc::now();
     let age_hours = (now - *created_at).num_minutes() as f64 / 60.0;
     if age_hours <= 0.0 {

@@ -130,6 +130,12 @@ pub enum Commands {
         #[arg(long)]
         exclude_internal: bool,
     },
+    /// Generate a daily intelligence summary/briefing
+    Summarize {
+        /// Hours to look back (default: 24)
+        #[arg(long, default_value = "24")]
+        hours: u32,
+    },
     /// Reindex entries missing vector embeddings
     Reindex,
 }

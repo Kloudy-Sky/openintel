@@ -211,6 +211,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let entries = oi.query(cat, None, since_dt, range.until, None, exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
+        Commands::Summarize { hours } => {
+            let summary = oi.summarize(hours)?;
+            println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        }
         Commands::Reindex => {
             let count = oi.reindex().await?;
             println!("Reindexed {count} entries");

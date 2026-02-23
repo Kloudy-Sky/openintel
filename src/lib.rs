@@ -4,6 +4,7 @@ pub mod domain;
 pub mod infrastructure;
 
 use crate::application::add_intel::{AddIntelUseCase, AddResult};
+use crate::application::summarize::{DailySummary, SummarizeUseCase};
 use crate::application::query::QueryUseCase;
 use crate::application::reindex::ReindexUseCase;
 use crate::application::search::SearchUseCase;
@@ -37,6 +38,7 @@ pub struct OpenIntel {
     query_uc: QueryUseCase,
     trade_uc: TradeUseCase,
     stats_uc: StatsUseCase,
+    summarize_uc: SummarizeUseCase,
     reindex_uc: ReindexUseCase,
 }
 
@@ -147,6 +149,7 @@ impl OpenIntel {
             query_uc: QueryUseCase::new(intel_repo.clone()),
             trade_uc: TradeUseCase::new(trade_repo),
             stats_uc: StatsUseCase::new(intel_repo.clone()),
+            summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
             reindex_uc: ReindexUseCase::new(intel_repo, embedder, vector_store),
         })
     }
@@ -271,6 +274,10 @@ impl OpenIntel {
 
     pub fn tags(&self, category: Option<Category>) -> Result<Vec<TagCount>, DomainError> {
         self.stats_uc.tags(category)
+    }
+
+    pub fn summarize(&self, hours: u32) -> Result<DailySummary, DomainError> {
+        self.summarize_uc.execute(hours)
     }
 
     pub async fn reindex(&self) -> Result<usize, DomainError> {

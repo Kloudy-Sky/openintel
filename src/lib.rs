@@ -15,6 +15,7 @@ use crate::application::trade::TradeUseCase;
 use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::entities::trade::Trade;
 use crate::domain::error::DomainError;
+use crate::domain::ports::resolution_source::ResolutionSource;
 use crate::domain::ports::embedding_port::EmbeddingProvider;
 use crate::domain::ports::intel_repository::{IntelRepository, IntelStats, TagCount};
 use crate::domain::ports::trade_repository::TradeRepository;
@@ -293,7 +294,7 @@ impl OpenIntel {
     /// Check open trades and auto-resolve against resolution sources.
     pub async fn resolve_trades(
         &self,
-        sources: &[std::sync::Arc<dyn crate::domain::ports::resolution_source::ResolutionSource>],
+        sources: &[Arc<dyn ResolutionSource>],
     ) -> Result<ResolveReport, DomainError> {
         self.resolve_trades_uc.execute(sources).await
     }

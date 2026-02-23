@@ -83,7 +83,7 @@ async fn test_summarize_with_entries() {
 }
 
 #[tokio::test]
-async fn test_summarize_respects_time_window() {
+async fn test_summarize_includes_recent_entry() {
     let oi = setup();
 
     // Add an entry (it will have current timestamp)
@@ -103,4 +103,8 @@ async fn test_summarize_respects_time_window() {
     // Summary with 1 hour window should find it
     let summary = oi.summarize(1).unwrap();
     assert_eq!(summary.total_entries, 1);
+
+    // Summary with 0 hours should exclude it
+    let empty = oi.summarize(0).unwrap();
+    assert_eq!(empty.total_entries, 0);
 }

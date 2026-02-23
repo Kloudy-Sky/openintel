@@ -73,10 +73,11 @@ impl SummarizeUseCase {
         let mut by_category: Vec<CategorySummary> = cat_map
             .into_iter()
             .map(|(cat, entries)| {
-                let titles: Vec<String> = entries.iter().map(|e| e.title.clone()).collect();
+                let count = entries.len();
+                let titles: Vec<String> = entries.iter().take(10).map(|e| e.title.clone()).collect();
                 CategorySummary {
                     category: cat,
-                    count: entries.len(),
+                    count,
                     titles,
                 }
             })

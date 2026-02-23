@@ -51,7 +51,10 @@ impl SqliteIntelRepo {
             tags: serde_json::from_str(&tags_str).unwrap_or_default(),
             confidence: Confidence::new(conf_val).unwrap_or_default(),
             actionable: actionable_int != 0,
-            source_type: source_type_str.parse().unwrap_or_default(),
+            source_type: source_type_str.parse().unwrap_or_else(|_| {
+                eprintln!("Warning: invalid source_type '{}' in entry, defaulting to External", source_type_str);
+                SourceType::default()
+            }),
             metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
             created_at: DateTime::parse_from_rfc3339(&created_str)
                 .map(|dt| dt.with_timezone(&chrono::Utc))

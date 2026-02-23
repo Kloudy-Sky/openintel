@@ -51,10 +51,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .unwrap_or_default();
             let confidence = data["confidence"].as_f64();
             let actionable = data["actionable"].as_bool();
-            let source_type: SourceType = data["source_type"]
-                .as_str()
-                .map(|s| s.parse().unwrap_or_default())
-                .unwrap_or_default();
+            let source_type: SourceType = match data["source_type"].as_str() {
+                Some(s) => s.parse().map_err(|e: String| e)?,
+                None => SourceType::default(),
+            };
             let skip_dedup = data["skip_dedup"].as_bool().unwrap_or(false);
             let metadata = data.get("metadata").cloned();
 
@@ -66,7 +66,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             if result.deduplicated {
                 eprintln!("⚠️  Duplicate detected — returning existing entry (id: {})", result.entry.id);
             }
-            println!("{}", serde_json::to_string_pretty(&result.entry).unwrap());
+            println!("{}", serde_json::to_string_pretty(&result).unwrap());
         }
         Commands::Query {
             category,
@@ -81,8 +81,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let entries = oi.query(Some(cat), tag, since_dt, Some(limit), exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
-        Commands::Search { text, limit, exclude_internal: _ } => {
-            // TODO: exclude_internal filtering for keyword search (needs search_with_filter)
+        Commands::Search { text, limit } => {
             let entries = oi.keyword_search(&text, limit)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }

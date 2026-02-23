@@ -13,7 +13,7 @@ pub enum Commands {
     Add {
         /// Category (market, newsletter, social, trading, opportunity, competitor, general)
         category: String,
-        /// JSON data with title, body, source, tags, confidence, actionable, metadata
+        /// JSON data with title, body, source, tags, confidence, actionable, source_type, skip_dedup, metadata
         json: String,
     },
     /// Query entries by category
@@ -35,9 +35,6 @@ pub enum Commands {
         text: String,
         #[arg(long, default_value = "10")]
         limit: usize,
-        /// Exclude internal (agent-generated) entries
-        #[arg(long)]
-        exclude_internal: bool,
     },
     /// Semantic (vector) search
     Semantic {

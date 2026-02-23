@@ -133,10 +133,6 @@ impl IntelRepository for SqliteIntelRepo {
         Ok(entries)
     }
 
-    fn search(&self, text: &str, limit: usize) -> Result<Vec<IntelEntry>, DomainError> {
-        self.search_with_time(text, limit, None, None)
-    }
-
     fn search_with_time(
         &self,
         text: &str,

@@ -245,9 +245,10 @@ impl OpenIntel {
         &self,
         limit: Option<usize>,
         since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
         resolved: Option<bool>,
     ) -> Result<Vec<Trade>, DomainError> {
-        self.trade_uc.list(limit, since, resolved)
+        self.trade_uc.list(limit, since, until, resolved)
     }
 
     pub fn stats(&self) -> Result<IntelStats, DomainError> {

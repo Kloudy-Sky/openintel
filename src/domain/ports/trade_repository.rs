@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 pub struct TradeFilter {
     pub limit: Option<usize>,
     pub since: Option<DateTime<Utc>>,
+    pub until: Option<DateTime<Utc>>,
     pub resolved: Option<bool>,
 }
 

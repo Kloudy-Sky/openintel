@@ -25,7 +25,7 @@ fn test_add_and_list_trade() {
     assert_eq!(trade.ticker, "AAPL");
     assert!(!trade.is_resolved());
 
-    let trades = oi.trade_list(Some(10), None, None).unwrap();
+    let trades = oi.trade_list(Some(10), None, None, None).unwrap();
     assert_eq!(trades.len(), 1);
 }
 
@@ -38,7 +38,7 @@ fn test_resolve_trade() {
     oi.trade_resolve(&trade.id, TradeOutcome::Win, 5000, None)
         .unwrap();
 
-    let trades = oi.trade_list(Some(10), None, Some(true)).unwrap();
+    let trades = oi.trade_list(Some(10), None, None, Some(true)).unwrap();
     assert_eq!(trades.len(), 1);
     assert_eq!(trades[0].outcome, Some(TradeOutcome::Win));
     assert_eq!(trades[0].pnl_cents, Some(5000));
@@ -55,7 +55,7 @@ fn test_filter_unresolved() {
     oi.trade_resolve(&t1.id, TradeOutcome::Loss, -100, None)
         .unwrap();
 
-    let unresolved = oi.trade_list(None, None, Some(false)).unwrap();
+    let unresolved = oi.trade_list(None, None, None, Some(false)).unwrap();
     assert_eq!(unresolved.len(), 1);
     assert_eq!(unresolved[0].ticker, "B");
 }

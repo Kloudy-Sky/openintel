@@ -27,7 +27,7 @@ pub enum Commands {
         #[arg(long)]
         tag: Option<String>,
         /// Start of date range (ISO-8601)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "last")]
         from: Option<String>,
         /// End of date range (ISO-8601)
         #[arg(long)]
@@ -42,7 +42,7 @@ pub enum Commands {
         #[arg(long, default_value = "10")]
         limit: usize,
         /// Start of date range (ISO-8601)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "last")]
         from: Option<String>,
         /// End of date range (ISO-8601)
         #[arg(long)]
@@ -96,7 +96,7 @@ pub enum Commands {
         #[arg(long)]
         resolved: Option<bool>,
         /// Start of date range (ISO-8601)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "last")]
         from: Option<String>,
         /// End of date range (ISO-8601)
         #[arg(long)]
@@ -112,7 +112,7 @@ pub enum Commands {
         #[arg(long)]
         category: Option<String>,
         /// Start of date range (ISO-8601)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "last")]
         from: Option<String>,
         /// End of date range (ISO-8601)
         #[arg(long)]

@@ -22,16 +22,35 @@ pub enum Commands {
         category: String,
         #[arg(long, default_value = "20")]
         limit: usize,
-        #[arg(long)]
+        /// Legacy date filter (use --from instead)
+        #[arg(long, conflicts_with_all = ["from", "last"])]
         since: Option<String>,
         #[arg(long)]
         tag: Option<String>,
+        /// Start of date range (ISO-8601)
+        #[arg(long, conflicts_with = "last")]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Keyword search
     Search {
         text: String,
         #[arg(long, default_value = "10")]
         limit: usize,
+        /// Start of date range (ISO-8601)
+        #[arg(long, conflicts_with = "last")]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Semantic (vector) search
     Semantic {
@@ -73,17 +92,37 @@ pub enum Commands {
     Trades {
         #[arg(long, default_value = "20")]
         limit: usize,
-        #[arg(long)]
+        /// Legacy date filter (use --from instead)
+        #[arg(long, conflicts_with_all = ["from", "last"])]
         since: Option<String>,
         #[arg(long)]
         resolved: Option<bool>,
+        /// Start of date range (ISO-8601)
+        #[arg(long, conflicts_with = "last")]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Export entries as JSON
     Export {
-        #[arg(long)]
+        /// Legacy date filter (use --from instead)
+        #[arg(long, conflicts_with_all = ["from", "last"])]
         since: Option<String>,
         #[arg(long)]
         category: Option<String>,
+        /// Start of date range (ISO-8601)
+        #[arg(long, conflicts_with = "last")]
+        from: Option<String>,
+        /// End of date range (ISO-8601)
+        #[arg(long)]
+        to: Option<String>,
+        /// Relative time window (e.g. 24h, 7d, 30m)
+        #[arg(long)]
+        last: Option<String>,
     },
     /// Reindex entries missing vector embeddings
     Reindex,

@@ -50,11 +50,13 @@ impl TradeUseCase {
         &self,
         limit: Option<usize>,
         since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
         resolved: Option<bool>,
     ) -> Result<Vec<Trade>, DomainError> {
         self.repo.list_trades(&TradeFilter {
             limit,
             since,
+            until,
             resolved,
         })
     }

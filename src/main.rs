@@ -64,15 +64,31 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             limit,
             since,
             tag,
+            from,
+            to,
+            last,
         } => {
             let cat: Category = category.parse().map_err(|e: String| e)?;
-            let since_dt = parse_date(&since)?;
-            let entries = oi.query(Some(cat), tag, since_dt, Some(limit))?;
+            let range = resolve_time_range(&from, &to, &last)?;
+            let since_dt = range.since.or(parse_date_as_start(&since)?);
+            let entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit))?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
-        Commands::Search { text, limit } => {
-            let entries = oi.keyword_search(&text, limit)?;
-            println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+        Commands::Search {
+            text,
+            limit,
+            from,
+            to,
+            last,
+        } => {
+            let DateRange { since, until } = resolve_time_range(&from, &to, &last)?;
+            if since.is_some() || until.is_some() {
+                let entries = oi.keyword_search_with_time(&text, limit, since, until)?;
+                println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+            } else {
+                let entries = oi.keyword_search(&text, limit)?;
+                println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+            }
         }
         Commands::Semantic { query, limit } => {
             let entries = oi.semantic_search(&query, limit).await?;
@@ -137,18 +153,29 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             limit,
             since,
             resolved,
+            from,
+            to,
+            last,
         } => {
-            let since_dt = parse_date(&since)?;
-            let trades = oi.trade_list(Some(limit), since_dt, resolved)?;
+            let range = resolve_time_range(&from, &to, &last)?;
+            let since_dt = range.since.or(parse_date_as_start(&since)?);
+            let trades = oi.trade_list(Some(limit), since_dt, range.until, resolved)?;
             println!("{}", serde_json::to_string_pretty(&trades).unwrap());
         }
-        Commands::Export { since, category } => {
-            let since_dt = parse_date(&since)?;
+        Commands::Export {
+            since,
+            category,
+            from,
+            to,
+            last,
+        } => {
+            let range = resolve_time_range(&from, &to, &last)?;
+            let since_dt = range.since.or(parse_date_as_start(&since)?);
             let cat = category
                 .map(|c| c.parse())
                 .transpose()
                 .map_err(|e: String| e)?;
-            let entries = oi.query(cat, None, since_dt, None)?;
+            let entries = oi.query(cat, None, since_dt, range.until, None)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Reindex => {
@@ -159,7 +186,78 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-fn parse_date(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+fn parse_duration(s: &str) -> Result<chrono::Duration, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("Empty duration string".into());
+    }
+    let (num_str, unit) = if let Some(n) = s.strip_suffix('h') {
+        (n, 'h')
+    } else if let Some(n) = s.strip_suffix('d') {
+        (n, 'd')
+    } else if let Some(n) = s.strip_suffix('m') {
+        (n, 'm')
+    } else if let Some(n) = s.strip_suffix('w') {
+        (n, 'w')
+    } else {
+        return Err(format!(
+            "Invalid duration '{s}'. Use format like 24h, 7d, 30m, 2w"
+        ));
+    };
+    let num: i64 = num_str
+        .parse()
+        .map_err(|_| format!("Invalid number in duration: {num_str}"))?;
+    if num <= 0 {
+        return Err(format!("Duration must be positive, got {num}"));
+    }
+    match unit {
+        'm' => Ok(chrono::Duration::minutes(num)),
+        'h' => Ok(chrono::Duration::hours(num)),
+        'd' => Ok(chrono::Duration::days(num)),
+        'w' => Ok(chrono::Duration::weeks(num)),
+        _ => unreachable!(),
+    }
+}
+
+/// A named date range with explicit since/until fields.
+struct DateRange {
+    since: Option<chrono::DateTime<chrono::Utc>>,
+    until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Resolve --from/--to/--last into a DateRange.
+/// --last and --from are mutually exclusive (enforced by clap).
+fn resolve_time_range(
+    from: &Option<String>,
+    to: &Option<String>,
+    last: &Option<String>,
+) -> Result<DateRange, String> {
+    let since = if let Some(last_str) = last {
+        let dur = parse_duration(last_str)?;
+        Some(chrono::Utc::now() - dur)
+    } else {
+        parse_date_as_start(from)?
+    };
+    let until = parse_date_as_end(to)?;
+    Ok(DateRange { since, until })
+}
+
+/// Parse a date string as a lower bound (start of day for YYYY-MM-DD).
+fn parse_date_as_start(
+    s: &Option<String>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+    parse_date_inner(s, false)
+}
+
+/// Parse a date string as an upper bound (end of day for YYYY-MM-DD).
+fn parse_date_as_end(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+    parse_date_inner(s, true)
+}
+
+fn parse_date_inner(
+    s: &Option<String>,
+    end_of_day: bool,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
     match s {
         None => Ok(None),
         Some(s) => {
@@ -167,7 +265,11 @@ fn parse_date(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>
                 return Ok(Some(dt.with_timezone(&chrono::Utc)));
             }
             if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-                let dt = date.and_hms_opt(0, 0, 0).unwrap();
+                let dt = if end_of_day {
+                    date.and_hms_opt(23, 59, 59).unwrap()
+                } else {
+                    date.and_hms_opt(0, 0, 0).unwrap()
+                };
                 return Ok(Some(chrono::DateTime::from_naive_utc_and_offset(
                     dt,
                     chrono::Utc,

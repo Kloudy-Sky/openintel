@@ -174,6 +174,17 @@ impl OpenIntel {
         self.search_uc.keyword_search(text, limit)
     }
 
+    pub fn keyword_search_with_time(
+        &self,
+        text: &str,
+        limit: usize,
+        since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
+    ) -> Result<Vec<IntelEntry>, DomainError> {
+        self.search_uc
+            .keyword_search_with_time(text, limit, since, until)
+    }
+
     pub async fn semantic_search(
         &self,
         query: &str,
@@ -195,9 +206,10 @@ impl OpenIntel {
         category: Option<Category>,
         tag: Option<String>,
         since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
         limit: Option<usize>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
-        self.query_uc.execute(category, tag, since, limit)
+        self.query_uc.execute(category, tag, since, until, limit)
     }
 
     pub fn trade_add(
@@ -233,9 +245,10 @@ impl OpenIntel {
         &self,
         limit: Option<usize>,
         since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
         resolved: Option<bool>,
     ) -> Result<Vec<Trade>, DomainError> {
-        self.trade_uc.list(limit, since, resolved)
+        self.trade_uc.list(limit, since, until, resolved)
     }
 
     pub fn stats(&self) -> Result<IntelStats, DomainError> {

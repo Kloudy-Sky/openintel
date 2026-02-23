@@ -19,12 +19,14 @@ impl QueryUseCase {
         category: Option<Category>,
         tag: Option<String>,
         since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
         limit: Option<usize>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
         self.repo.query(&QueryFilter {
             category,
             tag,
             since,
+            until,
             limit,
         })
     }

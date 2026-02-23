@@ -73,7 +73,8 @@ impl SummarizeUseCase {
             .into_iter()
             .map(|(cat, entries)| {
                 let count = entries.len();
-                let titles: Vec<String> = entries.iter().take(10).map(|e| e.title.clone()).collect();
+                let titles: Vec<String> =
+                    entries.iter().take(10).map(|e| e.title.clone()).collect();
                 CategorySummary {
                     category: cat,
                     count,
@@ -108,7 +109,11 @@ impl SummarizeUseCase {
                 confidence: e.confidence.value(),
             })
             .collect();
-        actionable_items.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        actionable_items.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         Ok(DailySummary {
             generated_at: now,

@@ -9,6 +9,7 @@ use crate::application::query::QueryUseCase;
 use crate::application::reindex::ReindexUseCase;
 use crate::application::search::SearchUseCase;
 use crate::application::stats::StatsUseCase;
+use crate::application::summarize::{DailySummary, SummarizeUseCase};
 use crate::application::trade::TradeUseCase;
 use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::entities::trade::Trade;

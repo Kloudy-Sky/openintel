@@ -107,7 +107,10 @@ impl AlertsUseCase {
             alerts.push(Alert {
                 severity,
                 kind: "tag_concentration".into(),
-                title: format!("Tag '{}' mentioned {} times (threshold: {})", tag, count, threshold),
+                title: format!(
+                    "Tag '{}' mentioned {} times (threshold: {})",
+                    tag, count, threshold
+                ),
                 detail: format!("Related entries: {}", titles.join("; ")),
                 entry_ids,
             });
@@ -153,7 +156,10 @@ impl AlertsUseCase {
                         count,
                         count as f64 / baseline
                     ),
-                    detail: format!("Expected ~{:.0} entries in {}h window", baseline, window_hours),
+                    detail: format!(
+                        "Expected ~{:.0} entries in {}h window",
+                        baseline, window_hours
+                    ),
                     entry_ids,
                 });
             }
@@ -174,9 +180,11 @@ impl AlertsUseCase {
                 AlertSeverity::Warning
             };
 
-            let titles: Vec<String> = actionable.iter().take(5).map(|e| {
-                format!("{} ({:.0}%)", e.title, e.confidence.value() * 100.0)
-            }).collect();
+            let titles: Vec<String> = actionable
+                .iter()
+                .take(5)
+                .map(|e| format!("{} ({:.0}%)", e.title, e.confidence.value() * 100.0))
+                .collect();
             let entry_ids: Vec<String> = actionable.iter().map(|e| e.id.clone()).collect();
 
             alerts.push(Alert {

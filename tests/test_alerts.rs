@@ -68,11 +68,11 @@ async fn test_volume_spike_alert() {
     }
 
     let scan = oi.scan_alerts(24).unwrap();
-    let volume_alert = scan
-        .alerts
-        .iter()
-        .find(|a| a.kind == "volume_spike");
-    assert!(volume_alert.is_some(), "Should detect volume spike with 7 entries");
+    let volume_alert = scan.alerts.iter().find(|a| a.kind == "volume_spike");
+    assert!(
+        volume_alert.is_some(),
+        "Should detect volume spike with 7 entries"
+    );
 }
 
 #[tokio::test]
@@ -96,10 +96,7 @@ async fn test_actionable_cluster_alert() {
     }
 
     let scan = oi.scan_alerts(24).unwrap();
-    let cluster_alert = scan
-        .alerts
-        .iter()
-        .find(|a| a.kind == "actionable_cluster");
+    let cluster_alert = scan.alerts.iter().find(|a| a.kind == "actionable_cluster");
     assert!(cluster_alert.is_some(), "Should detect actionable cluster");
 }
 

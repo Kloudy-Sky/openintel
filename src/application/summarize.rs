@@ -56,7 +56,6 @@ impl SummarizeUseCase {
             tag: None,
             since: Some(since),
             limit: None,
-            ..Default::default()
         })?;
 
         let total_entries = entries.len();

@@ -22,7 +22,8 @@ pub enum Commands {
         category: String,
         #[arg(long, default_value = "20")]
         limit: usize,
-        #[arg(long)]
+        /// Legacy date filter (use --from instead)
+        #[arg(long, conflicts_with_all = ["from", "last"])]
         since: Option<String>,
         #[arg(long)]
         tag: Option<String>,
@@ -91,7 +92,8 @@ pub enum Commands {
     Trades {
         #[arg(long, default_value = "20")]
         limit: usize,
-        #[arg(long)]
+        /// Legacy date filter (use --from instead)
+        #[arg(long, conflicts_with_all = ["from", "last"])]
         since: Option<String>,
         #[arg(long)]
         resolved: Option<bool>,
@@ -107,7 +109,8 @@ pub enum Commands {
     },
     /// Export entries as JSON
     Export {
-        #[arg(long)]
+        /// Legacy date filter (use --from instead)
+        #[arg(long, conflicts_with_all = ["from", "last"])]
         since: Option<String>,
         #[arg(long)]
         category: Option<String>,

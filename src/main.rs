@@ -60,11 +60,23 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
 
             let result = oi
                 .add_intel(
-                    cat, title, body, source, tags, confidence, actionable, source_type, metadata, skip_dedup,
+                    cat,
+                    title,
+                    body,
+                    source,
+                    tags,
+                    confidence,
+                    actionable,
+                    source_type,
+                    metadata,
+                    skip_dedup,
                 )
                 .await?;
             if result.deduplicated {
-                eprintln!("⚠️  Duplicate detected — returning existing entry (id: {})", result.entry.id);
+                eprintln!(
+                    "⚠️  Duplicate detected — returning existing entry (id: {})",
+                    result.entry.id
+                );
             }
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
         }
@@ -77,7 +89,11 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
         } => {
             let cat: Category = category.parse().map_err(|e: String| e)?;
             let since_dt = parse_date(&since)?;
-            let exclude = if exclude_internal { Some(SourceType::Internal) } else { None };
+            let exclude = if exclude_internal {
+                Some(SourceType::Internal)
+            } else {
+                None
+            };
             let entries = oi.query(Some(cat), tag, since_dt, Some(limit), exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
@@ -153,13 +169,21 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let trades = oi.trade_list(Some(limit), since_dt, resolved)?;
             println!("{}", serde_json::to_string_pretty(&trades).unwrap());
         }
-        Commands::Export { since, category, exclude_internal } => {
+        Commands::Export {
+            since,
+            category,
+            exclude_internal,
+        } => {
             let since_dt = parse_date(&since)?;
             let cat = category
                 .map(|c| c.parse())
                 .transpose()
                 .map_err(|e: String| e)?;
-            let exclude = if exclude_internal { Some(SourceType::Internal) } else { None };
+            let exclude = if exclude_internal {
+                Some(SourceType::Internal)
+            } else {
+                None
+            };
             let entries = oi.query(cat, None, since_dt, None, exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }

@@ -52,7 +52,10 @@ impl SqliteIntelRepo {
             confidence: Confidence::new(conf_val).unwrap_or_default(),
             actionable: actionable_int != 0,
             source_type: source_type_str.parse().unwrap_or_else(|_| {
-                eprintln!("Warning: invalid source_type '{}' in entry, defaulting to External", source_type_str);
+                eprintln!(
+                    "Warning: invalid source_type '{}' in entry, defaulting to External",
+                    source_type_str
+                );
                 SourceType::default()
             }),
             metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),

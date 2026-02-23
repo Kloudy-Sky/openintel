@@ -168,7 +168,16 @@ impl OpenIntel {
     ) -> Result<AddResult, DomainError> {
         self.add_intel_uc
             .execute(
-                category, title, body, source, tags, confidence, actionable, source_type, metadata, skip_dedup,
+                category,
+                title,
+                body,
+                source,
+                tags,
+                confidence,
+                actionable,
+                source_type,
+                metadata,
+                skip_dedup,
             )
             .await
     }
@@ -201,7 +210,8 @@ impl OpenIntel {
         limit: Option<usize>,
         exclude_source_type: Option<SourceType>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
-        self.query_uc.execute(category, tag, since, limit, exclude_source_type)
+        self.query_uc
+            .execute(category, tag, since, limit, exclude_source_type)
     }
 
     pub fn trade_add(

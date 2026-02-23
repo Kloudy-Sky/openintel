@@ -42,7 +42,9 @@ async fn test_add_and_query_by_category() {
     .await
     .unwrap();
 
-    let results = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    let results = oi
+        .query(Some(Category::Market), None, None, None, None)
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "BTC rally");
     assert!(results[0].actionable);
@@ -82,7 +84,13 @@ async fn test_query_by_tag() {
     .unwrap();
 
     let results = oi
-        .query(Some(Category::Market), Some("alpha".into()), None, None, None)
+        .query(
+            Some(Category::Market),
+            Some("alpha".into()),
+            None,
+            None,
+            None,
+        )
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Tagged entry");
@@ -152,7 +160,9 @@ async fn test_dedup_same_title_same_category() {
     assert!(r2.deduplicated);
     assert_eq!(r2.entry.id, r1.entry.id);
 
-    let all = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    let all = oi
+        .query(Some(Category::Market), None, None, None, None)
+        .unwrap();
     assert_eq!(all.len(), 1);
 }
 
@@ -266,7 +276,9 @@ async fn test_skip_dedup_flag() {
         .unwrap();
     assert!(!r2.deduplicated);
 
-    let all = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    let all = oi
+        .query(Some(Category::Market), None, None, None, None)
+        .unwrap();
     assert_eq!(all.len(), 2);
 }
 
@@ -304,12 +316,20 @@ async fn test_source_type_filtering() {
     .unwrap();
 
     // All entries
-    let all = oi.query(Some(Category::Market), None, None, None, None).unwrap();
+    let all = oi
+        .query(Some(Category::Market), None, None, None, None)
+        .unwrap();
     assert_eq!(all.len(), 2);
 
     // Exclude internal
     let external_only = oi
-        .query(Some(Category::Market), None, None, None, Some(SourceType::Internal))
+        .query(
+            Some(Category::Market),
+            None,
+            None,
+            None,
+            Some(SourceType::Internal),
+        )
         .unwrap();
     assert_eq!(external_only.len(), 1);
     assert_eq!(external_only[0].title, "External signal");

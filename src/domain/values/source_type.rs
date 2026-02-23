@@ -28,7 +28,10 @@ impl FromStr for SourceType {
         match s.to_lowercase().as_str() {
             "external" | "ext" => Ok(Self::External),
             "internal" | "int" => Ok(Self::Internal),
-            _ => Err(format!("Invalid source type: '{}'. Use 'external' or 'internal'", s)),
+            _ => Err(format!(
+                "Invalid source type: '{}'. Use 'external' or 'internal'",
+                s
+            )),
         }
     }
 }

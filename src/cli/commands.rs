@@ -39,6 +39,9 @@ pub enum Commands {
         /// Exclude internal (agent-generated) entries
         #[arg(long)]
         exclude_internal: bool,
+        /// Sort results by time-decayed confidence (most relevant first)
+        #[arg(long)]
+        decay: bool,
     },
     /// Keyword search
     Search {

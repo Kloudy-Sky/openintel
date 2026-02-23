@@ -229,6 +229,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let scan = oi.scan_alerts(hours)?;
             println!("{}", serde_json::to_string_pretty(&scan).unwrap());
         }
+        Commands::Pending => {
+            let report = oi.pending_trades()?;
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        }
         Commands::Reindex => {
             let count = oi.reindex().await?;
             println!("Reindexed {count} entries");

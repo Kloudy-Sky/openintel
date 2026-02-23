@@ -145,6 +145,8 @@ pub enum Commands {
         #[arg(long, default_value = "24")]
         hours: u32,
     },
+    /// Show pending (unresolved) trades
+    Pending,
     /// Reindex entries missing vector embeddings
     Reindex,
 }

@@ -64,9 +64,9 @@ impl ResolveTradesUseCase {
                 match source.check(trade).await {
                     Ok(Some(result)) if result.resolved => {
                         // Auto-resolve the trade
-                        let outcome = result.outcome.unwrap_or(
-                            crate::domain::values::trade_outcome::TradeOutcome::Scratch,
-                        );
+                        let outcome = result
+                            .outcome
+                            .unwrap_or(crate::domain::values::trade_outcome::TradeOutcome::Scratch);
                         let pnl = result.pnl_cents.unwrap_or(0);
 
                         if let Err(e) = self.trade_repo.resolve_trade(
@@ -75,10 +75,7 @@ impl ResolveTradesUseCase {
                             pnl,
                             result.exit_price,
                         ) {
-                            errors.push(format!(
-                                "Failed to resolve trade {}: {}",
-                                trade.id, e
-                            ));
+                            errors.push(format!("Failed to resolve trade {}: {}", trade.id, e));
                             continue;
                         }
 

@@ -20,8 +20,15 @@ fn test_pending_no_trades() {
 fn test_pending_with_open_trades() {
     let oi = setup();
 
-    oi.trade_add("AAPL".into(), None, TradeDirection::Long, 10, 150.0, Some("Bullish".into()))
-        .unwrap();
+    oi.trade_add(
+        "AAPL".into(),
+        None,
+        TradeDirection::Long,
+        10,
+        150.0,
+        Some("Bullish".into()),
+    )
+    .unwrap();
     oi.trade_add("TSLA".into(), None, TradeDirection::Short, 5, 200.0, None)
         .unwrap();
 
@@ -42,7 +49,8 @@ fn test_pending_excludes_resolved() {
         .unwrap();
 
     // Resolve one trade
-    oi.trade_resolve(&t1.id, TradeOutcome::Win, 5000, Some(155.0)).unwrap();
+    oi.trade_resolve(&t1.id, TradeOutcome::Win, 5000, Some(155.0))
+        .unwrap();
 
     let report = oi.pending_trades().unwrap();
     assert_eq!(report.checked, 1); // Only TSLA

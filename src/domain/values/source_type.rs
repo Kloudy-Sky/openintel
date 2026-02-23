@@ -2,19 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceType {
     /// Intelligence from external sources (newsletters, market data, social media)
+    #[default]
     External,
     /// Internal operational entries (agent logs, heartbeat notes)
     Internal,
-}
-
-impl Default for SourceType {
-    fn default() -> Self {
-        Self::External
-    }
 }
 
 impl fmt::Display for SourceType {

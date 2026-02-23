@@ -243,16 +243,23 @@ fn resolve_time_range(
 }
 
 /// Parse a date string as a lower bound (start of day for YYYY-MM-DD).
-fn parse_date_as_start(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+fn parse_date_as_start(
+    s: &Option<String>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
     parse_date_inner(s, false)
 }
 
 /// Parse a date string as an upper bound (end of day for YYYY-MM-DD).
-fn parse_date_as_end(s: &Option<String>) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+fn parse_date_as_end(
+    s: &Option<String>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
     parse_date_inner(s, true)
 }
 
-fn parse_date_inner(s: &Option<String>, end_of_day: bool) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+fn parse_date_inner(
+    s: &Option<String>,
+    end_of_day: bool,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
     match s {
         None => Ok(None),
         Some(s) => {

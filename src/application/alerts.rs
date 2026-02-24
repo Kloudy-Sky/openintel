@@ -57,7 +57,9 @@ impl AlertsUseCase {
             category: None,
             tag: None,
             since: Some(since),
+            until: None,
             limit: None,
+            exclude_source_type: None,
         })?;
 
         let total_entries = entries.len();

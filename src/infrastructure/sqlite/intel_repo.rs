@@ -164,7 +164,7 @@ impl IntelRepository for SqliteIntelRepo {
             .map_err(|e| DomainError::Database(e.to_string()))?;
         let pattern = format!("%{text}%");
         let mut sql = String::from(
-            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at FROM intel_entries WHERE (title LIKE ?1 OR body LIKE ?1)",
+            "SELECT id, category, title, body, source, tags, confidence, actionable, metadata, created_at, updated_at, source_type FROM intel_entries WHERE (title LIKE ?1 OR body LIKE ?1)",
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         param_values.push(Box::new(pattern));

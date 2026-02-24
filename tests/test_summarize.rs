@@ -1,4 +1,5 @@
 use openintel::domain::values::category::Category;
+use openintel::domain::values::source_type::SourceType;
 use openintel::infrastructure::embeddings::noop::NoopProvider;
 use openintel::OpenIntel;
 use std::sync::Arc;
@@ -30,7 +31,9 @@ async fn test_summarize_with_entries() {
         vec!["btc".into(), "crypto".into()],
         Some(0.9),
         Some(true),
+        SourceType::Social,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -43,7 +46,9 @@ async fn test_summarize_with_entries() {
         vec!["eth".into(), "crypto".into()],
         Some(0.7),
         Some(false),
+        SourceType::Manual,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -56,7 +61,9 @@ async fn test_summarize_with_entries() {
         vec!["fed".into(), "ai".into()],
         None,
         Some(true),
+        SourceType::Newsletter,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -95,7 +102,9 @@ async fn test_summarize_includes_recent_entry() {
         vec![],
         None,
         None,
+        SourceType::Manual,
         None,
+        false,
     )
     .await
     .unwrap();

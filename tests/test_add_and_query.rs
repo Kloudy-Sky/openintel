@@ -369,7 +369,14 @@ async fn test_query_with_date_range() {
     // Query with --from (since) set to 1 hour ago should return the entry
     let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
     let results = oi
-        .query(Some(Category::Market), None, Some(one_hour_ago), None, None, None)
+        .query(
+            Some(Category::Market),
+            None,
+            Some(one_hour_ago),
+            None,
+            None,
+            None,
+        )
         .unwrap();
     assert_eq!(results.len(), 1);
 
@@ -389,7 +396,14 @@ async fn test_query_with_date_range() {
 
     // Query with --to (until) set to 1 hour ago should return nothing
     let results = oi
-        .query(Some(Category::Market), None, None, Some(one_hour_ago), None, None)
+        .query(
+            Some(Category::Market),
+            None,
+            None,
+            Some(one_hour_ago),
+            None,
+            None,
+        )
         .unwrap();
     assert_eq!(results.len(), 0);
 

@@ -93,7 +93,11 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let cat: Category = category.parse().map_err(|e: String| e)?;
             let range = resolve_time_range(&from, &to, &last)?;
             let since_dt = range.since.or(parse_date_as_start(&since)?);
-            let exclude = if exclude_internal { Some(SourceType::Internal) } else { None };
+            let exclude = if exclude_internal {
+                Some(SourceType::Internal)
+            } else {
+                None
+            };
             let entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
@@ -199,7 +203,11 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .map(|c| c.parse())
                 .transpose()
                 .map_err(|e: String| e)?;
-            let exclude = if exclude_internal { Some(SourceType::Internal) } else { None };
+            let exclude = if exclude_internal {
+                Some(SourceType::Internal)
+            } else {
+                None
+            };
             let entries = oi.query(cat, None, since_dt, range.until, None, exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }

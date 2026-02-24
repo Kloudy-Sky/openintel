@@ -84,7 +84,7 @@ impl SummarizeUseCase {
                 }
             })
             .collect();
-        by_category.sort_by(|a, b| b.count.cmp(&a.count));
+        by_category.sort_by(|a, b| b.count.cmp(&a.count).then(a.category.cmp(&b.category)));
 
         // Count tag mentions
         let mut tag_counts: HashMap<String, usize> = HashMap::new();
@@ -97,7 +97,7 @@ impl SummarizeUseCase {
             .into_iter()
             .map(|(tag, count)| TagMention { tag, count })
             .collect();
-        top_tags.sort_by(|a, b| b.count.cmp(&a.count));
+        top_tags.sort_by(|a, b| b.count.cmp(&a.count).then(a.tag.cmp(&b.tag)));
         top_tags.truncate(20); // Top 20 tags
 
         // Actionable items sorted by confidence desc
@@ -115,7 +115,9 @@ impl SummarizeUseCase {
             b.confidence
                 .partial_cmp(&a.confidence)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.id.cmp(&b.id))
         });
+        actionable_items.truncate(50);
 
         Ok(DailySummary {
             generated_at: now,

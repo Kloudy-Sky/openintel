@@ -31,7 +31,7 @@ async fn test_summarize_with_entries() {
         vec!["btc".into(), "crypto".into()],
         Some(0.9),
         Some(true),
-        SourceType::Social,
+        SourceType::External,
         None,
         false,
     )
@@ -46,7 +46,7 @@ async fn test_summarize_with_entries() {
         vec!["eth".into(), "crypto".into()],
         Some(0.7),
         Some(false),
-        SourceType::Manual,
+        SourceType::External,
         None,
         false,
     )
@@ -61,7 +61,7 @@ async fn test_summarize_with_entries() {
         vec!["fed".into(), "ai".into()],
         None,
         Some(true),
-        SourceType::Newsletter,
+        SourceType::External,
         None,
         false,
     )
@@ -102,7 +102,7 @@ async fn test_summarize_includes_recent_entry() {
         vec![],
         None,
         None,
-        SourceType::Manual,
+        SourceType::External,
         None,
         false,
     )

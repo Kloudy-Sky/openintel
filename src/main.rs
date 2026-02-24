@@ -99,7 +99,8 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             } else {
                 None
             };
-            let mut entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
+            let mut entries =
+                oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
             if decay {
                 let now = chrono::Utc::now();
                 entries.sort_by(|a, b| {

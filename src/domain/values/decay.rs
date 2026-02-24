@@ -45,7 +45,12 @@ pub fn decayed_confidence(confidence: f64, category: &Category, created_at: &Dat
 
 /// Calculate decayed confidence at a specific point in time.
 /// Use this variant when computing decay for multiple entries to avoid per-call clock drift.
-pub fn decayed_confidence_at(confidence: f64, category: &Category, created_at: &DateTime<Utc>, now: DateTime<Utc>) -> f64 {
+pub fn decayed_confidence_at(
+    confidence: f64,
+    category: &Category,
+    created_at: &DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> f64 {
     let age_hours = (now - *created_at).num_seconds() as f64 / 3600.0;
     if age_hours <= 0.0 {
         return confidence;

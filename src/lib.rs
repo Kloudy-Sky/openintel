@@ -3,7 +3,7 @@ pub mod cli;
 pub mod domain;
 pub mod infrastructure;
 
-use crate::application::add_intel::AddIntelUseCase;
+use crate::application::add_intel::{AddIntelUseCase, AddResult};
 use crate::application::query::QueryUseCase;
 use crate::application::reindex::ReindexUseCase;
 use crate::application::search::SearchUseCase;
@@ -17,6 +17,7 @@ use crate::domain::ports::intel_repository::{IntelRepository, IntelStats, TagCou
 use crate::domain::ports::trade_repository::TradeRepository;
 use crate::domain::ports::vector_store::VectorStore;
 use crate::domain::values::category::Category;
+use crate::domain::values::source_type::SourceType;
 use crate::domain::values::trade_direction::TradeDirection;
 use crate::domain::values::trade_outcome::TradeOutcome;
 use crate::infrastructure::embeddings::noop::NoopProvider;
@@ -161,11 +162,22 @@ impl OpenIntel {
         tags: Vec<String>,
         confidence: Option<f64>,
         actionable: Option<bool>,
+        source_type: SourceType,
         metadata: Option<serde_json::Value>,
-    ) -> Result<IntelEntry, DomainError> {
+        skip_dedup: bool,
+    ) -> Result<AddResult, DomainError> {
         self.add_intel_uc
             .execute(
-                category, title, body, source, tags, confidence, actionable, metadata,
+                category,
+                title,
+                body,
+                source,
+                tags,
+                confidence,
+                actionable,
+                source_type,
+                metadata,
+                skip_dedup,
             )
             .await
     }
@@ -208,8 +220,10 @@ impl OpenIntel {
         since: Option<DateTime<Utc>>,
         until: Option<DateTime<Utc>>,
         limit: Option<usize>,
+        exclude_source_type: Option<SourceType>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
-        self.query_uc.execute(category, tag, since, until, limit)
+        self.query_uc
+            .execute(category, tag, since, until, limit, exclude_source_type)
     }
 
     pub fn trade_add(

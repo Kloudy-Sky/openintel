@@ -2,6 +2,7 @@ use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::error::DomainError;
 use crate::domain::ports::intel_repository::{IntelRepository, QueryFilter};
 use crate::domain::values::category::Category;
+use crate::domain::values::source_type::SourceType;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ impl QueryUseCase {
         since: Option<DateTime<Utc>>,
         until: Option<DateTime<Utc>>,
         limit: Option<usize>,
+        exclude_source_type: Option<SourceType>,
     ) -> Result<Vec<IntelEntry>, DomainError> {
         self.repo.query(&QueryFilter {
             category,
@@ -28,6 +30,7 @@ impl QueryUseCase {
             since,
             until,
             limit,
+            exclude_source_type,
         })
     }
 }

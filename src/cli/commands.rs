@@ -13,7 +13,7 @@ pub enum Commands {
     Add {
         /// Category (market, newsletter, social, trading, opportunity, competitor, general)
         category: String,
-        /// JSON data with title, body, source, tags, confidence, actionable, metadata
+        /// JSON data with title, body, source, tags, confidence, actionable, source_type, skip_dedup, metadata
         json: String,
     },
     /// Query entries by category
@@ -36,6 +36,9 @@ pub enum Commands {
         /// Relative time window (e.g. 24h, 7d, 30m)
         #[arg(long)]
         last: Option<String>,
+        /// Exclude internal (agent-generated) entries
+        #[arg(long)]
+        exclude_internal: bool,
     },
     /// Keyword search
     Search {
@@ -123,6 +126,9 @@ pub enum Commands {
         /// Relative time window (e.g. 24h, 7d, 30m)
         #[arg(long)]
         last: Option<String>,
+        /// Exclude internal (agent-generated) entries
+        #[arg(long)]
+        exclude_internal: bool,
     },
     /// Reindex entries missing vector embeddings
     Reindex,

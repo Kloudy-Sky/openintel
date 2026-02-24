@@ -1,6 +1,7 @@
 use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
+use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
 use openintel::domain::values::trade_outcome::TradeOutcome;
 use openintel::OpenIntel;
@@ -50,14 +51,34 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .unwrap_or_default();
             let confidence = data["confidence"].as_f64();
             let actionable = data["actionable"].as_bool();
+            let source_type: SourceType = match data["source_type"].as_str() {
+                Some(s) => s.parse().map_err(|e: String| e)?,
+                None => SourceType::default(),
+            };
+            let skip_dedup = data["skip_dedup"].as_bool().unwrap_or(false);
             let metadata = data.get("metadata").cloned();
 
-            let entry = oi
+            let result = oi
                 .add_intel(
-                    cat, title, body, source, tags, confidence, actionable, metadata,
+                    cat,
+                    title,
+                    body,
+                    source,
+                    tags,
+                    confidence,
+                    actionable,
+                    source_type,
+                    metadata,
+                    skip_dedup,
                 )
                 .await?;
-            println!("{}", serde_json::to_string_pretty(&entry).unwrap());
+            if result.deduplicated {
+                eprintln!(
+                    "⚠️  Duplicate detected — returning existing entry (id: {})",
+                    result.entry.id
+                );
+            }
+            println!("{}", serde_json::to_string_pretty(&result).unwrap());
         }
         Commands::Query {
             category,
@@ -67,11 +88,17 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             from,
             to,
             last,
+            exclude_internal,
         } => {
             let cat: Category = category.parse().map_err(|e: String| e)?;
             let range = resolve_time_range(&from, &to, &last)?;
             let since_dt = range.since.or(parse_date_as_start(&since)?);
-            let entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit))?;
+            let exclude = if exclude_internal {
+                Some(SourceType::Internal)
+            } else {
+                None
+            };
+            let entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Search {
@@ -168,6 +195,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             from,
             to,
             last,
+            exclude_internal,
         } => {
             let range = resolve_time_range(&from, &to, &last)?;
             let since_dt = range.since.or(parse_date_as_start(&since)?);
@@ -175,7 +203,12 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .map(|c| c.parse())
                 .transpose()
                 .map_err(|e: String| e)?;
-            let entries = oi.query(cat, None, since_dt, range.until, None)?;
+            let exclude = if exclude_internal {
+                Some(SourceType::Internal)
+            } else {
+                None
+            };
+            let entries = oi.query(cat, None, since_dt, range.until, None, exclude)?;
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Reindex => {

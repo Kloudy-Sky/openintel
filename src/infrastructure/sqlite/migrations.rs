@@ -1,7 +1,7 @@
 use crate::domain::error::DomainError;
 use rusqlite::Connection;
 
-const CURRENT_VERSION: i32 = 1;
+const CURRENT_VERSION: i32 = 2;
 
 pub fn run_migrations(conn: &Connection) -> Result<(), DomainError> {
     let user_version: i32 = conn
@@ -52,6 +52,14 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DomainError> {
             ",
         )
         .map_err(|e| DomainError::Database(format!("Migration v1 failed: {e}")))?;
+    }
+
+    if user_version < 2 {
+        conn.execute_batch(
+            "ALTER TABLE intel_entries ADD COLUMN source_type TEXT NOT NULL DEFAULT 'external';
+             CREATE INDEX IF NOT EXISTS idx_intel_source_type ON intel_entries(source_type);",
+        )
+        .map_err(|e| DomainError::Database(format!("Migration v2 failed: {e}")))?;
     }
 
     conn.pragma_update(None, "user_version", CURRENT_VERSION)

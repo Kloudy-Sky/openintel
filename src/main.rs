@@ -89,6 +89,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             to,
             last,
             exclude_internal,
+            decay,
         } => {
             let cat: Category = category.parse().map_err(|e: String| e)?;
             let range = resolve_time_range(&from, &to, &last)?;
@@ -98,7 +99,16 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             } else {
                 None
             };
-            let entries = oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
+            let mut entries =
+                oi.query(Some(cat), tag, since_dt, range.until, Some(limit), exclude)?;
+            if decay {
+                let now = chrono::Utc::now();
+                entries.sort_by(|a, b| {
+                    b.decayed_confidence_at(now)
+                        .partial_cmp(&a.decayed_confidence_at(now))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
             println!("{}", serde_json::to_string_pretty(&entries).unwrap());
         }
         Commands::Search {

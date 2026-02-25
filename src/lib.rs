@@ -5,11 +5,14 @@ pub mod infrastructure;
 
 use crate::application::add_intel::{AddIntelUseCase, AddResult};
 use crate::application::alerts::{AlertScan, AlertsUseCase};
+use crate::application::opportunities::{OpportunitiesUseCase, OpportunityScan};
 use crate::application::query::QueryUseCase;
 use crate::application::reindex::ReindexUseCase;
 use crate::application::resolve_trades::{ResolveReport, ResolveTradesUseCase};
 use crate::application::search::SearchUseCase;
 use crate::application::stats::StatsUseCase;
+use crate::application::strategies::earnings_momentum::EarningsMomentumStrategy;
+use crate::application::strategies::tag_convergence::TagConvergenceStrategy;
 use crate::application::summarize::{DailySummary, SummarizeUseCase};
 use crate::application::trade::TradeUseCase;
 use crate::domain::entities::intel_entry::IntelEntry;
@@ -38,6 +41,7 @@ use std::sync::Arc;
 pub struct OpenIntel {
     add_intel_uc: AddIntelUseCase,
     alerts_uc: AlertsUseCase,
+    opportunities_uc: OpportunitiesUseCase,
     search_uc: SearchUseCase,
     query_uc: QueryUseCase,
     trade_uc: TradeUseCase,
@@ -140,6 +144,12 @@ impl OpenIntel {
             }
         }
 
+        // Register strategies for opportunity detection
+        let strategies: Vec<Box<dyn crate::domain::ports::strategy::Strategy>> = vec![
+            Box::new(EarningsMomentumStrategy),
+            Box::new(TagConvergenceStrategy),
+        ];
+
         Ok(Self {
             add_intel_uc: AddIntelUseCase::new(
                 intel_repo.clone(),
@@ -153,8 +163,9 @@ impl OpenIntel {
             ),
             query_uc: QueryUseCase::new(intel_repo.clone()),
             trade_uc: TradeUseCase::new(trade_repo.clone()),
-            resolve_trades_uc: ResolveTradesUseCase::new(trade_repo),
+            resolve_trades_uc: ResolveTradesUseCase::new(trade_repo.clone()),
             alerts_uc: AlertsUseCase::new(intel_repo.clone()),
+            opportunities_uc: OpportunitiesUseCase::new(intel_repo.clone(), trade_repo, strategies),
             stats_uc: StatsUseCase::new(intel_repo.clone()),
             summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
             reindex_uc: ReindexUseCase::new(intel_repo, embedder, vector_store),
@@ -289,6 +300,18 @@ impl OpenIntel {
 
     pub fn scan_alerts(&self, window_hours: u32) -> Result<AlertScan, DomainError> {
         self.alerts_uc.scan(window_hours)
+    }
+
+    /// Run all registered strategies and return ranked opportunities.
+    pub fn opportunities(
+        &self,
+        window_hours: u32,
+        min_score: Option<f64>,
+        entry_limit: Option<usize>,
+        result_limit: Option<usize>,
+    ) -> Result<OpportunityScan, DomainError> {
+        self.opportunities_uc
+            .execute(window_hours, min_score, entry_limit, result_limit)
     }
 
     /// Check open trades and auto-resolve against resolution sources.

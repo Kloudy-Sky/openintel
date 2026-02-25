@@ -1,9 +1,11 @@
 pub mod add_intel;
 pub mod alerts;
+pub mod opportunities;
 pub mod query;
 pub mod reindex;
 pub mod resolve_trades;
 pub mod search;
 pub mod stats;
+pub mod strategies;
 pub mod summarize;
 pub mod trade;

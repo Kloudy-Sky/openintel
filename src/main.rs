@@ -237,6 +237,15 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let count = oi.reindex().await?;
             println!("Reindexed {count} entries");
         }
+        Commands::Opportunities {
+            hours,
+            min_score,
+            entry_limit,
+            limit,
+        } => {
+            let scan = oi.opportunities(hours, min_score, entry_limit, limit)?;
+            println!("{}", serde_json::to_string_pretty(&scan).unwrap());
+        }
     }
     Ok(())
 }

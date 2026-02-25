@@ -111,14 +111,40 @@ const BULLISH_WORDS: &[&str] = &[
 ];
 
 const BEARISH_WORDS: &[&str] = &[
-    "miss", "drop", "fell", "weak", "lowered", "disappointing", "cut", "bearish", "crash",
-    "decline", "loss", "negative", "downside", "sell", "lower", "warning", "risk",
+    "miss",
+    "drop",
+    "fell",
+    "weak",
+    "lowered",
+    "disappointing",
+    "cut",
+    "bearish",
+    "crash",
+    "decline",
+    "loss",
+    "negative",
+    "downside",
+    "sell",
+    "lower",
+    "warning",
+    "risk",
 ];
 
 /// Tags to skip when clustering (too generic to be useful).
 const SKIP_TAGS: &[&str] = &[
-    "market", "signal", "update", "analysis", "news", "general", "trade", "stock", "stocks",
-    "economy", "finance", "investing", "investment",
+    "market",
+    "signal",
+    "update",
+    "analysis",
+    "news",
+    "general",
+    "trade",
+    "stock",
+    "stocks",
+    "economy",
+    "finance",
+    "investing",
+    "investment",
 ];
 
 impl Strategy for ConvergenceStrategy {
@@ -175,9 +201,7 @@ impl Strategy for ConvergenceStrategy {
 
                 // Only treat tags that were ALREADY uppercase as tickers.
                 // This avoids false positives like "china" → "CHINA".
-                if !tag.is_empty()
-                    && tag.len() <= 5
-                    && tag.chars().all(|c| c.is_ascii_uppercase())
+                if !tag.is_empty() && tag.len() <= 5 && tag.chars().all(|c| c.is_ascii_uppercase())
                 {
                     cluster.tickers.insert(tag.to_string());
                 }
@@ -249,8 +273,7 @@ impl Strategy for ConvergenceStrategy {
             let score = Opportunity::compute_score(confidence, None, None);
 
             let source_list = {
-                let mut s: Vec<&str> =
-                    cluster.source_types.iter().map(|s| s.as_str()).collect();
+                let mut s: Vec<&str> = cluster.source_types.iter().map(|s| s.as_str()).collect();
                 s.sort();
                 s.join(", ")
             };

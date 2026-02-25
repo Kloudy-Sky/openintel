@@ -165,11 +165,7 @@ impl OpenIntel {
             trade_uc: TradeUseCase::new(trade_repo.clone()),
             resolve_trades_uc: ResolveTradesUseCase::new(trade_repo.clone()),
             alerts_uc: AlertsUseCase::new(intel_repo.clone()),
-            opportunities_uc: OpportunitiesUseCase::new(
-                intel_repo.clone(),
-                trade_repo,
-                strategies,
-            ),
+            opportunities_uc: OpportunitiesUseCase::new(intel_repo.clone(), trade_repo, strategies),
             stats_uc: StatsUseCase::new(intel_repo.clone()),
             summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
             reindex_uc: ReindexUseCase::new(intel_repo, embedder, vector_store),

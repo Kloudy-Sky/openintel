@@ -33,9 +33,7 @@ impl Strategy for EarningsMomentumStrategy {
             let text_lower = format!("{} {}", entry.title, entry.body).to_lowercase();
 
             // Check if entry is earnings-related
-            let is_earnings = earnings_keywords
-                .iter()
-                .any(|kw| text_lower.contains(kw));
+            let is_earnings = earnings_keywords.iter().any(|kw| text_lower.contains(kw));
             if !is_earnings {
                 continue;
             }

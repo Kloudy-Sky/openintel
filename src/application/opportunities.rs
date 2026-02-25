@@ -91,11 +91,7 @@ impl OpportunitiesUseCase {
                     all_opportunities.append(&mut opps);
                 }
                 Err(e) => {
-                    eprintln!(
-                        "WARNING: Strategy '{}' failed: {}",
-                        strategy.name(),
-                        e
-                    );
+                    eprintln!("WARNING: Strategy '{}' failed: {}", strategy.name(), e);
                 }
             }
         }

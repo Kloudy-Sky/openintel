@@ -81,7 +81,7 @@ impl Opportunity {
             Some(edge) => confidence * edge,
             None => confidence * 100.0,
         };
-        let liq_factor = liquidity.unwrap_or(1.0).max(0.0).sqrt();
+        let liq_factor = liquidity.unwrap_or(1.0).clamp(0.0, 1.0).sqrt();
         base * liq_factor
     }
 }

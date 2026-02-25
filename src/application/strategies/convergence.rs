@@ -7,6 +7,11 @@
 //! should be much higher.
 //!
 //! Implements Issue #21.
+//!
+//! **Note on overlap with `TagConvergenceStrategy`:** Both strategies cluster
+//! entries by tag, but this strategy adds directional alignment scoring,
+//! time-decay weighting, and position-awareness. Some overlap in output is
+//! expected — cross-strategy deduplication is planned for a future PR.
 
 use std::collections::{HashMap, HashSet};
 
@@ -32,11 +37,11 @@ struct Cluster {
     source_types: HashSet<String>,
     /// Unique sources (e.g., "Morning Brew", "Yahoo Finance").
     sources: HashSet<String>,
-    /// Bullish/positive signal count.
-    bullish: i32,
-    /// Bearish/negative signal count.
-    bearish: i32,
-    /// Whether any entry has a ticker-like tag (tradeable).
+    /// Bullish/positive signal count (time-weighted).
+    bullish: f64,
+    /// Bearish/negative signal count (time-weighted).
+    bearish: f64,
+    /// Ticker symbols found in entries (only tags that were already uppercase).
     tickers: HashSet<String>,
     /// Titles for description building.
     titles: Vec<String>,
@@ -49,8 +54,8 @@ impl Cluster {
             entry_ids: Vec::new(),
             source_types: HashSet::new(),
             sources: HashSet::new(),
-            bullish: 0,
-            bearish: 0,
+            bullish: 0.0,
+            bearish: 0.0,
             tickers: HashSet::new(),
             titles: Vec::new(),
         }
@@ -62,14 +67,14 @@ impl Cluster {
 
     fn directional_alignment(&self) -> f64 {
         let total = self.bullish + self.bearish;
-        if total == 0 {
+        if total < 0.01 {
             return 0.5; // neutral — no directional signal
         }
-        (self.bullish - self.bearish).unsigned_abs() as f64 / total as f64
+        (self.bullish - self.bearish).abs() / total
     }
 
     fn dominant_direction(&self) -> Option<Direction> {
-        if self.bullish == 0 && self.bearish == 0 {
+        if self.bullish < 0.01 && self.bearish < 0.01 {
             return None;
         }
         if self.bullish > self.bearish {
@@ -80,16 +85,24 @@ impl Cluster {
             None // mixed signals
         }
     }
+
+    /// Get tickers sorted for deterministic output.
+    fn sorted_tickers(&self) -> Vec<String> {
+        let mut t: Vec<String> = self.tickers.iter().cloned().collect();
+        t.sort();
+        t
+    }
 }
 
 /// Detects cross-source convergence on shared topics with directional alignment.
 ///
 /// Unlike `TagConvergenceStrategy` which only counts co-occurrence,
 /// this strategy also:
-/// - Applies time-decay weighting (recent entries matter more)
+/// - Applies time-decay weighting (recent entries contribute more to sentiment)
 /// - Checks directional alignment (bullish/bearish consensus)
 /// - Provides richer confidence scoring based on source diversity + alignment
 /// - Identifies tradeable tickers within convergence clusters
+/// - Detects overlap with existing open positions
 pub struct ConvergenceStrategy;
 
 const BULLISH_WORDS: &[&str] = &[
@@ -125,13 +138,16 @@ impl Strategy for ConvergenceStrategy {
             let source = entry.source.clone().unwrap_or_default();
             let text = format!("{} {}", entry.title, entry.body).to_lowercase();
 
-            // Compute time-decay weight (entries from last 6h weighted more)
+            // Time-decay weight: recent entries contribute more to sentiment.
+            // Half-life ~35 hours (decay constant 0.02/hr).
             let age_hours = (now - entry.created_at).num_hours().max(0) as f64;
-            let _time_weight = (-0.02 * age_hours).exp(); // e^(-0.02 * hours)
+            let time_weight = (-0.02 * age_hours).exp();
 
-            // Count sentiment
-            let bullish = BULLISH_WORDS.iter().filter(|w| text.contains(**w)).count() as i32;
-            let bearish = BEARISH_WORDS.iter().filter(|w| text.contains(**w)).count() as i32;
+            // Count sentiment, weighted by recency
+            let bullish =
+                BULLISH_WORDS.iter().filter(|w| text.contains(**w)).count() as f64 * time_weight;
+            let bearish =
+                BEARISH_WORDS.iter().filter(|w| text.contains(**w)).count() as f64 * time_weight;
 
             for tag in &entry.tags {
                 let tag_lower = tag.to_lowercase();
@@ -157,13 +173,13 @@ impl Strategy for ConvergenceStrategy {
                 cluster.bearish += bearish;
                 cluster.titles.push(entry.title.clone());
 
-                // Track ticker-like tags (1-5 uppercase alpha chars)
-                let tag_upper = tag.to_uppercase();
-                if !tag_upper.is_empty()
-                    && tag_upper.len() <= 5
-                    && tag_upper.chars().all(|c| c.is_ascii_alphabetic())
+                // Only treat tags that were ALREADY uppercase as tickers.
+                // This avoids false positives like "china" → "CHINA".
+                if !tag.is_empty()
+                    && tag.len() <= 5
+                    && tag.chars().all(|c| c.is_ascii_uppercase())
                 {
-                    cluster.tickers.insert(tag_upper);
+                    cluster.tickers.insert(tag.to_string());
                 }
             }
         }
@@ -187,8 +203,9 @@ impl Strategy for ConvergenceStrategy {
 
             let alignment = cluster.directional_alignment();
 
-            // Confidence: base from entry count, boosted by source diversity and alignment
-            // Formula from Issue #21: base × (1 + 0.15 × unique_sources) × alignment
+            // Confidence: base from entry count, boosted by source diversity and alignment.
+            // Formula: base × (1 + 0.15 × (source_diversity - 1)) × alignment_factor
+            // The -1 ensures a single source type gets no diversity boost.
             let base_confidence = (cluster.entry_ids.len() as f64 / 10.0).min(0.7);
             let diversity_boost = 1.0 + 0.15 * (cluster.source_diversity() as f64 - 1.0);
             let alignment_factor = 0.5 + 0.5 * alignment;
@@ -211,18 +228,19 @@ impl Strategy for ConvergenceStrategy {
                 _ => "mixed",
             };
 
-            let primary_ticker = cluster.tickers.iter().next().cloned();
+            // Deterministic ticker selection (sorted)
+            let sorted_tickers = cluster.sorted_tickers();
+            let primary_ticker = sorted_tickers.first().cloned();
 
             let mut action_parts = Vec::new();
             if has_position {
-                action_parts.push(format!(
-                    "⚠️ Already have position in {}",
-                    cluster
-                        .tickers
-                        .intersection(&active_tickers)
-                        .next()
-                        .unwrap_or(&String::new())
-                ));
+                // Intersection is guaranteed non-empty when has_position is true
+                let overlap_ticker = cluster
+                    .tickers
+                    .intersection(&active_tickers)
+                    .next()
+                    .expect("has_position guarantees non-empty intersection");
+                action_parts.push(format!("⚠️ Already have position in {}", overlap_ticker));
             }
             action_parts.push(format!(
                 "Investigate '{}' — {} signals from {} sources",
@@ -234,7 +252,8 @@ impl Strategy for ConvergenceStrategy {
             let score = Opportunity::compute_score(confidence, None, None);
 
             let source_list = {
-                let mut s: Vec<&str> = cluster.source_types.iter().map(|s| s.as_str()).collect();
+                let mut s: Vec<&str> =
+                    cluster.source_types.iter().map(|s| s.as_str()).collect();
                 s.sort();
                 s.join(", ")
             };

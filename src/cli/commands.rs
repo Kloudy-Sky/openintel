@@ -139,6 +139,12 @@ pub enum Commands {
         #[arg(long, default_value = "24")]
         hours: u32,
     },
+    /// Scan for signal patterns and generate alerts
+    Scan {
+        /// Hours to look back (default: 24)
+        #[arg(long, default_value = "24")]
+        hours: u32,
+    },
     /// Reindex entries missing vector embeddings
     Reindex,
 }

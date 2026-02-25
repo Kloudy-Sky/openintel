@@ -4,6 +4,7 @@ pub mod domain;
 pub mod infrastructure;
 
 use crate::application::add_intel::{AddIntelUseCase, AddResult};
+use crate::application::alerts::{AlertScan, AlertsUseCase};
 use crate::application::query::QueryUseCase;
 use crate::application::reindex::ReindexUseCase;
 use crate::application::search::SearchUseCase;
@@ -34,6 +35,7 @@ use std::sync::Arc;
 
 pub struct OpenIntel {
     add_intel_uc: AddIntelUseCase,
+    alerts_uc: AlertsUseCase,
     search_uc: SearchUseCase,
     query_uc: QueryUseCase,
     trade_uc: TradeUseCase,
@@ -148,6 +150,7 @@ impl OpenIntel {
             ),
             query_uc: QueryUseCase::new(intel_repo.clone()),
             trade_uc: TradeUseCase::new(trade_repo),
+            alerts_uc: AlertsUseCase::new(intel_repo.clone()),
             stats_uc: StatsUseCase::new(intel_repo.clone()),
             summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
             reindex_uc: ReindexUseCase::new(intel_repo, embedder, vector_store),
@@ -278,6 +281,10 @@ impl OpenIntel {
 
     pub fn summarize(&self, hours: u32) -> Result<DailySummary, DomainError> {
         self.summarize_uc.execute(hours)
+    }
+
+    pub fn scan_alerts(&self, window_hours: u32) -> Result<AlertScan, DomainError> {
+        self.alerts_uc.scan(window_hours)
     }
 
     pub async fn reindex(&self) -> Result<usize, DomainError> {

@@ -1,4 +1,5 @@
 pub mod add_intel;
+pub mod alerts;
 pub mod query;
 pub mod reindex;
 pub mod search;

@@ -68,6 +68,7 @@ impl ResolveTradesUseCase {
         let open_trades = self.trade_repo.list_trades(&TradeFilter {
             limit: None,
             since: None,
+            until: None,
             resolved: Some(false),
         })?;
 
@@ -133,6 +134,7 @@ impl ResolveTradesUseCase {
         let open_trades = self.trade_repo.list_trades(&TradeFilter {
             limit: None,
             since: None,
+            until: None,
             resolved: Some(false),
         })?;
 

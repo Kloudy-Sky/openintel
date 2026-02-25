@@ -302,7 +302,6 @@ impl OpenIntel {
     /// List pending (unresolved) trades without attempting resolution.
     pub fn pending_trades(&self) -> Result<ResolveReport, DomainError> {
         self.resolve_trades_uc.pending()
->>>>>>> 2499aea (feat: auto trade resolution framework (#10))
     }
 
     pub async fn reindex(&self) -> Result<usize, DomainError> {

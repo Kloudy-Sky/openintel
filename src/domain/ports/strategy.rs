@@ -19,6 +19,16 @@ use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::entities::trade::Trade;
 use crate::domain::error::DomainError;
 
+/// Suggested trade direction for an opportunity.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    Bullish,
+    Bearish,
+    Yes,
+    No,
+}
+
 /// An opportunity detected by a strategy.
 ///
 /// Represents an actionable trading signal with confidence scoring,
@@ -39,13 +49,15 @@ pub struct Opportunity {
     pub edge_cents: Option<f64>,
     /// Suggested market ticker to trade.
     pub market_ticker: Option<String>,
-    /// Suggested direction ("yes" or "no").
-    pub suggested_direction: Option<String>,
+    /// Suggested trade direction.
+    pub suggested_direction: Option<Direction>,
     /// Suggested action (e.g., "Buy 80 contracts at 28c").
     pub suggested_action: Option<String>,
     /// IDs of supporting intel entries.
     pub supporting_entries: Vec<String>,
-    /// Composite score: confidence × edge × liquidity factor.
+    /// Composite score: `confidence × edge_cents`, or `confidence × 100`
+    /// when no edge estimate is available. Liquidity factor is planned (#22)
+    /// but not yet included.
     pub score: f64,
     /// When this opportunity was detected.
     pub detected_at: DateTime<Utc>,

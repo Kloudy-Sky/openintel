@@ -3,12 +3,12 @@
 //! Detects when multiple intel entries about the same ticker show strong
 //! directional signals from earnings (beats, misses, guidance).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 
 use crate::domain::error::DomainError;
-use crate::domain::ports::strategy::{DetectionContext, Opportunity, Strategy};
+use crate::domain::ports::strategy::{DetectionContext, Direction, Opportunity, Strategy};
 
 /// Detects earnings momentum when multiple signals converge on a ticker.
 pub struct EarningsMomentumStrategy;
@@ -19,9 +19,11 @@ impl Strategy for EarningsMomentumStrategy {
     }
 
     fn detect(&self, ctx: &DetectionContext) -> Result<Vec<Opportunity>, DomainError> {
-        // Group entries by ticker mentions in tags
-        let mut ticker_signals: HashMap<String, Vec<(String, String, String)>> =
-            HashMap::new();
+        // Group entries by ticker mentions in tags.
+        // Track entry IDs per ticker to avoid double-counting entries
+        // that have multiple ticker tags.
+        let mut ticker_signals: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
+        let mut ticker_entry_ids: HashMap<String, HashSet<String>> = HashMap::new();
 
         let earnings_keywords = [
             "earnings", "beat", "miss", "guidance", "revenue", "eps", "q1", "q2", "q3", "q4",
@@ -41,14 +43,22 @@ impl Strategy for EarningsMomentumStrategy {
             // Extract ticker-like tags (uppercase, 1-5 chars)
             for tag in &entry.tags {
                 let tag_upper = tag.to_uppercase();
-                if tag_upper.len() >= 1
+                if !tag_upper.is_empty()
                     && tag_upper.len() <= 5
                     && tag_upper.chars().all(|c| c.is_ascii_alphabetic())
                 {
-                    ticker_signals
-                        .entry(tag_upper)
-                        .or_default()
-                        .push((entry.title.clone(), entry.body.clone(), entry.id.clone()));
+                    // Skip if this entry was already added under this ticker
+                    let ids = ticker_entry_ids.entry(tag_upper.clone()).or_default();
+                    if ids.contains(&entry.id) {
+                        continue;
+                    }
+                    ids.insert(entry.id.clone());
+
+                    ticker_signals.entry(tag_upper).or_default().push((
+                        entry.title.clone(),
+                        entry.body.clone(),
+                        entry.id.clone(),
+                    ));
                 }
             }
         }
@@ -95,9 +105,15 @@ impl Strategy for EarningsMomentumStrategy {
             }
 
             let direction = if bullish_count > bearish_count {
-                "bullish"
+                Direction::Bullish
             } else {
-                "bearish"
+                Direction::Bearish
+            };
+
+            let direction_label = match &direction {
+                Direction::Bullish => "bullish",
+                Direction::Bearish => "bearish",
+                _ => "neutral",
             };
 
             let alignment =
@@ -121,20 +137,20 @@ impl Strategy for EarningsMomentumStrategy {
                 title: format!(
                     "{} — {} earnings momentum ({} signals)",
                     ticker,
-                    direction,
+                    direction_label,
                     signals.len()
                 ),
                 description: format!(
                     "{} entries point {} for {} (alignment: {:.0}%)",
                     signals.len(),
-                    direction,
+                    direction_label,
                     ticker,
                     alignment * 100.0
                 ),
                 confidence,
                 edge_cents: None,
                 market_ticker: Some(ticker.clone()),
-                suggested_direction: Some(direction.to_string()),
+                suggested_direction: Some(direction),
                 suggested_action: None,
                 supporting_entries: supporting,
                 score,
@@ -142,9 +158,7 @@ impl Strategy for EarningsMomentumStrategy {
             });
         }
 
-        // Sort by score descending
-        opportunities.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-
+        // No sorting here — OpportunitiesUseCase handles final ranking.
         Ok(opportunities)
     }
 }

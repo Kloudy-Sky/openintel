@@ -157,5 +157,11 @@ pub enum Commands {
         /// Minimum score threshold
         #[arg(long)]
         min_score: Option<f64>,
+        /// Maximum intel entries to scan (default: 500)
+        #[arg(long)]
+        entry_limit: Option<usize>,
+        /// Maximum opportunities to return
+        #[arg(long)]
+        limit: Option<usize>,
     },
 }

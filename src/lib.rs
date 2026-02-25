@@ -311,8 +311,11 @@ impl OpenIntel {
         &self,
         window_hours: u32,
         min_score: Option<f64>,
+        entry_limit: Option<usize>,
+        result_limit: Option<usize>,
     ) -> Result<OpportunityScan, DomainError> {
-        self.opportunities_uc.execute(window_hours, min_score)
+        self.opportunities_uc
+            .execute(window_hours, min_score, entry_limit, result_limit)
     }
 
     /// Check open trades and auto-resolve against resolution sources.

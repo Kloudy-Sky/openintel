@@ -21,10 +21,8 @@ impl Strategy for TagConvergenceStrategy {
 
     fn detect(&self, ctx: &DetectionContext) -> Result<Vec<Opportunity>, DomainError> {
         // Group entries by tag, tracking source diversity
-        let mut tag_clusters: HashMap<
-            String,
-            Vec<(String, String, String, String)>,
-        > = HashMap::new();
+        let mut tag_clusters: HashMap<String, Vec<(String, String, String, String)>> =
+            HashMap::new();
 
         // Skip overly generic tags
         let skip_tags: HashSet<&str> = [
@@ -34,7 +32,7 @@ impl Strategy for TagConvergenceStrategy {
         .collect();
 
         for entry in &ctx.entries {
-            let source_type = format!("{:?}", entry.source_type);
+            let source_type = entry.source_type.to_string();
             for tag in &entry.tags {
                 let tag_lower = tag.to_lowercase();
                 if skip_tags.contains(tag_lower.as_str()) || tag_lower.len() < 2 {
@@ -111,16 +109,7 @@ impl Strategy for TagConvergenceStrategy {
             });
         }
 
-        // Sort by score descending
-        opportunities.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Return top 10 to avoid noise
-        opportunities.truncate(10);
-
+        // No sorting or truncation here — OpportunitiesUseCase handles final ranking and limits.
         Ok(opportunities)
     }
 }

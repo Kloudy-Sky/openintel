@@ -7,6 +7,7 @@ use crate::application::add_intel::{AddIntelUseCase, AddResult};
 use crate::application::alerts::{AlertScan, AlertsUseCase};
 use crate::application::query::QueryUseCase;
 use crate::application::reindex::ReindexUseCase;
+use crate::application::resolve_trades::{ResolveReport, ResolveTradesUseCase};
 use crate::application::search::SearchUseCase;
 use crate::application::stats::StatsUseCase;
 use crate::application::summarize::{DailySummary, SummarizeUseCase};
@@ -16,6 +17,7 @@ use crate::domain::entities::trade::Trade;
 use crate::domain::error::DomainError;
 use crate::domain::ports::embedding_port::EmbeddingProvider;
 use crate::domain::ports::intel_repository::{IntelRepository, IntelStats, TagCount};
+use crate::domain::ports::resolution_source::ResolutionSource;
 use crate::domain::ports::trade_repository::TradeRepository;
 use crate::domain::ports::vector_store::VectorStore;
 use crate::domain::values::category::Category;
@@ -39,6 +41,7 @@ pub struct OpenIntel {
     search_uc: SearchUseCase,
     query_uc: QueryUseCase,
     trade_uc: TradeUseCase,
+    resolve_trades_uc: ResolveTradesUseCase,
     stats_uc: StatsUseCase,
     summarize_uc: SummarizeUseCase,
     reindex_uc: ReindexUseCase,
@@ -149,7 +152,8 @@ impl OpenIntel {
                 vector_store.clone(),
             ),
             query_uc: QueryUseCase::new(intel_repo.clone()),
-            trade_uc: TradeUseCase::new(trade_repo),
+            trade_uc: TradeUseCase::new(trade_repo.clone()),
+            resolve_trades_uc: ResolveTradesUseCase::new(trade_repo),
             alerts_uc: AlertsUseCase::new(intel_repo.clone()),
             stats_uc: StatsUseCase::new(intel_repo.clone()),
             summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
@@ -285,6 +289,19 @@ impl OpenIntel {
 
     pub fn scan_alerts(&self, window_hours: u32) -> Result<AlertScan, DomainError> {
         self.alerts_uc.scan(window_hours)
+    }
+
+    /// Check open trades and auto-resolve against resolution sources.
+    pub async fn resolve_trades(
+        &self,
+        sources: &[Arc<dyn ResolutionSource>],
+    ) -> Result<ResolveReport, DomainError> {
+        self.resolve_trades_uc.execute(sources).await
+    }
+
+    /// List pending (unresolved) trades without attempting resolution.
+    pub fn pending_trades(&self) -> Result<ResolveReport, DomainError> {
+        self.resolve_trades_uc.pending()
     }
 
     pub async fn reindex(&self) -> Result<usize, DomainError> {

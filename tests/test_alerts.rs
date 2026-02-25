@@ -1,5 +1,6 @@
 use openintel::application::alerts::{AlertKind, AlertSeverity};
 use openintel::domain::values::category::Category;
+use openintel::domain::values::source_type::SourceType;
 use openintel::infrastructure::embeddings::noop::NoopProvider;
 use openintel::OpenIntel;
 use std::sync::Arc;
@@ -30,7 +31,9 @@ async fn test_tag_concentration_alert() {
             vec!["btc".into()],
             None,
             None,
+            SourceType::External,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -63,7 +66,9 @@ async fn test_tag_concentration_critical() {
             vec!["crash".into()],
             None,
             None,
+            SourceType::External,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -93,7 +98,9 @@ async fn test_volume_spike_alert() {
             vec![],
             None,
             None,
+            SourceType::External,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -122,7 +129,9 @@ async fn test_actionable_cluster_alert() {
             vec![],
             Some(0.9),
             Some(true),
+            SourceType::External,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -151,7 +160,9 @@ async fn test_actionable_cluster_critical() {
             vec![],
             Some(0.95),
             Some(true),
+            SourceType::External,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -179,7 +190,9 @@ async fn test_no_alerts_below_thresholds() {
         vec!["lonely".into()],
         None,
         None,
+        SourceType::External,
         None,
+        false,
     )
     .await
     .unwrap();

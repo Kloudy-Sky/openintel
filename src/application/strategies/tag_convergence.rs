@@ -79,7 +79,7 @@ impl Strategy for TagConvergenceStrategy {
             let mut source_list: Vec<&str> = unique_sources.into_iter().collect();
             source_list.sort();
 
-            let score = Opportunity::compute_score(confidence, None);
+            let score = Opportunity::compute_score(confidence, None, None);
 
             opportunities.push(Opportunity {
                 strategy: self.name().to_string(),
@@ -106,6 +106,7 @@ impl Strategy for TagConvergenceStrategy {
                 )),
                 supporting_entries: supporting,
                 score,
+                liquidity: None,
                 detected_at: Utc::now(),
             });
         }

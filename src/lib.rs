@@ -11,6 +11,7 @@ use crate::application::reindex::ReindexUseCase;
 use crate::application::resolve_trades::{ResolveReport, ResolveTradesUseCase};
 use crate::application::search::SearchUseCase;
 use crate::application::stats::StatsUseCase;
+use crate::application::strategies::convergence::ConvergenceStrategy;
 use crate::application::strategies::earnings_momentum::EarningsMomentumStrategy;
 use crate::application::strategies::tag_convergence::TagConvergenceStrategy;
 use crate::application::summarize::{DailySummary, SummarizeUseCase};
@@ -148,6 +149,7 @@ impl OpenIntel {
         let strategies: Vec<Box<dyn crate::domain::ports::strategy::Strategy>> = vec![
             Box::new(EarningsMomentumStrategy),
             Box::new(TagConvergenceStrategy),
+            Box::new(ConvergenceStrategy),
         ];
 
         Ok(Self {

@@ -216,10 +216,7 @@ impl Strategy for ConvergenceStrategy {
             }
 
             // Check if we already have a position in any of the cluster's tickers
-            let has_position = cluster
-                .tickers
-                .iter()
-                .any(|t| active_tickers.contains(t));
+            let has_position = cluster.tickers.iter().any(|t| active_tickers.contains(t));
 
             let direction = cluster.dominant_direction();
             let direction_label = match &direction {

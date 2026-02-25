@@ -72,11 +72,7 @@ impl Opportunity {
     /// - If no edge estimate, uses `confidence × 100` as proxy.
     /// - If no liquidity data, assumes 1.0 (no penalty).
     /// - Thin markets (low liquidity) get penalized via sqrt dampening.
-    pub fn compute_score(
-        confidence: f64,
-        edge_cents: Option<f64>,
-        liquidity: Option<f64>,
-    ) -> f64 {
+    pub fn compute_score(confidence: f64, edge_cents: Option<f64>, liquidity: Option<f64>) -> f64 {
         let base = match edge_cents {
             Some(edge) => confidence * edge,
             None => confidence * 100.0,

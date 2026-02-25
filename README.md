@@ -1,336 +1,212 @@
-# OpenIntel
+<p align="center">
+  <h1 align="center">🎯 OpenIntel</h1>
+</p>
 
-**Structured intelligence knowledge base with hybrid semantic + keyword search, built in Rust.**
+<p align="center">
+  <em>A structured intelligence engine with hybrid semantic search, strategy detection, and trade journaling — built in Rust.</em>
+</p>
 
-OpenIntel is an embedded, file-based intelligence store built on SQLite with optional vector embeddings. It's designed for autonomous agents, trading systems, research pipelines, and anyone who needs structured signal storage with powerful retrieval.
+<p align="center">
+  <a href="https://github.com/Kloudy-Sky/openintel/actions"><img src="https://github.com/Kloudy-Sky/openintel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Kloudy-Sky/openintel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://github.com/Kloudy-Sky/openintel"><img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust"></a>
+</p>
 
-## Why OpenIntel?
+---
 
-Most vector databases are designed for large-scale cloud deployments with complex infrastructure. OpenIntel takes the opposite approach — **SQLite-simple, single-file, zero infrastructure.** Think of it as "SQLite for intelligence."
+> Most vector databases want you to deploy Kubernetes, provision cloud infra, and pay per query. OpenIntel is a single binary and a single `.db` file. Add intelligence, search it with keywords or vectors, detect trading signals, and journal your trades. Copy two files to a new machine and you're done. If that sounds too simple, it is — that's the point.
 
-- **Structured entries** with categories, tags, confidence scores, and metadata
-- **Hybrid search** — BM25 keyword search + semantic vector similarity with Reciprocal Rank Fusion (RRF)
-- **Trade tracking** — built-in trade journal with P&L resolution
-- **Embedded** — single `.db` file, no server, no Docker, no K8s
-- **Pluggable embeddings** — bring your own embedding provider (Voyage, OpenAI, or none)
-- **Fast** — Rust-native performance with compile-time safety
-- **Portable** — just copy the binary and your `.db` file
+---
 
-## Architecture
+## Highlights
 
-OpenIntel follows **Domain-Driven Design (DDD)** principles with **Hexagonal Architecture**:
+- **Hybrid search** — BM25 keyword matching + semantic vector similarity with Reciprocal Rank Fusion
+- **Strategy engine** — pluggable signal detection with built-in earnings momentum, tag convergence, and cross-intel convergence strategies
+- **Opportunity scoring** — confidence × edge × √liquidity, ranked and ready to trade
+- **Trade journal** — track entries, exits, P&L, and auto-resolve trades against external sources
+- **Alert system** — volume spikes, confidence decay, actionable item tracking
+- **Daily summaries** — category breakdown, trending tags, confidence distribution
+- **SQLite everything** — single file, zero infrastructure, portable across machines
+- **Pluggable embeddings** — Voyage AI, OpenAI, or none (keyword search still works)
 
-```
-┌──────────────────────────────────────────────┐
-│                CLI Layer                      │
-│  (main.rs, cli/commands.rs)                  │
-├──────────────────────────────────────────────┤
-│          Application Layer                    │
-│  Use Cases:                                  │
-│  • add_intel  • search  • query              │
-│  • stats      • trade   • reindex            │
-├──────────────────────────────────────────────┤
-│            Domain Layer                       │
-│  Entities:                                   │
-│    • IntelEntry  • Trade                     │
-│  Values:                                     │
-│    • Category  • Confidence  • TradeOutcome  │
-│  Ports (interfaces):                         │
-│    • IntelRepository  • TradeRepository      │
-│    • EmbeddingPort    • VectorStore          │
-├──────────────────────────────────────────────┤
-│        Infrastructure Layer                   │
-│  Adapters:                                   │
-│    • SQLite (rusqlite) - persistence         │
-│    • Voyage AI - embeddings                  │
-│    • OpenAI - embeddings                     │
-│    • NoOp - no embeddings                    │
-└──────────────────────────────────────────────┘
-```
+## Installation
 
-**Why this matters:**
-- Domain logic is isolated from databases and APIs
-- Easy to swap SQLite for Postgres or S3
-- Easy to add new embedding providers
-- Testable without infrastructure dependencies
-
-## Quick Start
-
-### Install from crates.io (coming soon)
+Build from source (requires Rust 1.75+):
 
 ```bash
-cargo install openintel
-```
-
-### Building from source
-
-```bash
-# Clone the repo
 git clone https://github.com/Kloudy-Sky/openintel.git
 cd openintel
-
-# Build release binary
-cargo build --release
-
-# Binary will be at target/release/openintel
-./target/release/openintel --help
-
-# Or install to ~/.cargo/bin
 cargo install --path .
 ```
 
-### First usage
+Or grab the release binary:
 
 ```bash
-# Add an intel entry
-openintel add market '{"title":"AAPL earnings beat","body":"Revenue up 8% YoY","tags":["AAPL","earnings"],"confidence":0.9}'
-
-# Keyword search
-openintel search "Apple revenue"
-
-# Query by category
-openintel query market --limit 10
-
-# Stats
-openintel stats
+cargo build --release
+# → target/release/openintel
 ```
 
-## CLI Commands
+## Quick Start
 
-### Intel Management
+```console
+$ openintel add market '{"title":"AAPL beats earnings","body":"Revenue up 8% YoY, services at ATH","tags":["AAPL","earnings","beat"],"confidence":0.9}'
 
-```bash
-# Add an entry
-openintel add <category> '<json>'
+$ openintel search "Apple revenue"
 
-# Categories: market, newsletter, social, trading, opportunity, competitor, general
-# JSON fields: title (required), body, source, tags, confidence, actionable, metadata
+$ openintel opportunities --hours 48
 
-# Example
-openintel add market '{
-  "title": "Fed signals dovish pivot",
-  "body": "FOMC minutes suggest 25bp cut likely in March...",
-  "tags": ["fed", "rates", "macro"],
-  "confidence": 0.8,
-  "actionable": true,
-  "source": "Reuters"
-}'
+$ openintel scan --hours 24
+
+$ openintel stats
 ```
 
-### Search & Query
+## Commands
 
-```bash
-# Keyword search (BM25)
-openintel search "federal reserve rates" --limit 10
+| Command | Description |
+|---------|-------------|
+| `add <category> '<json>'` | Add an intel entry |
+| `search <query>` | BM25 keyword search |
+| `semantic <query>` | Vector similarity search |
+| `think <query>` | Hybrid search (BM25 + vector + RRF) |
+| `query <category>` | Query by category with filters |
+| `opportunities` | Run all strategies, rank signals |
+| `scan` | Alert scan — volume spikes, decay, actionable items |
+| `summarize` | Daily intelligence summary |
+| `pending` | Show actionable items needing attention |
+| `stats` | Database statistics |
+| `tags [category]` | Tag frequency counts |
+| `trade-add '<json>'` | Open a trade |
+| `trade-resolve <id> <outcome> <pnl>` | Close a trade |
+| `trades` | List trades with filters |
+| `reindex` | Re-embed entries missing vectors |
+| `export` | Export entries as JSON |
 
-# Semantic vector search (requires embedding provider)
-openintel semantic "monetary policy changes" --limit 10
+## Strategies
 
-# Hybrid search (keyword + semantic with RRF fusion)
-openintel think "interest rate policy" --limit 10
+OpenIntel ships with three detection strategies. Each implements the `Strategy` trait and can be extended:
 
-# Query by category
-openintel query market --limit 20 --since 2024-01-01 --tag fed
+| Strategy | Signal | What it detects |
+|----------|--------|-----------------|
+| `earnings_momentum` | Tag frequency + sentiment | Stocks with multiple bullish/bearish mentions across sources |
+| `tag_convergence` | Co-occurring tags | Tags appearing together repeatedly, suggesting a trend |
+| `convergence` | Cross-source clustering | Same topic from multiple source types with time-decay weighted sentiment |
+
+```console
+$ openintel opportunities --hours 48
+{
+  "strategies_run": 3,
+  "entries_scanned": 59,
+  "opportunities": [
+    {
+      "title": "CRCL — bullish earnings momentum (4 signals)",
+      "confidence": 0.80,
+      "score": 80,
+      "suggested_direction": "bullish",
+      "market_ticker": "CRCL",
+      "strategy": "earnings_momentum"
+    }
+  ]
+}
 ```
 
-### Analytics
+### Custom Strategies
 
-```bash
-# Database statistics
-openintel stats
+Implement `domain::ports::strategy::Strategy` to add your own:
 
-# List tags with counts
-openintel tags
-
-# List tags for a specific category
-openintel tags market
+```rust
+pub trait Strategy: Send + Sync {
+    fn name(&self) -> &str;
+    fn detect(&self, ctx: &DetectionContext) -> Vec<Opportunity>;
+}
 ```
 
-### Trade Journal
+See [src/application/strategies/](src/application/strategies/) for examples.
 
-```bash
-# Add a trade
-openintel trade-add '{
-  "ticker": "AAPL",
-  "direction": "long",
-  "contracts": 100,
-  "entry_price": 185.50,
-  "thesis": "Earnings momentum + services growth"
-}'
+## Architecture
 
-# Resolve a trade
-openintel trade-resolve <trade-id> win 350 --exit-price 189.00
+```
+domain/           Pure types, zero dependencies
+  entities/       IntelEntry, Trade
+  values/         Category, Confidence, Decay
+  ports/          Repository, Embedding, Strategy traits
 
-# List trades
-openintel trades --limit 20
-openintel trades --since 2024-01-01
-openintel trades --resolved true
+application/      Use-case orchestration
+  strategies/     EarningsMomentum, TagConvergence, Convergence
+
+infrastructure/   Adapters
+  sqlite/         Persistence (rusqlite)
+  embeddings/     Voyage AI, OpenAI, NoOp
+
+cli/              Commands and argument parsing
 ```
 
-### Export & Maintenance
-
-```bash
-# Export entries as JSON
-openintel export --since 2024-01-01 --category market > export.json
-
-# Re-embed entries missing vectors (after adding embedding provider)
-openintel reindex
-```
-
-## Hybrid Search Architecture
-
-OpenIntel combines **BM25 keyword matching** with **vector semantic similarity** using **Reciprocal Rank Fusion (RRF)**:
-
-1. **BM25 Search**: SQLite full-text search on title + body + tags
-2. **Vector Search**: Cosine similarity on embeddings (if provider configured)
-3. **RRF Fusion**: Combines rankings from both methods for optimal results
-
-**Why RRF?**
-- Keyword search finds exact term matches
-- Vector search finds semantic/conceptual matches
-- RRF merges both without score normalization issues
-- Works even if only one method returns results
+Hexagonal architecture — domain logic knows nothing about databases, APIs, or the CLI.
 
 ## Embedding Providers
 
-OpenIntel supports pluggable embedding providers. Configure via environment variables:
-
-### Voyage AI (recommended)
+Configure via environment variables:
 
 ```bash
+# Voyage AI (recommended)
 export OPENINTEL_EMBEDDING_PROVIDER=voyage
-export OPENINTEL_EMBEDDING_MODEL=voyage-3-lite  # or voyage-4-lite
-export VOYAGE_API_KEY=pa-xxx...
-```
+export OPENINTEL_EMBEDDING_MODEL=voyage-3-lite
+export VOYAGE_API_KEY=pa-xxx
 
-### OpenAI
-
-```bash
+# OpenAI
 export OPENINTEL_EMBEDDING_PROVIDER=openai
 export OPENINTEL_EMBEDDING_MODEL=text-embedding-3-small
-export OPENAI_API_KEY=sk-xxx...
-```
+export OPENAI_API_KEY=sk-xxx
 
-### No Embeddings (keyword-only)
-
-```bash
-# Don't set OPENINTEL_EMBEDDING_PROVIDER
-# or set it to "noop"
-```
-
-Without an embedding provider, you still get fast keyword search — you just lose semantic/hybrid search capabilities.
-
-## Database Schema
-
-The database is plain SQLite — you can query it directly with `sqlite3`:
-
-### Intel Entries
-
-```sql
-CREATE TABLE intel (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  category TEXT NOT NULL,
-  title TEXT NOT NULL,
-  body TEXT,
-  source TEXT,
-  tags TEXT,  -- JSON array
-  confidence REAL,
-  actionable INTEGER,  -- 0 or 1
-  metadata TEXT,  -- JSON object
-  created_at TEXT NOT NULL,
-  expires_at TEXT,
-  embedding_text TEXT,  -- cached text for embedding
-  embedding BLOB  -- vector bytes
-);
-```
-
-### Trade Journal
-
-```sql
-CREATE TABLE trades (
-  id TEXT PRIMARY KEY,  -- UUID
-  ticker TEXT,
-  series_ticker TEXT,
-  direction TEXT,  -- long/short/yes/no
-  contracts INTEGER,
-  entry_price REAL,
-  exit_price REAL,
-  thesis TEXT,
-  outcome TEXT,  -- win/loss/scratch
-  pnl_cents INTEGER,
-  resolved_at TEXT,
-  created_at TEXT NOT NULL
-);
+# No embeddings (keyword search only)
+# Just don't set the provider — everything else still works.
 ```
 
 ## Configuration
 
-OpenIntel looks for configuration in environment variables:
-
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENINTEL_DB_PATH` | `./openintel.db` | SQLite database file path |
+| `OPENINTEL_DB` | `./openintel.db` | Database path |
 | `OPENINTEL_EMBEDDING_PROVIDER` | `noop` | `voyage`, `openai`, or `noop` |
-| `OPENINTEL_EMBEDDING_MODEL` | provider default | Model name (e.g., `voyage-3-lite`) |
-| `VOYAGE_API_KEY` | - | Voyage AI API key |
-| `OPENAI_API_KEY` | - | OpenAI API key |
+| `OPENINTEL_EMBEDDING_MODEL` | provider default | Embedding model name |
+| `VOYAGE_API_KEY` | — | Voyage AI key |
+| `OPENAI_API_KEY` | — | OpenAI key |
 
-## Performance
+## Categories
 
-OpenIntel is designed for **local agent workloads** (thousands to low millions of entries):
+Intel entries are typed by category:
 
-- **SQLite** — 1M+ entries on commodity hardware
-- **Rust** — zero-copy deserialization with `serde`
-- **Single file** — no network overhead, no connection pools
-- **Small binary** — ~5MB release build
-- **Zero runtime dependencies** — SQLite is bundled
-
-For 100B+ scale, use a cloud vector DB. For everything else, use OpenIntel.
+`market` · `newsletter` · `social` · `trading` · `opportunity` · `competitor` · `general` · `earnings` · `macro` · `crypto` · `weather` · `politics` · `technology` · `research` · `regulatory` · `sentiment` · `geopolitical` · `sector` · `company`
 
 ## Use Cases
 
-- **Autonomous agents** — memory and knowledge retrieval
-- **Trading systems** — market intelligence + trade journaling
-- **Research pipelines** — collect, tag, and search findings
-- **Newsletter analysis** — archive and semantically search content
-- **Competitive intelligence** — track competitor moves with confidence scores
-- **Personal knowledge base** — your second brain, embedded
-
-## Contributing
-
-We welcome contributions! This project is maintained by [Kloudy-Sky](https://github.com/Kloudy-Sky).
-
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Run tests: `cargo test`
-4. Format code: `cargo fmt`
-5. Lint: `cargo clippy`
-6. Commit and push your changes
-7. Open a PR
+- **Autonomous agents** — structured memory and retrieval
+- **Trading systems** — signal detection → opportunity scoring → trade journaling
+- **Research pipelines** — collect, tag, search, and surface insights
+- **Newsletter analysis** — archive and semantically query content
+- **Competitive intelligence** — track moves with confidence and decay
+- **Personal knowledge base** — your embedded second brain
 
 ## Development
 
 ```bash
-# Run tests
-cargo test
-
-# Run with debug logging
-RUST_LOG=debug cargo run -- stats
-
-# Format code
-cargo fmt
-
-# Lint
-cargo clippy
-
-# Build optimized release
-cargo build --release
+cargo test           # Run tests
+cargo fmt            # Format
+cargo clippy         # Lint
+cargo build --release  # Optimized build
+RUST_LOG=debug cargo run -- stats  # Debug logging
 ```
+
+## Contributing
+
+1. Fork → branch (`feat/my-feature`) → tests → `cargo fmt` → `cargo clippy` → PR
+2. All PRs run CI (fmt, clippy, tests) and automated Claude Code Review
 
 ## License
 
-MIT — see [Cargo.toml](Cargo.toml) for details.
+MIT — see [Cargo.toml](Cargo.toml).
 
 ---
 
-Built with 🎩 by [Jarvis](https://github.com/jrvsai) at [Kloudy-Sky](https://github.com/Kloudy-Sky)
+<p align="center">
+  Built with 🎩 by <a href="https://github.com/jrvsai">Jarvis</a> at <a href="https://github.com/Kloudy-Sky">Kloudy-Sky</a>
+</p>

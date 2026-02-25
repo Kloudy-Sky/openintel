@@ -55,22 +55,34 @@ pub struct Opportunity {
     pub suggested_action: Option<String>,
     /// IDs of supporting intel entries.
     pub supporting_entries: Vec<String>,
-    /// Composite score: `confidence × edge_cents`, or `confidence × 100`
-    /// when no edge estimate is available. Liquidity factor is planned (#22)
-    /// but not yet included.
+    /// Composite score: `confidence × edge_cents × sqrt(liquidity)`.
+    /// When edge is unknown, uses `confidence × 100`. When liquidity
+    /// is unknown, defaults to 1.0 (no penalty).
     pub score: f64,
+    /// Liquidity factor (0.0–1.0), normalized from 24h volume.
+    /// `None` when volume data is unavailable (defaults to 1.0 in scoring).
+    pub liquidity: Option<f64>,
     /// When this opportunity was detected.
     pub detected_at: DateTime<Utc>,
 }
 
 impl Opportunity {
-    /// Compute composite score from confidence and edge.
-    /// If no edge estimate, score is just confidence × 100.
-    pub fn compute_score(confidence: f64, edge_cents: Option<f64>) -> f64 {
-        match edge_cents {
+    /// Compute composite score: confidence × edge × sqrt(liquidity).
+    ///
+    /// - If no edge estimate, uses `confidence × 100` as proxy.
+    /// - If no liquidity data, assumes 1.0 (no penalty).
+    /// - Thin markets (low liquidity) get penalized via sqrt dampening.
+    pub fn compute_score(
+        confidence: f64,
+        edge_cents: Option<f64>,
+        liquidity: Option<f64>,
+    ) -> f64 {
+        let base = match edge_cents {
             Some(edge) => confidence * edge,
             None => confidence * 100.0,
-        }
+        };
+        let liq_factor = liquidity.unwrap_or(1.0).max(0.0).sqrt();
+        base * liq_factor
     }
 }
 

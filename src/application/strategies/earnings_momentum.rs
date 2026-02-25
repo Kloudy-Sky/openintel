@@ -128,7 +128,7 @@ impl Strategy for EarningsMomentumStrategy {
 
             let supporting: Vec<String> = signals.iter().map(|(_, _, id)| id.clone()).collect();
 
-            let score = Opportunity::compute_score(confidence, None);
+            let score = Opportunity::compute_score(confidence, None, None);
 
             opportunities.push(Opportunity {
                 strategy: self.name().to_string(),
@@ -153,6 +153,7 @@ impl Strategy for EarningsMomentumStrategy {
                 suggested_action: None,
                 supporting_entries: supporting,
                 score,
+                liquidity: None,
                 detected_at: Utc::now(),
             });
         }

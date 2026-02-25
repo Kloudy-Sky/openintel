@@ -131,12 +131,12 @@ async fn test_resolve_with_mock_source() {
 }
 
 #[tokio::test]
-async fn test_first_source_wins() {
+async fn test_source_fallthrough() {
     let oi = setup();
     oi.trade_add("TSLA".into(), None, TradeDirection::Short, 5, 200.0, None)
         .unwrap();
 
-    // NeverResolves comes first, MockResolution comes second — mock should win
+    // NeverResolves comes first (returns None), MockResolution comes second — mock should resolve
     let sources: Vec<Arc<dyn ResolutionSource>> = vec![
         Arc::new(NeverResolvesSource),
         Arc::new(MockResolutionSource),
@@ -145,4 +145,23 @@ async fn test_first_source_wins() {
 
     assert_eq!(report.resolved.len(), 1);
     assert_eq!(report.resolved[0].source, "mock");
+}
+
+#[tokio::test]
+async fn test_first_source_wins() {
+    let oi = setup();
+    oi.trade_add("AAPL".into(), None, TradeDirection::Long, 10, 150.0, None)
+        .unwrap();
+
+    // Both sources can resolve, but the first one's result should be used
+    let sources: Vec<Arc<dyn ResolutionSource>> = vec![
+        Arc::new(MockResolutionSource),
+        Arc::new(NeverResolvesSource),
+    ];
+    let report = oi.resolve_trades(&sources).await.unwrap();
+
+    assert_eq!(report.resolved.len(), 1);
+    assert_eq!(report.resolved[0].source, "mock");
+    // Key assertion: only one resolution, first source won
+    assert_eq!(report.errors.len(), 0);
 }

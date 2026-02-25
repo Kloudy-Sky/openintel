@@ -89,7 +89,7 @@ impl ResolveTradesUseCase {
                             result.exit_price,
                         ) {
                             errors.push(format!("Failed to resolve trade {}: {}", trade.id, e));
-                            continue;
+                            break;
                         }
 
                         resolved.push(ResolvedTrade {

@@ -113,7 +113,8 @@ impl Strategy for EarningsMomentumStrategy {
             let direction_label = match &direction {
                 Direction::Bullish => "bullish",
                 Direction::Bearish => "bearish",
-                _ => "neutral",
+                Direction::Yes => "yes",
+                Direction::No => "no",
             };
 
             let alignment =

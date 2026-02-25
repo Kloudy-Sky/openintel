@@ -76,7 +76,8 @@ impl Strategy for TagConvergenceStrategy {
 
             let supporting: Vec<String> = entries.iter().map(|(id, _, _, _)| id.clone()).collect();
 
-            let source_list: Vec<&str> = unique_sources.into_iter().collect();
+            let mut source_list: Vec<&str> = unique_sources.into_iter().collect();
+            source_list.sort();
 
             let score = Opportunity::compute_score(confidence, None);
 

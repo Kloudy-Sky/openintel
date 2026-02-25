@@ -149,4 +149,13 @@ pub enum Commands {
     Pending,
     /// Reindex entries missing vector embeddings
     Reindex,
+    /// Scan for trading opportunities using all registered strategies
+    Opportunities {
+        /// Hours to look back (default: 48)
+        #[arg(long, default_value = "48")]
+        hours: u32,
+        /// Minimum score threshold
+        #[arg(long)]
+        min_score: Option<f64>,
+    },
 }

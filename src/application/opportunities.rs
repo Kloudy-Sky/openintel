@@ -10,6 +10,7 @@ use crate::domain::error::DomainError;
 use crate::domain::ports::intel_repository::{IntelRepository, QueryFilter};
 use crate::domain::ports::strategy::{DetectionContext, Opportunity, Strategy};
 use crate::domain::ports::trade_repository::{TradeFilter, TradeRepository};
+use crate::domain::values::kelly::{compute_kelly, KellyConfig};
 
 /// Result of running all strategies.
 #[derive(Debug, Serialize)]
@@ -46,12 +47,34 @@ impl OpportunitiesUseCase {
     ///
     /// `entry_limit` caps how many recent entries to load (default 500).
     /// `result_limit` caps how many opportunities to return (default unlimited).
+    /// `bankroll_cents` enables Kelly criterion position sizing on each opportunity.
+    /// `kelly_config` customizes sizing parameters (defaults to half-Kelly with $25 cap).
     pub fn execute(
         &self,
         window_hours: u32,
         min_score: Option<f64>,
         entry_limit: Option<usize>,
         result_limit: Option<usize>,
+    ) -> Result<OpportunityScan, DomainError> {
+        self.execute_with_sizing(
+            window_hours,
+            min_score,
+            entry_limit,
+            result_limit,
+            None,
+            None,
+        )
+    }
+
+    /// Run all strategies with optional Kelly sizing.
+    pub fn execute_with_sizing(
+        &self,
+        window_hours: u32,
+        min_score: Option<f64>,
+        entry_limit: Option<usize>,
+        result_limit: Option<usize>,
+        bankroll_cents: Option<u64>,
+        kelly_config: Option<KellyConfig>,
     ) -> Result<OpportunityScan, DomainError> {
         let now = Utc::now();
         let since = now - Duration::hours(window_hours as i64);
@@ -109,9 +132,25 @@ impl OpportunitiesUseCase {
                 .then_with(|| a.title.cmp(&b.title))
         });
 
-        // Apply result limit
+        // Apply result limit before sizing (avoid computing for discarded entries)
         if let Some(max) = result_limit {
             all_opportunities.truncate(max);
+        }
+
+        // Apply Kelly sizing if bankroll is provided.
+        // Only sizes opportunities that have a real market_price — never fabricates prices.
+        if let Some(bankroll) = bankroll_cents {
+            let config = kelly_config.unwrap_or_default();
+            for opp in &mut all_opportunities {
+                if let Some(price) = opp.market_price {
+                    if let Some(sizing) = compute_kelly(opp.confidence, price, bankroll, &config) {
+                        if sizing.suggested_size_cents > 0 {
+                            opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                        }
+                    }
+                }
+                // No market_price → leave suggested_size_cents as None
+            }
         }
 
         Ok(OpportunityScan {

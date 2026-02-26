@@ -316,6 +316,26 @@ impl OpenIntel {
             .execute(window_hours, min_score, entry_limit, result_limit)
     }
 
+    /// Run all strategies with Kelly criterion position sizing.
+    pub fn opportunities_with_sizing(
+        &self,
+        window_hours: u32,
+        min_score: Option<f64>,
+        entry_limit: Option<usize>,
+        result_limit: Option<usize>,
+        bankroll_cents: Option<u64>,
+        kelly_config: Option<crate::domain::values::kelly::KellyConfig>,
+    ) -> Result<OpportunityScan, DomainError> {
+        self.opportunities_uc.execute_with_sizing(
+            window_hours,
+            min_score,
+            entry_limit,
+            result_limit,
+            bankroll_cents,
+            kelly_config,
+        )
+    }
+
     /// Check open trades and auto-resolve against resolution sources.
     pub async fn resolve_trades(
         &self,

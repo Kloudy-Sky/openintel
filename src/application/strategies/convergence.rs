@@ -307,6 +307,7 @@ impl Strategy for ConvergenceStrategy {
                 supporting_entries: cluster.entry_ids.clone(),
                 score,
                 liquidity: None,
+                market_price: None,
                 suggested_size_cents: None,
                 detected_at: now,
             });

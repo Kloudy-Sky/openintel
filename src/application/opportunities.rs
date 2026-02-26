@@ -132,40 +132,25 @@ impl OpportunitiesUseCase {
                 .then_with(|| a.title.cmp(&b.title))
         });
 
-        // Apply Kelly sizing if bankroll is provided
+        // Apply result limit before sizing (avoid computing for discarded entries)
+        if let Some(max) = result_limit {
+            all_opportunities.truncate(max);
+        }
+
+        // Apply Kelly sizing if bankroll is provided.
+        // Only sizes opportunities that have a real market_price — never fabricates prices.
         if let Some(bankroll) = bankroll_cents {
             let config = kelly_config.unwrap_or_default();
             for opp in &mut all_opportunities {
-                // Use confidence as estimated probability, edge_cents to derive market price
-                // If edge_cents is available, estimate market price from it
-                // Otherwise, use confidence directly with a default market price of 50c
-                let (est_prob, market_price) = match opp.edge_cents {
-                    Some(edge) if edge > 0.0 => {
-                        // edge_cents represents estimated profit per contract
-                        // market_price ≈ 100 - edge (rough approximation)
-                        let market_price = (100.0 - edge).clamp(1.0, 99.0);
-                        (opp.confidence, market_price)
-                    }
-                    _ => {
-                        // No edge data — use confidence as probability estimate
-                        // and score-derived implied probability
-                        let implied = (opp.confidence * 0.7).clamp(0.01, 0.99);
-                        let market_price = implied * 100.0;
-                        (opp.confidence, market_price)
-                    }
-                };
-
-                if let Some(sizing) = compute_kelly(est_prob, market_price, bankroll, &config) {
-                    if sizing.suggested_size_cents > 0 {
-                        opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                if let Some(price) = opp.market_price {
+                    if let Some(sizing) = compute_kelly(opp.confidence, price, bankroll, &config) {
+                        if sizing.suggested_size_cents > 0 {
+                            opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                        }
                     }
                 }
+                // No market_price → leave suggested_size_cents as None
             }
-        }
-
-        // Apply result limit
-        if let Some(max) = result_limit {
-            all_opportunities.truncate(max);
         }
 
         Ok(OpportunityScan {

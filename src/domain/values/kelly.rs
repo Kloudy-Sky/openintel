@@ -12,6 +12,16 @@
 
 use serde::Serialize;
 
+/// Which guardrail constrained the final position size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BindingConstraint {
+    BelowMinEdge,
+    NegativeKelly,
+    MaxBankrollFraction,
+    MaxPositionCents,
+}
+
 /// Configuration for Kelly sizing calculations.
 #[derive(Debug, Clone, Serialize)]
 pub struct KellyConfig {
@@ -47,7 +57,7 @@ pub struct KellySizing {
     /// Suggested position size in cents.
     pub suggested_size_cents: u64,
     /// Which constraint was binding (if any).
-    pub binding_constraint: Option<String>,
+    pub binding_constraint: Option<BindingConstraint>,
     /// The estimated probability used.
     pub estimated_probability: f64,
     /// The implied probability from market odds.
@@ -60,7 +70,8 @@ pub struct KellySizing {
 ///
 /// # Arguments
 /// * `estimated_prob` — Our estimated probability of the outcome (0.0–1.0)
-/// * `market_price_cents` — Current market price in cents (1–99 for Kalshi)
+/// * `market_price` — Current market price (1–99 for Kalshi, where price in cents
+///   corresponds to implied probability in percentage points)
 /// * `bankroll_cents` — Total available bankroll in cents
 /// * `config` — Sizing configuration (fraction, caps, minimums)
 ///
@@ -69,21 +80,21 @@ pub struct KellySizing {
 /// `Some(KellySizing)` with the calculated position size
 pub fn compute_kelly(
     estimated_prob: f64,
-    market_price_cents: f64,
+    market_price: f64,
     bankroll_cents: u64,
     config: &KellyConfig,
 ) -> Option<KellySizing> {
     // Validate inputs
     if estimated_prob <= 0.0
         || estimated_prob >= 1.0
-        || market_price_cents <= 0.0
-        || market_price_cents >= 100.0
+        || market_price <= 0.0
+        || market_price >= 100.0
         || bankroll_cents == 0
     {
         return None;
     }
 
-    let implied_prob = market_price_cents / 100.0;
+    let implied_prob = market_price / 100.0;
     let edge = estimated_prob - implied_prob;
 
     // Below minimum edge threshold — no position
@@ -92,7 +103,7 @@ pub fn compute_kelly(
             full_kelly_fraction: 0.0,
             adjusted_fraction: 0.0,
             suggested_size_cents: 0,
-            binding_constraint: Some("below_min_edge".to_string()),
+            binding_constraint: Some(BindingConstraint::BelowMinEdge),
             estimated_probability: estimated_prob,
             implied_probability: implied_prob,
             edge,
@@ -102,7 +113,7 @@ pub fn compute_kelly(
     // Kelly formula: f* = (bp - q) / b
     // where b = (100 - market_price) / market_price (net odds)
     // p = estimated_prob, q = 1 - p
-    let b = (100.0 - market_price_cents) / market_price_cents;
+    let b = (100.0 - market_price) / market_price;
     let q = 1.0 - estimated_prob;
     let full_kelly = (b * estimated_prob - q) / b;
 
@@ -113,15 +124,16 @@ pub fn compute_kelly(
             full_kelly_fraction: full_kelly,
             adjusted_fraction: 0.0,
             suggested_size_cents: 0,
-            binding_constraint: Some("negative_kelly".to_string()),
+            binding_constraint: Some(BindingConstraint::NegativeKelly),
             estimated_probability: estimated_prob,
             implied_probability: implied_prob,
             edge,
         });
     }
 
-    // Apply fractional Kelly (e.g., half-Kelly)
-    let adjusted = full_kelly * config.fraction;
+    // Apply fractional Kelly (e.g., half-Kelly), clamping to valid range
+    let fraction = config.fraction.clamp(0.0, 1.0);
+    let adjusted = full_kelly * fraction;
 
     // Calculate raw size in cents
     let raw_size = (adjusted * bankroll_cents as f64).round() as u64;
@@ -131,16 +143,17 @@ pub fn compute_kelly(
     let mut binding = None;
 
     // Max bankroll fraction
-    let max_from_bankroll = (config.max_bankroll_fraction * bankroll_cents as f64).round() as u64;
+    let max_bankroll_frac = config.max_bankroll_fraction.clamp(0.0, 1.0);
+    let max_from_bankroll = (max_bankroll_frac * bankroll_cents as f64).round() as u64;
     if final_size > max_from_bankroll {
         final_size = max_from_bankroll;
-        binding = Some("max_bankroll_fraction".to_string());
+        binding = Some(BindingConstraint::MaxBankrollFraction);
     }
 
     // Hard cap
     if final_size > config.max_position_cents {
         final_size = config.max_position_cents;
-        binding = Some("max_position_cents".to_string());
+        binding = Some(BindingConstraint::MaxPositionCents);
     }
 
     Some(KellySizing {
@@ -198,7 +211,7 @@ mod tests {
         assert_eq!(result.suggested_size_cents, 0);
         assert_eq!(
             result.binding_constraint,
-            Some("below_min_edge".to_string())
+            Some(BindingConstraint::BelowMinEdge)
         );
     }
 
@@ -211,19 +224,23 @@ mod tests {
         assert_eq!(result.suggested_size_cents, 2500);
         assert_eq!(
             result.binding_constraint,
-            Some("max_position_cents".to_string())
+            Some(BindingConstraint::MaxPositionCents)
         );
     }
 
     #[test]
     fn test_max_bankroll_fraction_cap() {
-        // Moderate edge but bankroll fraction cap should bind before position cap
-        // 50% estimated vs 30% market, bankroll 5000 cents ($50)
-        // max_bankroll_fraction 0.25 = 1250 cents, which is less than max_position 2500
+        // 90% estimated vs 10% market price = 80% edge, bankroll 5000 cents ($50)
+        // Kelly is very aggressive here. Raw size will exceed 25% of 5000 = 1250.
+        // max_position_cents (2500) > 1250, so bankroll fraction binds first.
         let result =
-            compute_kelly(0.5, 30.0, 5000, &default_config()).expect("should return sizing");
+            compute_kelly(0.9, 10.0, 5000, &default_config()).expect("should return sizing");
 
-        assert!(result.suggested_size_cents <= 1250);
+        assert_eq!(result.suggested_size_cents, 1250);
+        assert_eq!(
+            result.binding_constraint,
+            Some(BindingConstraint::MaxBankrollFraction)
+        );
     }
 
     #[test]
@@ -244,7 +261,7 @@ mod tests {
         assert_eq!(result.suggested_size_cents, 0);
         assert_eq!(
             result.binding_constraint,
-            Some("below_min_edge".to_string())
+            Some(BindingConstraint::BelowMinEdge)
         );
     }
 

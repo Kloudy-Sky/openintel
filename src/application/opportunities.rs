@@ -10,6 +10,7 @@ use crate::domain::error::DomainError;
 use crate::domain::ports::intel_repository::{IntelRepository, QueryFilter};
 use crate::domain::ports::strategy::{DetectionContext, Opportunity, Strategy};
 use crate::domain::ports::trade_repository::{TradeFilter, TradeRepository};
+use crate::domain::values::kelly::{compute_kelly, KellyConfig};
 
 /// Result of running all strategies.
 #[derive(Debug, Serialize)]
@@ -46,12 +47,34 @@ impl OpportunitiesUseCase {
     ///
     /// `entry_limit` caps how many recent entries to load (default 500).
     /// `result_limit` caps how many opportunities to return (default unlimited).
+    /// `bankroll_cents` enables Kelly criterion position sizing on each opportunity.
+    /// `kelly_config` customizes sizing parameters (defaults to half-Kelly with $25 cap).
     pub fn execute(
         &self,
         window_hours: u32,
         min_score: Option<f64>,
         entry_limit: Option<usize>,
         result_limit: Option<usize>,
+    ) -> Result<OpportunityScan, DomainError> {
+        self.execute_with_sizing(
+            window_hours,
+            min_score,
+            entry_limit,
+            result_limit,
+            None,
+            None,
+        )
+    }
+
+    /// Run all strategies with optional Kelly sizing.
+    pub fn execute_with_sizing(
+        &self,
+        window_hours: u32,
+        min_score: Option<f64>,
+        entry_limit: Option<usize>,
+        result_limit: Option<usize>,
+        bankroll_cents: Option<u64>,
+        kelly_config: Option<KellyConfig>,
     ) -> Result<OpportunityScan, DomainError> {
         let now = Utc::now();
         let since = now - Duration::hours(window_hours as i64);
@@ -108,6 +131,37 @@ impl OpportunitiesUseCase {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.title.cmp(&b.title))
         });
+
+        // Apply Kelly sizing if bankroll is provided
+        if let Some(bankroll) = bankroll_cents {
+            let config = kelly_config.unwrap_or_default();
+            for opp in &mut all_opportunities {
+                // Use confidence as estimated probability, edge_cents to derive market price
+                // If edge_cents is available, estimate market price from it
+                // Otherwise, use confidence directly with a default market price of 50c
+                let (est_prob, market_price) = match opp.edge_cents {
+                    Some(edge) if edge > 0.0 => {
+                        // edge_cents represents estimated profit per contract
+                        // market_price ≈ 100 - edge (rough approximation)
+                        let market_price = (100.0 - edge).clamp(1.0, 99.0);
+                        (opp.confidence, market_price)
+                    }
+                    _ => {
+                        // No edge data — use confidence as probability estimate
+                        // and score-derived implied probability
+                        let implied = (opp.confidence * 0.7).clamp(0.01, 0.99);
+                        let market_price = implied * 100.0;
+                        (opp.confidence, market_price)
+                    }
+                };
+
+                if let Some(sizing) = compute_kelly(est_prob, market_price, bankroll, &config) {
+                    if sizing.suggested_size_cents > 0 {
+                        opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                    }
+                }
+            }
+        }
 
         // Apply result limit
         if let Some(max) = result_limit {

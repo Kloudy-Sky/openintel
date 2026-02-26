@@ -242,9 +242,59 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             min_score,
             entry_limit,
             limit,
+            bankroll,
+            kelly_fraction,
+            max_position,
         } => {
-            let scan = oi.opportunities(hours, min_score, entry_limit, limit)?;
+            let scan = if bankroll.is_some() || kelly_fraction.is_some() || max_position.is_some() {
+                let mut config = openintel::domain::values::kelly::KellyConfig::default();
+                if let Some(f) = kelly_fraction {
+                    config.fraction = f.clamp(0.0, 1.0);
+                }
+                if let Some(m) = max_position {
+                    config.max_position_cents = m;
+                }
+                oi.opportunities_with_sizing(
+                    hours,
+                    min_score,
+                    entry_limit,
+                    limit,
+                    bankroll,
+                    Some(config),
+                )?
+            } else {
+                oi.opportunities(hours, min_score, entry_limit, limit)?
+            };
             println!("{}", serde_json::to_string_pretty(&scan).unwrap());
+        }
+        Commands::Kelly {
+            probability,
+            market_price,
+            bankroll,
+            kelly_fraction,
+            max_position,
+        } => {
+            let mut config = openintel::domain::values::kelly::KellyConfig::default();
+            if let Some(f) = kelly_fraction {
+                config.fraction = f.clamp(0.0, 1.0);
+            }
+            if let Some(m) = max_position {
+                config.max_position_cents = m;
+            }
+            match openintel::domain::values::kelly::compute_kelly(
+                probability,
+                market_price,
+                bankroll,
+                &config,
+            ) {
+                Some(sizing) => {
+                    println!("{}", serde_json::to_string_pretty(&sizing).unwrap());
+                }
+                None => {
+                    eprintln!("Invalid inputs: probability must be (0,1), market_price (0,100), bankroll > 0");
+                    std::process::exit(1);
+                }
+            }
         }
     }
     Ok(())

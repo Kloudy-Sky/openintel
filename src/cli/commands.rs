@@ -163,5 +163,32 @@ pub enum Commands {
         /// Maximum opportunities to return
         #[arg(long)]
         limit: Option<usize>,
+        /// Bankroll in cents for Kelly criterion position sizing
+        #[arg(long)]
+        bankroll: Option<u64>,
+        /// Kelly fraction (0.0–1.0). Default: 0.5 (half-Kelly)
+        #[arg(long)]
+        kelly_fraction: Option<f64>,
+        /// Maximum position size in cents (overrides Kelly). Default: 2500 ($25)
+        #[arg(long)]
+        max_position: Option<u64>,
+    },
+    /// Calculate Kelly criterion position size for a single trade
+    Kelly {
+        /// Estimated probability of winning (0.0–1.0)
+        #[arg(long)]
+        probability: f64,
+        /// Current market price in cents (1–99)
+        #[arg(long)]
+        market_price: f64,
+        /// Available bankroll in cents
+        #[arg(long)]
+        bankroll: u64,
+        /// Kelly fraction (0.0–1.0). Default: 0.5 (half-Kelly)
+        #[arg(long)]
+        kelly_fraction: Option<f64>,
+        /// Maximum position size in cents. Default: 2500 ($25)
+        #[arg(long)]
+        max_position: Option<u64>,
     },
 }

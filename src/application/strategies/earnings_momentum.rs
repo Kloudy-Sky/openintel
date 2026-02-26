@@ -154,6 +154,7 @@ impl Strategy for EarningsMomentumStrategy {
                 supporting_entries: supporting,
                 score,
                 liquidity: None,
+                suggested_size_cents: None,
                 detected_at: Utc::now(),
             });
         }

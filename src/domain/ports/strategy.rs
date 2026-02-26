@@ -62,6 +62,9 @@ pub struct Opportunity {
     /// Liquidity factor (0.0–1.0), normalized from 24h volume.
     /// `None` when volume data is unavailable (defaults to 1.0 in scoring).
     pub liquidity: Option<f64>,
+    /// Suggested position size in cents, computed via Kelly criterion.
+    /// `None` when no bankroll is provided or sizing is not applicable.
+    pub suggested_size_cents: Option<u64>,
     /// When this opportunity was detected.
     pub detected_at: DateTime<Utc>,
 }

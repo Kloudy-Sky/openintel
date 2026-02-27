@@ -173,6 +173,14 @@ pub enum Commands {
         #[arg(long)]
         max_position: Option<u64>,
     },
+    /// Show unified portfolio view across exchanges
+    Portfolio {
+        /// JSON array of positions: [{"exchange":"kalshi","ticker":"KXBTC-123","direction":"yes","quantity":10,"cost_basis":100}]
+        positions_json: String,
+        /// Concentration warning threshold (0.0–1.0). Default: 0.5 (50%)
+        #[arg(long, default_value = "0.5")]
+        threshold: f64,
+    },
     /// Calculate Kelly criterion position size for a single trade
     Kelly {
         /// Estimated probability of winning (0.0–1.0)

@@ -267,6 +267,51 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             };
             println!("{}", serde_json::to_string_pretty(&scan).unwrap());
         }
+        Commands::Portfolio {
+            positions_json,
+            threshold,
+        } => {
+            let data: Vec<serde_json::Value> = serde_json::from_str(&positions_json)?;
+            let mut positions = Vec::new();
+
+            for item in &data {
+                let exchange: openintel::domain::values::portfolio::Exchange = item["exchange"]
+                    .as_str()
+                    .ok_or("Each position requires 'exchange'")?
+                    .parse()
+                    .map_err(|e: String| e)?;
+                let ticker = item["ticker"]
+                    .as_str()
+                    .ok_or("Each position requires 'ticker'")?
+                    .to_string();
+                let direction = item["direction"].as_str().unwrap_or("long").to_string();
+                let quantity = item["quantity"].as_f64().unwrap_or(1.0);
+                let cost_basis = item["cost_basis"]
+                    .as_f64()
+                    .ok_or("Each position requires 'cost_basis'")?;
+                let market_value = item["market_value"].as_f64();
+                let unrealized_pnl = item["unrealized_pnl"].as_f64();
+                let asset_class =
+                    openintel::domain::values::portfolio::AssetClass::from_ticker(&ticker);
+
+                positions.push(openintel::domain::values::portfolio::Position {
+                    exchange,
+                    ticker,
+                    asset_class,
+                    direction,
+                    quantity,
+                    cost_basis,
+                    market_value,
+                    unrealized_pnl,
+                });
+            }
+
+            let threshold = threshold.clamp(0.0, 1.0);
+            let portfolio = openintel::domain::values::portfolio::Portfolio::from_positions(
+                positions, threshold,
+            );
+            println!("{}", serde_json::to_string_pretty(&portfolio).unwrap());
+        }
         Commands::Kelly {
             probability,
             market_price,

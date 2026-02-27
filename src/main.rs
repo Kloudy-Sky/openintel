@@ -273,9 +273,11 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             threshold,
         } => {
             let mut positions: Vec<Position> = serde_json::from_str(&positions_json)?;
-            // Infer asset class from ticker for each position
+            // Infer asset class from ticker only when not explicitly provided
             for pos in &mut positions {
-                pos.asset_class = AssetClass::from_ticker(&pos.ticker);
+                if pos.asset_class == AssetClass::Unknown {
+                    pos.asset_class = AssetClass::from_ticker(&pos.ticker);
+                }
             }
             let portfolio = Portfolio::from_positions(positions, threshold);
             println!("{}", serde_json::to_string_pretty(&portfolio).unwrap());

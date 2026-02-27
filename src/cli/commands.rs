@@ -181,6 +181,14 @@ pub enum Commands {
         #[arg(long, default_value = "0.5")]
         threshold: f64,
     },
+    /// Fetch live data from external sources and add to intel DB
+    Feed {
+        /// Data source: yahoo, nws, kalshi, all
+        source: String,
+        /// Tickers or series (comma-separated). For yahoo: stock tickers. For kalshi: series tickers.
+        #[arg(long)]
+        tickers: Option<String>,
+    },
     /// Calculate Kelly criterion position size for a single trade
     Kelly {
         /// Estimated probability of winning (0.0–1.0)

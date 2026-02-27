@@ -2,6 +2,7 @@ use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
 use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
+use openintel::infrastructure::feeds::{Feed, FeedResult};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
 use openintel::domain::values::trade_outcome::TradeOutcome;
@@ -281,6 +282,131 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             }
             let portfolio = Portfolio::from_positions(positions, threshold);
             println!("{}", serde_json::to_string_pretty(&portfolio).unwrap());
+        }
+        Commands::Feed { source, tickers } => {
+            let ticker_list: Vec<String> = tickers
+                .map(|t| t.split(',').map(|s| s.trim().to_uppercase()).collect())
+                .unwrap_or_default();
+
+            let feeds: Vec<Box<dyn Feed>> = match source.to_lowercase().as_str() {
+                "yahoo" => {
+                    let t = if ticker_list.is_empty() {
+                        // Default watchlist
+                        vec![
+                            "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
+                        ]
+                        .into_iter()
+                        .map(String::from)
+                        .collect()
+                    } else {
+                        ticker_list
+                    };
+                    vec![Box::new(
+                        openintel::infrastructure::feeds::yahoo::YahooFeed::new(t),
+                    )]
+                }
+                "nws" => {
+                    vec![Box::new(
+                        openintel::infrastructure::feeds::nws::NwsFeed::central_park(),
+                    )]
+                }
+                "kalshi" => {
+                    let feed = if ticker_list.is_empty() {
+                        openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()
+                    } else {
+                        openintel::infrastructure::feeds::kalshi::KalshiFeed::new(ticker_list)
+                    };
+                    vec![Box::new(feed)]
+                }
+                "all" => {
+                    let yahoo_tickers = if ticker_list.is_empty() {
+                        vec![
+                            "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
+                        ]
+                        .into_iter()
+                        .map(String::from)
+                        .collect()
+                    } else {
+                        ticker_list
+                    };
+                    vec![
+                        Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
+                            yahoo_tickers,
+                        )) as Box<dyn Feed>,
+                        Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
+                        Box::new(
+                            openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series(),
+                        ),
+                    ]
+                }
+                other => {
+                    eprintln!(
+                        "Unknown feed source: {other}. Use: yahoo, nws, kalshi, or all"
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let mut results = Vec::new();
+            for feed in feeds {
+                let feed_name = feed.name().to_string();
+                match feed.fetch().await {
+                    Ok(entries) => {
+                        let fetched = entries.len();
+                        let mut added = 0;
+                        let mut deduped = 0;
+                        let mut errors = Vec::new();
+
+                        for entry in entries {
+                            match oi
+                                .add_intel(
+                                    entry.category.clone(),
+                                    entry.title.clone(),
+                                    entry.body.clone(),
+                                    entry.source.clone(),
+                                    entry.tags.clone(),
+                                    Some(entry.confidence.value()),
+                                    Some(entry.actionable),
+                                    entry.source_type.clone(),
+                                    entry.metadata.clone(),
+                                    false, // allow dedup
+                                )
+                                .await
+                            {
+                                Ok(result) => {
+                                    if result.deduplicated {
+                                        deduped += 1;
+                                    } else {
+                                        added += 1;
+                                    }
+                                }
+                                Err(e) => {
+                                    errors.push(format!("{}: {e}", entry.title));
+                                }
+                            }
+                        }
+
+                        results.push(FeedResult {
+                            feed_name,
+                            entries_fetched: fetched,
+                            entries_added: added,
+                            entries_deduped: deduped,
+                            errors,
+                        });
+                    }
+                    Err(e) => {
+                        results.push(FeedResult {
+                            feed_name,
+                            entries_fetched: 0,
+                            entries_added: 0,
+                            entries_deduped: 0,
+                            errors: vec![e.to_string()],
+                        });
+                    }
+                }
+            }
+
+            println!("{}", serde_json::to_string_pretty(&results).unwrap());
         }
         Commands::Kelly {
             probability,

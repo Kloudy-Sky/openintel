@@ -4,6 +4,7 @@ use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
 use crate::domain::values::source_type::SourceType;
 use async_trait::async_trait;
+use std::time::Duration;
 
 /// NWS Weather forecast feed. Fetches forecast for a specific grid point.
 /// Default: Central Park, NYC (OKX/33,37) — matches Kalshi KXHIGHNY resolution source.
@@ -29,6 +30,7 @@ impl NwsFeed {
             location: "NYC".into(),
             client: reqwest::Client::builder()
                 .user_agent("OpenIntel/0.1 (github.com/Kloudy-Sky/openintel)")
+                .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_default(),
         }
@@ -43,6 +45,7 @@ impl NwsFeed {
             location,
             client: reqwest::Client::builder()
                 .user_agent("OpenIntel/0.1 (github.com/Kloudy-Sky/openintel)")
+                .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_default(),
         }
@@ -115,18 +118,12 @@ impl Feed for NwsFeed {
             .map(|period| {
                 let title = format!(
                     "NWS {} {} forecast: {}°{}",
-                    self.location,
-                    period.name,
-                    period.temperature,
-                    period.temperature_unit
+                    self.location, period.name, period.temperature, period.temperature_unit
                 );
 
                 let mut body = format!(
                     "{}: High {}°{} — {}",
-                    period.name,
-                    period.temperature,
-                    period.temperature_unit,
-                    period.short_forecast
+                    period.name, period.temperature, period.temperature_unit, period.short_forecast
                 );
 
                 if let (Some(speed), Some(dir)) = (&period.wind_speed, &period.wind_direction) {
@@ -143,13 +140,12 @@ impl Feed for NwsFeed {
                 ];
 
                 // NWS forecasts for today are higher confidence than multi-day
-                let conf = if period.name.contains("Today")
-                    || period.name.contains("This Afternoon")
-                {
-                    0.85
-                } else {
-                    0.7
-                };
+                let conf =
+                    if period.name.contains("Today") || period.name.contains("This Afternoon") {
+                        0.85
+                    } else {
+                        0.7
+                    };
 
                 IntelEntry::new(
                     Category::Weather,

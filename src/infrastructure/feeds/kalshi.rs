@@ -4,6 +4,7 @@ use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
 use crate::domain::values::source_type::SourceType;
 use async_trait::async_trait;
+use std::time::Duration;
 
 /// Kalshi market data feed. Fetches current pricing for tracked series.
 /// Uses the public markets endpoint (no auth required for market data).
@@ -22,6 +23,7 @@ impl KalshiFeed {
             base_url: "https://api.elections.kalshi.com/trade-api/v2".into(),
             client: reqwest::Client::builder()
                 .user_agent("OpenIntel/0.1")
+                .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_default(),
         }
@@ -97,7 +99,7 @@ impl KalshiFeed {
             .get(format!("{}/markets", self.base_url))
             .query(&[
                 ("series_ticker", series_ticker),
-                ("limit", "20"),
+                ("limit", "200"),
                 ("status", "open"),
             ])
             .send()
@@ -176,7 +178,7 @@ impl KalshiFeed {
                     body,
                     Some("kalshi".to_string()),
                     tags,
-                    Confidence::new(0.9).unwrap(), // Market data is factual
+                    Confidence::new(0.9).expect("0.9 is valid confidence"),
                     false,
                     SourceType::External,
                     Some(serde_json::json!({
@@ -241,7 +243,7 @@ impl KalshiFeed {
                         "arbitrage".to_string(),
                         direction.to_string(),
                     ],
-                    Confidence::new(0.8).unwrap(),
+                    Confidence::new(0.8).expect("0.8 is valid confidence"),
                     true, // Arb opportunities are actionable
                     SourceType::External,
                     Some(serde_json::json!({

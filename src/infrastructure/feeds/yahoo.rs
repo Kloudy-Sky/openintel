@@ -4,6 +4,7 @@ use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
 use crate::domain::values::source_type::SourceType;
 use async_trait::async_trait;
+use std::time::Duration;
 
 /// Yahoo Finance quote feed using the v8 chart API (no auth required).
 pub struct YahooFeed {
@@ -21,6 +22,7 @@ impl YahooFeed {
                      AppleWebKit/537.36 (KHTML, like Gecko) \
                      Chrome/120.0.0.0 Safari/537.36",
                 )
+                .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_default(),
         }
@@ -104,8 +106,18 @@ impl Feed for YahooFeed {
 
 impl YahooFeed {
     async fn fetch_one(&self, ticker: &str) -> Result<IntelEntry, FeedError> {
+        let encoded_ticker: String = ticker
+            .bytes()
+            .flat_map(|b| {
+                if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' {
+                    vec![b as char]
+                } else {
+                    format!("%{:02X}", b).chars().collect()
+                }
+            })
+            .collect();
         let url = format!(
-            "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=1d&interval=1d"
+            "https://query1.finance.yahoo.com/v8/finance/chart/{encoded_ticker}?range=1d&interval=1d"
         );
 
         let resp = self
@@ -205,8 +217,7 @@ impl YahooFeed {
             tags.push("extreme-mover".to_string());
         }
 
-        let conf_val = if meta.regular_market_volume.is_some()
-            && meta.fifty_two_week_high.is_some()
+        let conf_val = if meta.regular_market_volume.is_some() && meta.fifty_two_week_high.is_some()
         {
             0.85
         } else {

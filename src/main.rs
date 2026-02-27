@@ -2,10 +2,10 @@ use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
 use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
-use openintel::infrastructure::feeds::{Feed, FeedResult, FetchOutput};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
 use openintel::domain::values::trade_outcome::TradeOutcome;
+use openintel::infrastructure::feeds::{Feed, FeedResult, FetchOutput};
 use openintel::OpenIntel;
 
 #[tokio::main]
@@ -319,6 +319,9 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     vec![Box::new(feed)]
                 }
                 "all" => {
+                    if !ticker_list.is_empty() {
+                        eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
+                    }
                     let yahoo_tickers = if ticker_list.is_empty() {
                         vec![
                             "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
@@ -340,10 +343,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     ]
                 }
                 other => {
-                    eprintln!(
+                    return Err(format!(
                         "Unknown feed source: {other}. Use: yahoo, nws, kalshi, or all"
-                    );
-                    std::process::exit(1);
+                    )
+                    .into());
                 }
             };
 
@@ -355,7 +358,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                         entries,
                         fetch_errors,
                     }) => {
-                        let fetched = entries.len();
+                        let fetched = entries.len() + fetch_errors.len();
                         let mut added = 0;
                         let mut deduped = 0;
                         let mut errors = fetch_errors;
@@ -363,14 +366,14 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                         for entry in entries {
                             match oi
                                 .add_intel(
-                                    entry.category.clone(),
+                                    entry.category,
                                     entry.title.clone(),
                                     entry.body.clone(),
                                     entry.source.clone(),
                                     entry.tags.clone(),
                                     Some(entry.confidence.value()),
                                     Some(entry.actionable),
-                                    entry.source_type.clone(),
+                                    entry.source_type,
                                     entry.metadata.clone(),
                                     false, // allow dedup
                                 )
@@ -435,8 +438,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     println!("{}", serde_json::to_string_pretty(&sizing).unwrap());
                 }
                 None => {
-                    eprintln!("Invalid inputs: probability must be (0,1), market_price (0,100), bankroll > 0");
-                    std::process::exit(1);
+                    return Err("Invalid inputs: probability must be (0,1), market_price (0,100), bankroll > 0".into());
                 }
             }
         }

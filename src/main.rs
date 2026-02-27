@@ -1,6 +1,7 @@
 use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
+use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
 use openintel::domain::values::trade_outcome::TradeOutcome;
@@ -266,6 +267,20 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 oi.opportunities(hours, min_score, entry_limit, limit)?
             };
             println!("{}", serde_json::to_string_pretty(&scan).unwrap());
+        }
+        Commands::Portfolio {
+            positions_json,
+            threshold,
+        } => {
+            let mut positions: Vec<Position> = serde_json::from_str(&positions_json)?;
+            // Infer asset class from ticker only when not explicitly provided
+            for pos in &mut positions {
+                if pos.asset_class == AssetClass::Unknown {
+                    pos.asset_class = AssetClass::from_ticker(&pos.ticker);
+                }
+            }
+            let portfolio = Portfolio::from_positions(positions, threshold);
+            println!("{}", serde_json::to_string_pretty(&portfolio).unwrap());
         }
         Commands::Kelly {
             probability,

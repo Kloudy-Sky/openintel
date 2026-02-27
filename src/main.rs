@@ -427,10 +427,37 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
         } => {
             use openintel::infrastructure::feeds::FetchOutput;
 
-            // Validate numeric parameters (#6)
-            let min_confidence = min_confidence.clamp(0.0, 1.0);
-            let min_score = min_score.max(0.0);
-            let kelly_fraction = kelly_fraction.clamp(0.001, 1.0);
+            // Validate numeric parameters
+            if bankroll == 0 {
+                return Err("--bankroll must be > 0".into());
+            }
+            if max_daily == 0 {
+                return Err("--max-daily must be > 0".into());
+            }
+            if max_position == 0 {
+                return Err("--max-position must be > 0".into());
+            }
+            let clamped_confidence = min_confidence.clamp(0.0, 1.0);
+            if clamped_confidence != min_confidence {
+                eprintln!(
+                    "Warning: --min-confidence {min_confidence} out of range, clamped to {clamped_confidence}"
+                );
+            }
+            let min_confidence = clamped_confidence;
+            let clamped_score = min_score.max(0.0);
+            if clamped_score != min_score {
+                eprintln!(
+                    "Warning: --min-score {min_score} out of range, clamped to {clamped_score}"
+                );
+            }
+            let min_score = clamped_score;
+            let clamped_kelly = kelly_fraction.clamp(0.001, 1.0);
+            if clamped_kelly != kelly_fraction {
+                eprintln!(
+                    "Warning: --kelly-fraction {kelly_fraction} out of range, clamped to {clamped_kelly}"
+                );
+            }
+            let kelly_fraction = clamped_kelly;
 
             if !dry_run {
                 return Err(
@@ -546,7 +573,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 score: f64,
                 edge_cents: Option<f64>,
                 action: String,
-                thesis: String,
+                description: String,
             }
 
             #[derive(serde::Serialize)]
@@ -642,16 +669,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     continue;
                 }
 
-                // Use serde serialization for consistent direction strings (#5)
                 let direction = opp
                     .suggested_direction
                     .as_ref()
-                    .map(|d| {
-                        serde_json::to_value(d)
-                            .ok()
-                            .and_then(|v| v.as_str().map(String::from))
-                            .unwrap_or_else(|| format!("{:?}", d))
-                    })
+                    .map(|d| d.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
 
                 let action = opp.suggested_action.clone().unwrap_or_else(|| {
@@ -666,7 +687,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     score: opp.score,
                     edge_cents: opp.edge_cents,
                     action,
-                    thesis: opp.description.clone(),
+                    description: opp.description.clone(),
                 });
                 daily_deployed += size;
             }
@@ -679,7 +700,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 bankroll_cents: u64,
                 feeds_ingested: usize,
                 feed_errors: Vec<String>,
-                opportunities_found: usize,
+                opportunities_scanned: usize,
                 trades_qualified: usize,
                 trades_skipped: usize,
                 total_deployment_cents: u64,
@@ -693,7 +714,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 bankroll_cents: bankroll,
                 feeds_ingested: total_ingested,
                 feed_errors,
-                opportunities_found: scan.total_opportunities,
+                opportunities_scanned: scan.total_opportunities,
                 trades_qualified: trades.len(),
                 trades_skipped: skipped.len(),
                 total_deployment_cents: daily_deployed,

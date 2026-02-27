@@ -2,14 +2,17 @@
 //!
 //! Provides a unified view of positions across Kalshi and IBKR,
 //! grouped by asset class for correlation and concentration tracking.
+//!
+//! All monetary values are in **dollars** (not cents). Callers must
+//! convert Kalshi cents to dollars before constructing positions.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
 /// Asset class for correlation grouping.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetClass {
     Crypto,
@@ -38,12 +41,25 @@ impl AssetClass {
             return AssetClass::Crypto;
         }
 
-        // Rates / bonds
-        if matches!(t.as_str(), "TLT" | "SHY" | "XLF" | "KRE")
+        // Rates / bonds (genuine fixed income only)
+        if matches!(t.as_str(), "TLT" | "SHY" | "IEF" | "AGG" | "BND")
             || t.starts_with("KXFED")
             || t.starts_with("KXRATE")
         {
             return AssetClass::Rates;
+        }
+
+        // Commodities
+        if matches!(
+            t.as_str(),
+            "GLD" | "SLV" | "USO" | "GOLD" | "IAU" | "PPLT" | "PALL" | "DBA" | "DBC" | "WEAT"
+        ) {
+            return AssetClass::Commodities;
+        }
+
+        // Forex
+        if matches!(t.as_str(), "UUP" | "FXE" | "FXY" | "FXB" | "FXA" | "FXC") {
+            return AssetClass::Forex;
         }
 
         // Weather
@@ -51,9 +67,11 @@ impl AssetClass {
             return AssetClass::Weather;
         }
 
-        // S&P / Nasdaq — equity indices
-        if matches!(t.as_str(), "SPY" | "VOO" | "IVV" | "QQQ" | "TQQQ")
-            || t.starts_with("KXINXY")
+        // S&P / Nasdaq / Financial sector — equity indices and ETFs
+        if matches!(
+            t.as_str(),
+            "SPY" | "VOO" | "IVV" | "QQQ" | "TQQQ" | "XLF" | "KRE"
+        ) || t.starts_with("KXINXY")
             || t.starts_with("KXNAS")
             || t.starts_with("KXSP")
         {
@@ -107,7 +125,7 @@ impl FromStr for AssetClass {
 }
 
 /// Exchange where a position is held.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Exchange {
     Kalshi,
@@ -135,19 +153,38 @@ impl FromStr for Exchange {
 }
 
 /// A unified position across exchanges.
-#[derive(Debug, Clone, Serialize)]
+///
+/// All monetary values (`cost_basis`, `market_value`, `unrealized_pnl`)
+/// are in **dollars**. Callers converting from Kalshi cents should divide
+/// by 100 before constructing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     pub exchange: Exchange,
     pub ticker: String,
+    #[serde(default = "default_asset_class")]
     pub asset_class: AssetClass,
+    #[serde(default = "default_direction")]
     pub direction: String,
+    #[serde(default = "default_quantity")]
     pub quantity: f64,
-    /// Cost basis in cents (Kalshi) or dollars (IBKR).
+    /// Cost basis in dollars.
     pub cost_basis: f64,
-    /// Current market value in same units as cost_basis.
+    /// Current market value in dollars.
     pub market_value: Option<f64>,
-    /// Unrealized P&L in same units.
+    /// Unrealized P&L in dollars.
     pub unrealized_pnl: Option<f64>,
+}
+
+fn default_asset_class() -> AssetClass {
+    AssetClass::Unknown
+}
+
+fn default_direction() -> String {
+    "long".to_string()
+}
+
+fn default_quantity() -> f64 {
+    1.0
 }
 
 /// Concentration warning when an asset class exceeds a threshold.
@@ -183,7 +220,9 @@ impl Portfolio {
     /// Build a portfolio from a list of positions.
     /// `concentration_threshold` is the percentage (0.0–1.0) above which
     /// a warning is generated for an asset class.
+    /// Values outside [0.0, 1.0] are clamped.
     pub fn from_positions(positions: Vec<Position>, concentration_threshold: f64) -> Self {
+        let concentration_threshold = concentration_threshold.clamp(0.0, 1.0);
         let total_exposure: f64 = positions.iter().map(|p| p.cost_basis.abs()).sum();
         let total_unrealized_pnl: f64 = positions.iter().filter_map(|p| p.unrealized_pnl).sum();
 
@@ -202,12 +241,13 @@ impl Portfolio {
 
         let mut class_exposures: Vec<ClassExposure> = class_map
             .into_iter()
-            .map(|(asset_class, (count, exposure, exchanges))| {
+            .map(|(asset_class, (count, exposure, mut exchanges))| {
                 let percentage = if total_exposure > 0.0 {
                     exposure / total_exposure
                 } else {
                     0.0
                 };
+                exchanges.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
                 ClassExposure {
                     asset_class,
                     position_count: count,
@@ -234,7 +274,7 @@ impl Portfolio {
                 percentage: ce.percentage * 100.0,
                 exposure: ce.total_exposure,
                 message: format!(
-                    "{} concentration at {:.1}% ({} positions, {:.0} exposure) — \
+                    "{} concentration at {:.1}% ({} positions, ${:.2} exposure) — \
                      exceeds {:.0}% threshold",
                     ce.asset_class,
                     ce.percentage * 100.0,
@@ -259,14 +299,14 @@ impl Portfolio {
 mod tests {
     use super::*;
 
-    fn kalshi_position(ticker: &str, direction: &str, cost: f64) -> Position {
+    fn kalshi_position(ticker: &str, direction: &str, cost_dollars: f64) -> Position {
         Position {
             exchange: Exchange::Kalshi,
             ticker: ticker.to_string(),
             asset_class: AssetClass::from_ticker(ticker),
             direction: direction.to_string(),
             quantity: 10.0,
-            cost_basis: cost,
+            cost_basis: cost_dollars,
             market_value: None,
             unrealized_pnl: None,
         }
@@ -292,11 +332,17 @@ mod tests {
         assert_eq!(AssetClass::from_ticker("KXBTC-123"), AssetClass::Crypto);
         assert_eq!(AssetClass::from_ticker("SPY"), AssetClass::Equities);
         assert_eq!(AssetClass::from_ticker("AAPL"), AssetClass::Equities);
+        assert_eq!(AssetClass::from_ticker("XLF"), AssetClass::Equities);
+        assert_eq!(AssetClass::from_ticker("KRE"), AssetClass::Equities);
         assert_eq!(AssetClass::from_ticker("TLT"), AssetClass::Rates);
+        assert_eq!(AssetClass::from_ticker("SHY"), AssetClass::Rates);
         assert_eq!(AssetClass::from_ticker("KXFED-123"), AssetClass::Rates);
         assert_eq!(AssetClass::from_ticker("KXHIGHNY-123"), AssetClass::Weather);
         assert_eq!(AssetClass::from_ticker("KXINXY-123"), AssetClass::Equities);
         assert_eq!(AssetClass::from_ticker("KXSOME-OTHER"), AssetClass::Events);
+        assert_eq!(AssetClass::from_ticker("GLD"), AssetClass::Commodities);
+        assert_eq!(AssetClass::from_ticker("USO"), AssetClass::Commodities);
+        assert_eq!(AssetClass::from_ticker("UUP"), AssetClass::Forex);
     }
 
     #[test]
@@ -309,10 +355,10 @@ mod tests {
 
     #[test]
     fn test_single_position() {
-        let positions = vec![kalshi_position("KXBTC-123", "yes", 100.0)];
+        let positions = vec![kalshi_position("KXBTC-123", "yes", 1.0)];
         let portfolio = Portfolio::from_positions(positions, 0.5);
         assert_eq!(portfolio.positions.len(), 1);
-        assert_eq!(portfolio.total_exposure, 100.0);
+        assert_eq!(portfolio.total_exposure, 1.0);
         assert_eq!(portfolio.class_exposures.len(), 1);
         assert_eq!(portfolio.class_exposures[0].asset_class, AssetClass::Crypto);
         assert!((portfolio.class_exposures[0].percentage - 1.0).abs() < 0.01);
@@ -323,17 +369,18 @@ mod tests {
     #[test]
     fn test_multi_exchange_diversified() {
         let positions = vec![
-            kalshi_position("KXBTC-123", "yes", 50.0),
-            kalshi_position("KXHIGHNY-456", "yes", 30.0),
-            ibkr_position("AAPL", "long", 200.0, 10.0),
-            ibkr_position("TLT", "long", 100.0, -5.0),
+            kalshi_position("KXBTC-123", "yes", 0.50), // $0.50 (50 cents)
+            kalshi_position("KXHIGHNY-456", "yes", 0.30), // $0.30 (30 cents)
+            ibkr_position("AAPL", "long", 200.0, 10.0), // $200
+            ibkr_position("TLT", "long", 100.0, -5.0), // $100
         ];
         let portfolio = Portfolio::from_positions(positions, 0.5);
         assert_eq!(portfolio.positions.len(), 4);
-        assert!((portfolio.total_exposure - 380.0).abs() < 0.01);
+        let expected_total = 0.50 + 0.30 + 200.0 + 100.0;
+        assert!((portfolio.total_exposure - expected_total).abs() < 0.01);
         assert!((portfolio.total_unrealized_pnl - 5.0).abs() < 0.01);
         assert_eq!(portfolio.class_exposures.len(), 4); // crypto, weather, equities, rates
-                                                        // No single class > 50% (equities = 200/380 ≈ 52.6%) → 1 warning
+                                                        // Equities = 200 / 300.80 ≈ 66.5% > 50% → 1 warning
         assert_eq!(portfolio.warnings.len(), 1);
         assert_eq!(portfolio.warnings[0].asset_class, AssetClass::Equities);
     }
@@ -358,7 +405,7 @@ mod tests {
     fn test_correlated_cross_exchange() {
         // BTC on Kalshi + COIN on IBKR = both crypto
         let positions = vec![
-            kalshi_position("KXBTC-123", "yes", 50.0),
+            kalshi_position("KXBTC-123", "yes", 0.50),
             ibkr_position("COIN", "long", 500.0, 25.0),
         ];
         let portfolio = Portfolio::from_positions(positions, 0.5);
@@ -387,5 +434,27 @@ mod tests {
         );
         assert_eq!(AssetClass::from_str("bonds").unwrap(), AssetClass::Rates);
         assert!(AssetClass::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_threshold_clamping() {
+        let positions = vec![kalshi_position("KXBTC-1", "yes", 100.0)];
+        // Threshold > 1.0 clamped to 1.0 → no warnings (100% doesn't exceed 100%)
+        let portfolio = Portfolio::from_positions(positions.clone(), 1.5);
+        assert!(portfolio.warnings.is_empty());
+        // Threshold < 0.0 clamped to 0.0 → everything triggers warning
+        let portfolio = Portfolio::from_positions(positions, -0.5);
+        assert_eq!(portfolio.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_position_deserialize() {
+        let json = r#"{"exchange":"kalshi","ticker":"KXBTC-123","cost_basis":1.50}"#;
+        let pos: Position = serde_json::from_str(json).unwrap();
+        assert_eq!(pos.exchange, Exchange::Kalshi);
+        assert_eq!(pos.ticker, "KXBTC-123");
+        assert_eq!(pos.direction, "long"); // default
+        assert!((pos.quantity - 1.0).abs() < 0.01); // default
+        assert!((pos.cost_basis - 1.50).abs() < 0.01);
     }
 }

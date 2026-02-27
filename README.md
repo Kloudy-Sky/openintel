@@ -21,8 +21,11 @@
 ## Highlights
 
 - **Hybrid search** — BM25 keyword matching + semantic vector similarity with Reciprocal Rank Fusion
-- **Strategy engine** — pluggable signal detection with built-in earnings momentum, tag convergence, and cross-intel convergence strategies
+- **Strategy engine** — pluggable signal detection with built-in earnings momentum, tag convergence, cross-intel convergence, and cross-market arbitrage strategies
 - **Opportunity scoring** — confidence × edge × √liquidity, ranked and ready to trade
+- **Kelly criterion sizing** — mathematically optimal position sizing with configurable guardrails
+- **Cross-market arbitrage** — detect pricing divergences across exchanges (Kalshi × IBKR)
+- **Portfolio manager** — unified cross-exchange view with asset class correlation and concentration warnings
 - **Trade journal** — track entries, exits, P&L, and auto-resolve trades against external sources
 - **Alert system** — volume spikes, confidence decay, actionable item tracking
 - **Daily summaries** — category breakdown, trending tags, confidence distribution
@@ -78,6 +81,8 @@ $ openintel stats
 | `trade-add '<json>'` | Open a trade |
 | `trade-resolve <id> <outcome> <pnl>` | Close a trade |
 | `trades` | List trades with filters |
+| `kelly '<json>'` | Kelly criterion position sizing |
+| `portfolio '<json>'` | Cross-exchange portfolio view |
 | `reindex` | Re-embed entries missing vectors |
 | `export` | Export entries as JSON |
 
@@ -90,6 +95,7 @@ OpenIntel ships with three detection strategies. Each implements the `Strategy` 
 | `earnings_momentum` | Tag frequency + sentiment | Stocks with multiple bullish/bearish mentions across sources |
 | `tag_convergence` | Co-occurring tags | Tags appearing together repeatedly, suggesting a trend |
 | `convergence` | Cross-source clustering | Same topic from multiple source types with time-decay weighted sentiment |
+| `cross_market` | Exchange price divergence | Same underlying asset priced differently across Kalshi, IBKR, etc. |
 
 ```console
 $ openintel opportunities --hours 48
@@ -122,12 +128,41 @@ pub trait Strategy: Send + Sync {
 
 See [src/application/strategies/](src/application/strategies/) for examples.
 
+## Kelly Criterion Sizing
+
+Size positions mathematically based on edge and confidence:
+
+```console
+$ openintel kelly '{"bankroll":10000,"confidence":0.75,"market_price":40,"max_position":2500}'
+{
+  "kelly_fraction": 0.1667,
+  "recommended_size": 1666.67,
+  "expected_edge": 0.35,
+  "binding_constraint": null
+}
+```
+
+Supports configurable guardrails: `max_position`, `max_bankroll_fraction`, and `min_edge`. When a constraint binds, it tells you which one.
+
+## Portfolio Manager
+
+Unified view across exchanges with automatic asset class detection:
+
+```console
+$ openintel portfolio '[
+  {"exchange":"kalshi","ticker":"KXBTC-123","direction":"yes","quantity":10,"cost_basis":50},
+  {"exchange":"ibkr","ticker":"COIN","direction":"long","quantity":5,"cost_basis":500}
+]' --threshold 0.5
+```
+
+Auto-classifies tickers (COIN/MARA/RIOT → Crypto, SPY/QQQ → Equities, KXHIGHNY → Weather) and flags concentration risk when any asset class exceeds the threshold.
+
 ## Architecture
 
 ```
 domain/           Pure types, zero dependencies
   entities/       IntelEntry, Trade
-  values/         Category, Confidence, Decay
+  values/         Category, Confidence, Decay, Kelly, Portfolio
   ports/          Repository, Embedding, Strategy traits
 
 application/      Use-case orchestration

@@ -9,7 +9,7 @@
 //! (e.g., "kalshi", "KXBTC") and correlated equity tickers (e.g., "COIN",
 //! "MARA") to detect divergences.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 
@@ -17,12 +17,14 @@ use crate::domain::error::DomainError;
 use crate::domain::ports::strategy::{DetectionContext, Direction, Opportunity, Strategy};
 
 /// Maps prediction market series to correlated equity tickers.
+/// Note: "rates" is intentionally merged into "fed" to avoid duplicate signals
+/// when entries are tagged with both.
 const CROSS_MARKET_PAIRS: &[(&str, &[&str])] = &[
     ("btc", &["COIN", "MARA", "RIOT", "MSTR", "BITO", "IBIT"]),
     ("eth", &["COIN", "ETHE"]),
     ("crypto", &["COIN", "MARA", "RIOT", "MSTR", "CRCL"]),
     ("fed", &["TLT", "SHY", "XLF", "KRE"]),
-    ("rates", &["TLT", "SHY", "XLF", "KRE"]),
+    // "rates" removed — identical to "fed", causes duplicate signals (#7)
     ("s&p500", &["SPY", "VOO", "IVV"]),
     ("nasdaq", &["QQQ", "TQQQ"]),
 ];
@@ -109,15 +111,16 @@ impl CrossMarketStrategy {
 
         // Check each series for band sum anomalies
         for (series, entries) in &series_entries {
-            if entries.len() < 3 {
-                continue; // Need multiple bands to detect sum anomaly
+            // Need at least 2 bands to detect sum anomaly (binary markets have 2)
+            if entries.len() < 2 {
+                continue;
             }
 
             let total: f64 = entries.iter().map(|(_, _, p)| p).sum();
             let entry_ids: Vec<String> = entries.iter().map(|(id, _, _)| id.clone()).collect();
 
             // Bands should sum to ~100. Allow 5% tolerance for bid-ask spread.
-            if !(85.0..=115.0).contains(&total) {
+            if !(95.0..=105.0).contains(&total) {
                 let deviation = (total - 100.0).abs();
                 let edge_cents = deviation; // Each cent of deviation is a cent of edge
                 let confidence = if deviation > 10.0 {
@@ -134,10 +137,25 @@ impl CrossMarketStrategy {
                     Direction::No // Bands overpriced — sell/fade
                 };
 
+                let suggested_action = if total < 100.0 {
+                    format!(
+                        "Buy all bands in {} series (total cost {:.0}¢, expected value 100¢)",
+                        series.to_uppercase(),
+                        total
+                    )
+                } else {
+                    format!(
+                        "Fade/short overpriced bands in {} series \
+                         (total {:.0}¢ > 100¢, sell expensive bands)",
+                        series.to_uppercase(),
+                        total
+                    )
+                };
+
                 let score = Opportunity::compute_score(confidence, Some(edge_cents), None);
 
                 opportunities.push(Opportunity {
-                    strategy: "cross_market".to_string(),
+                    strategy: self.name().to_string(),
                     signal_type: "band_sum_arbitrage".to_string(),
                     title: format!(
                         "{} bands sum to {:.0}% (deviation: {:.1}%)",
@@ -161,11 +179,7 @@ impl CrossMarketStrategy {
                     edge_cents: Some(edge_cents),
                     market_ticker: Some(series.to_uppercase()),
                     suggested_direction: Some(direction),
-                    suggested_action: Some(format!(
-                        "Buy all bands in {} series (total cost {:.0}¢, expected value 100¢)",
-                        series.to_uppercase(),
-                        total
-                    )),
+                    suggested_action: Some(suggested_action),
                     supporting_entries: entry_ids,
                     score,
                     liquidity: None,
@@ -196,7 +210,7 @@ impl CrossMarketStrategy {
             let tags_lower: Vec<String> = entry.tags.iter().map(|t| t.to_lowercase()).collect();
             let sentiment = entry_sentiment(entry);
 
-            for (theme, _equities) in CROSS_MARKET_PAIRS {
+            for (theme, equities) in CROSS_MARKET_PAIRS {
                 if tags_lower.contains(&theme.to_string()) {
                     theme_signals
                         .entry(theme.to_string())
@@ -210,9 +224,9 @@ impl CrossMarketStrategy {
                 }
 
                 // Check if entry mentions correlated equities
-                for equity in *_equities {
+                for equity in *equities {
                     let eq_lower = equity.to_lowercase();
-                    if tags_lower.contains(&eq_lower) || entry.tags.iter().any(|t| t == *equity) {
+                    if tags_lower.contains(&eq_lower) {
                         theme_signals
                             .entry(theme.to_string())
                             .or_default()
@@ -238,8 +252,9 @@ impl CrossMarketStrategy {
                 .filter(|s| s.market.ends_with("_equity"))
                 .collect();
 
-            if prediction_signals.is_empty() || equity_signals.is_empty() {
-                continue; // Need both sides to detect divergence
+            // Need at least 2 signals per side to reduce noise from single entries
+            if prediction_signals.len() < 2 || equity_signals.len() < 2 {
+                continue;
             }
 
             let pred_sentiment: f64 = prediction_signals.iter().map(|s| s.sentiment).sum::<f64>()
@@ -251,7 +266,13 @@ impl CrossMarketStrategy {
 
             // Significant divergence: prediction and equity markets disagree
             if divergence > 0.5 {
-                let entry_ids: Vec<String> = signals.iter().map(|s| s.entry_id.clone()).collect();
+                // Deduplicate entry IDs
+                let entry_ids: Vec<String> = signals
+                    .iter()
+                    .map(|s| s.entry_id.clone())
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect();
                 let avg_confidence: f64 =
                     signals.iter().map(|s| s.confidence).sum::<f64>() / signals.len() as f64;
 
@@ -273,7 +294,7 @@ impl CrossMarketStrategy {
                     .unwrap_or(&[]);
 
                 opportunities.push(Opportunity {
-                    strategy: "cross_market".to_string(),
+                    strategy: self.name().to_string(),
                     signal_type: "cross_asset_divergence".to_string(),
                     title: format!(
                         "{} divergence: prediction {} vs equity {} ({:.0}% gap)",
@@ -320,7 +341,7 @@ impl CrossMarketStrategy {
 }
 
 /// Extract band prices from text. Looks for patterns like "28c", "28¢",
-/// "28 cents", "bid 28", "ask 28", "at 28c".
+/// "28 cents", "bid 28", "ask 28".
 fn extract_band_prices(text: &str) -> Vec<f64> {
     let mut prices = Vec::new();
     let text_lower = text.to_lowercase();
@@ -345,7 +366,8 @@ fn extract_band_prices(text: &str) -> Vec<f64> {
 
         // "bid 28" or "ask 28" pattern — only when next word is a bare number
         // (skip if next word already ends in 'c'/'¢' since the direct pattern handles that)
-        if (*word == "bid" || *word == "ask" || *word == "at") && i + 1 < words.len() {
+        // Note: "at" removed — too generic, causes false positives (#4)
+        if (*word == "bid" || *word == "ask") && i + 1 < words.len() {
             let next_raw = words[i + 1].trim_end_matches([',', '.', ';', ')']);
             let has_unit_suffix = next_raw.ends_with('c') || next_raw.ends_with('¢');
             if !has_unit_suffix {
@@ -400,6 +422,9 @@ fn entry_sentiment(entry: &crate::domain::entities::intel_entry::IntelEntry) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::entities::intel_entry::IntelEntry;
+    use crate::domain::values::category::Category;
+    use crate::domain::values::source_type::SourceType;
 
     #[test]
     fn test_extract_band_prices_cents() {
@@ -431,11 +456,116 @@ mod tests {
     }
 
     #[test]
-    fn test_entry_sentiment_bullish_tags() {
-        use crate::domain::entities::intel_entry::IntelEntry;
-        use crate::domain::values::category::Category;
-        use crate::domain::values::source_type::SourceType;
+    fn test_extract_band_prices_at_not_extracted() {
+        // "at" is too generic — should NOT extract prices
+        let prices = extract_band_prices("looking at 45 contracts");
+        assert!(prices.is_empty());
+    }
 
+    #[test]
+    fn test_extract_band_prices_binary_market() {
+        // Binary markets have exactly 2 bands (Yes/No)
+        let prices = extract_band_prices("Yes 72c, No 30c");
+        assert_eq!(prices.len(), 2);
+        assert!((prices[0] - 72.0).abs() < 0.01);
+        assert!((prices[1] - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_band_sum_binary_market_underpriced() {
+        let strategy = CrossMarketStrategy;
+        let entries = vec![
+            IntelEntry {
+                id: "e1".to_string(),
+                category: Category::Market,
+                title: "KXBTC Yes band".to_string(),
+                body: "Yes 40c".to_string(),
+                source: None,
+                tags: vec!["kxbtc".to_string()],
+                confidence: crate::domain::values::confidence::Confidence::new(0.8).unwrap(),
+                actionable: false,
+                source_type: SourceType::External,
+                metadata: None,
+                updated_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+            IntelEntry {
+                id: "e2".to_string(),
+                category: Category::Market,
+                title: "KXBTC No band".to_string(),
+                body: "No 45c".to_string(),
+                source: None,
+                tags: vec!["kxbtc".to_string()],
+                confidence: crate::domain::values::confidence::Confidence::new(0.8).unwrap(),
+                actionable: false,
+                source_type: SourceType::External,
+                metadata: None,
+                updated_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+        ];
+        let ctx = DetectionContext {
+            entries,
+            open_trades: vec![],
+            window_hours: 48,
+        };
+        let result = strategy.detect_band_sum_arbitrage(&ctx).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].signal_type, "band_sum_arbitrage");
+        // 40 + 45 = 85 < 95 → underpriced
+        assert!(result[0].suggested_action.as_ref().unwrap().contains("Buy"));
+    }
+
+    #[test]
+    fn test_band_sum_overpriced_suggests_fade() {
+        let strategy = CrossMarketStrategy;
+        let entries = vec![
+            IntelEntry {
+                id: "e1".to_string(),
+                category: Category::Market,
+                title: "Band A".to_string(),
+                body: "Yes 60c".to_string(),
+                source: None,
+                tags: vec!["kxbtc".to_string()],
+                confidence: crate::domain::values::confidence::Confidence::new(0.8).unwrap(),
+                actionable: false,
+                source_type: SourceType::External,
+                metadata: None,
+                updated_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+            IntelEntry {
+                id: "e2".to_string(),
+                category: Category::Market,
+                title: "Band B".to_string(),
+                body: "No 50c".to_string(),
+                source: None,
+                tags: vec!["kxbtc".to_string()],
+                confidence: crate::domain::values::confidence::Confidence::new(0.8).unwrap(),
+                actionable: false,
+                source_type: SourceType::External,
+                metadata: None,
+                updated_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+        ];
+        let ctx = DetectionContext {
+            entries,
+            open_trades: vec![],
+            window_hours: 48,
+        };
+        let result = strategy.detect_band_sum_arbitrage(&ctx).unwrap();
+        assert_eq!(result.len(), 1);
+        // 60 + 50 = 110 > 105 → overpriced
+        assert!(result[0]
+            .suggested_action
+            .as_ref()
+            .unwrap()
+            .contains("Fade"));
+    }
+
+    #[test]
+    fn test_entry_sentiment_bullish_tags() {
         let entry = IntelEntry {
             id: "test".to_string(),
             category: Category::Market,
@@ -465,10 +595,6 @@ mod tests {
 
     #[test]
     fn test_entry_sentiment_metadata_override() {
-        use crate::domain::entities::intel_entry::IntelEntry;
-        use crate::domain::values::category::Category;
-        use crate::domain::values::source_type::SourceType;
-
         let entry = IntelEntry {
             id: "test".to_string(),
             category: Category::Market,

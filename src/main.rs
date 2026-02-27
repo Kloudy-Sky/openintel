@@ -1,7 +1,9 @@
 use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
-use openintel::domain::values::execution::{ExecutionMode, ExecutionResult, SkippedOpportunity, TradePlan};
+use openintel::domain::values::execution::{
+    ExecutionMode, ExecutionResult, SkippedOpportunity, TradePlan,
+};
 use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
@@ -36,14 +38,14 @@ async fn main() {
 
 /// Helper function to initialize feeds based on source and ticker list.
 /// Addresses issue #9: extract feed initialization logic into reusable function.
-fn initialize_feeds(
-    source: &str,
-    ticker_list: Vec<String>,
-) -> Result<Vec<Box<dyn Feed>>, String> {
+fn initialize_feeds(source: &str, ticker_list: Vec<String>) -> Result<Vec<Box<dyn Feed>>, String> {
     match source.to_lowercase().as_str() {
         "yahoo" => {
             let tickers = if ticker_list.is_empty() {
-                DEFAULT_YAHOO_TICKERS.iter().map(|s| String::from(*s)).collect()
+                DEFAULT_YAHOO_TICKERS
+                    .iter()
+                    .map(|s| String::from(*s))
+                    .collect()
             } else {
                 ticker_list
             };
@@ -67,7 +69,10 @@ fn initialize_feeds(
                 eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
             }
             let yahoo_tickers = if ticker_list.is_empty() {
-                DEFAULT_YAHOO_TICKERS.iter().map(|s| String::from(*s)).collect()
+                DEFAULT_YAHOO_TICKERS
+                    .iter()
+                    .map(|s| String::from(*s))
+                    .collect()
             } else {
                 ticker_list
             };

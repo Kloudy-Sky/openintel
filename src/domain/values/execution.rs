@@ -1,5 +1,4 @@
 /// Domain types for automated execution pipeline
-
 use serde::{Deserialize, Serialize};
 
 /// A trade plan action ready for execution

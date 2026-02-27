@@ -12,6 +12,7 @@ use crate::application::resolve_trades::{ResolveReport, ResolveTradesUseCase};
 use crate::application::search::SearchUseCase;
 use crate::application::stats::StatsUseCase;
 use crate::application::strategies::convergence::ConvergenceStrategy;
+use crate::application::strategies::cross_market::CrossMarketStrategy;
 use crate::application::strategies::earnings_momentum::EarningsMomentumStrategy;
 use crate::application::strategies::tag_convergence::TagConvergenceStrategy;
 use crate::application::summarize::{DailySummary, SummarizeUseCase};
@@ -150,6 +151,7 @@ impl OpenIntel {
             Box::new(EarningsMomentumStrategy),
             Box::new(TagConvergenceStrategy),
             Box::new(ConvergenceStrategy),
+            Box::new(CrossMarketStrategy),
         ];
 
         Ok(Self {

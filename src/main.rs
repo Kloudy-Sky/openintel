@@ -461,17 +461,6 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             }
             let kelly_fraction = clamped_kelly;
 
-            // Issue #6: CLI validation
-            if bankroll == 0 {
-                return Err("Bankroll must be > 0".into());
-            }
-            if max_position == 0 {
-                return Err("Max position must be > 0".into());
-            }
-            if max_daily == 0 {
-                return Err("Max daily deployment must be > 0".into());
-            }
-
             if !dry_run {
                 return Err(
                     "Live execution is not yet implemented. Use --dry-run true (default) to preview trade plans."
@@ -501,7 +490,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                                 .extend(fetch_errors.iter().map(|e| format!("{feed_name}: {e}")));
                         }
                         for entry in entries {
-                            if let Ok(result) = oi
+                            match oi
                                 .add_intel(
                                     entry.category,
                                     entry.title.clone(),
@@ -516,8 +505,13 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                                 )
                                 .await
                             {
-                                if !result.deduplicated {
-                                    total_ingested += 1;
+                                Ok(result) => {
+                                    if !result.deduplicated {
+                                        total_ingested += 1;
+                                    }
+                                }
+                                Err(e) => {
+                                    feed_errors.push(format!("{feed_name}: {}: {e}", entry.title));
                                 }
                             }
                         }
@@ -671,11 +665,9 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             }
 
             // Step 4: Output results
-            let execution_mode = if dry_run {
-                ExecutionMode::DryRun
-            } else {
-                ExecutionMode::Live
-            };
+            // Note: live mode returns early above; this will need updating
+            // when live execution is implemented.
+            let execution_mode = ExecutionMode::DryRun;
 
             let result = ExecutionResult {
                 timestamp: chrono::Utc::now().to_rfc3339(),

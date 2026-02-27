@@ -414,6 +414,282 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
 
             println!("{}", serde_json::to_string_pretty(&results).unwrap());
         }
+        Commands::Execute {
+            bankroll,
+            dry_run,
+            min_confidence,
+            min_score,
+            max_position,
+            max_daily,
+            kelly_fraction,
+            hours,
+            tickers,
+        } => {
+            use openintel::infrastructure::feeds::FetchOutput;
+
+            // Step 1: Run all feeds
+            eprintln!("📡 Step 1: Ingesting live data feeds...");
+            let ticker_list: Vec<String> = tickers
+                .map(|t| t.split(',').map(|s| s.trim().to_uppercase()).collect())
+                .unwrap_or_default();
+
+            let yahoo_tickers = if ticker_list.is_empty() {
+                vec![
+                    "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect()
+            } else {
+                ticker_list
+            };
+
+            let feeds: Vec<Box<dyn Feed>> = vec![
+                Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
+                    yahoo_tickers,
+                )) as Box<dyn Feed>,
+                Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
+                Box::new(openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()),
+            ];
+
+            let mut total_ingested = 0usize;
+            let mut feed_errors = Vec::new();
+            for feed in feeds {
+                let feed_name = feed.name().to_string();
+                match feed.fetch().await {
+                    Ok(FetchOutput {
+                        entries,
+                        fetch_errors,
+                    }) => {
+                        if !fetch_errors.is_empty() {
+                            feed_errors
+                                .extend(fetch_errors.iter().map(|e| format!("{feed_name}: {e}")));
+                        }
+                        for entry in entries {
+                            if let Ok(result) = oi
+                                .add_intel(
+                                    entry.category,
+                                    entry.title.clone(),
+                                    entry.body.clone(),
+                                    entry.source.clone(),
+                                    entry.tags.clone(),
+                                    Some(entry.confidence.value()),
+                                    Some(entry.actionable),
+                                    entry.source_type,
+                                    entry.metadata.clone(),
+                                    false,
+                                )
+                                .await
+                            {
+                                if !result.deduplicated {
+                                    total_ingested += 1;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        feed_errors.push(format!("{feed_name}: {e}"));
+                    }
+                }
+            }
+            eprintln!(
+                "   ✅ Ingested {total_ingested} new entries ({})",
+                if feed_errors.is_empty() {
+                    "no errors".to_string()
+                } else {
+                    format!("{} errors", feed_errors.len())
+                }
+            );
+
+            // Step 2: Run opportunity detection with Kelly sizing
+            eprintln!("🔍 Step 2: Scanning for opportunities...");
+            let bankroll_cents = bankroll.unwrap_or(8000); // default $80
+            let kelly_config = openintel::domain::values::kelly::KellyConfig {
+                fraction: kelly_fraction,
+                max_position_cents: max_position,
+                ..Default::default()
+            };
+
+            let scan = oi.opportunities_with_sizing(
+                hours,
+                Some(min_score),
+                None,
+                None,
+                Some(bankroll_cents),
+                Some(kelly_config),
+            )?;
+
+            eprintln!(
+                "   ✅ Found {} opportunities from {} entries",
+                scan.total_opportunities, scan.entries_scanned
+            );
+
+            // Step 3: Filter by confidence and build trade plan
+            eprintln!("📋 Step 3: Building trade plan...");
+
+            #[derive(serde::Serialize)]
+            struct TradePlan {
+                ticker: String,
+                direction: String,
+                size_cents: u64,
+                confidence: f64,
+                score: f64,
+                edge_cents: Option<f64>,
+                action: String,
+                thesis: String,
+            }
+
+            #[derive(serde::Serialize)]
+            struct SkippedOpportunity {
+                title: String,
+                confidence: f64,
+                reason: String,
+            }
+
+            let mut trades: Vec<TradePlan> = Vec::new();
+            let mut skipped: Vec<SkippedOpportunity> = Vec::new();
+            let mut daily_deployed: u64 = 0;
+
+            for opp in &scan.opportunities {
+                // Filter: must have market ticker
+                let ticker = match &opp.market_ticker {
+                    Some(t) => t.clone(),
+                    None => {
+                        skipped.push(SkippedOpportunity {
+                            title: opp.title.clone(),
+                            confidence: opp.confidence,
+                            reason: "No market ticker".to_string(),
+                        });
+                        continue;
+                    }
+                };
+
+                // Filter: minimum confidence
+                if opp.confidence < min_confidence {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        reason: format!(
+                            "Confidence {:.0}% < {:.0}% threshold",
+                            opp.confidence * 100.0,
+                            min_confidence * 100.0
+                        ),
+                    });
+                    continue;
+                }
+
+                // Get Kelly-sized position or use edge-based default
+                let size = match opp.suggested_size_cents {
+                    Some(s) => s.min(max_position),
+                    None => {
+                        skipped.push(SkippedOpportunity {
+                            title: opp.title.clone(),
+                            confidence: opp.confidence,
+                            reason: "No Kelly sizing available (missing market price)".to_string(),
+                        });
+                        continue;
+                    }
+                };
+
+                if size == 0 {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        reason: "Kelly sizing returned 0 (no edge)".to_string(),
+                    });
+                    continue;
+                }
+
+                // Check daily deployment limit
+                if daily_deployed + size > max_daily {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        reason: format!(
+                            "Daily limit: ${:.2} deployed + ${:.2} would exceed ${:.2} cap",
+                            daily_deployed as f64 / 100.0,
+                            size as f64 / 100.0,
+                            max_daily as f64 / 100.0
+                        ),
+                    });
+                    continue;
+                }
+
+                let direction = opp
+                    .suggested_direction
+                    .as_ref()
+                    .map(|d| format!("{:?}", d))
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let action = opp.suggested_action.clone().unwrap_or_else(|| {
+                    format!("Buy {} @ {}¢", ticker, opp.market_price.unwrap_or(0.0))
+                });
+
+                trades.push(TradePlan {
+                    ticker,
+                    direction,
+                    size_cents: size,
+                    confidence: opp.confidence,
+                    score: opp.score,
+                    edge_cents: opp.edge_cents,
+                    action,
+                    thesis: opp.description.clone(),
+                });
+                daily_deployed += size;
+            }
+
+            // Step 4: Output results
+            #[derive(serde::Serialize)]
+            struct ExecutionResult {
+                timestamp: String,
+                mode: String,
+                bankroll_cents: u64,
+                feeds_ingested: usize,
+                feed_errors: Vec<String>,
+                opportunities_found: usize,
+                trades_qualified: usize,
+                trades_skipped: usize,
+                total_deployment_cents: u64,
+                trades: Vec<TradePlan>,
+                skipped: Vec<SkippedOpportunity>,
+            }
+
+            let result = ExecutionResult {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                mode: if dry_run {
+                    "dry_run".to_string()
+                } else {
+                    "live".to_string()
+                },
+                bankroll_cents,
+                feeds_ingested: total_ingested,
+                feed_errors,
+                opportunities_found: scan.total_opportunities,
+                trades_qualified: trades.len(),
+                trades_skipped: skipped.len(),
+                total_deployment_cents: daily_deployed,
+                trades,
+                skipped,
+            };
+
+            if dry_run {
+                eprintln!(
+                    "   🏁 DRY RUN: {} trades qualified, ${:.2} total deployment",
+                    result.trades_qualified,
+                    daily_deployed as f64 / 100.0
+                );
+            } else {
+                eprintln!(
+                    "   ⚡ LIVE MODE: {} trades to execute, ${:.2} total deployment",
+                    result.trades_qualified,
+                    daily_deployed as f64 / 100.0
+                );
+                // TODO: Kalshi API integration for live execution
+                eprintln!("   ⚠️  Live execution not yet implemented — outputting trade plan");
+            }
+
+            println!("{}", serde_json::to_string_pretty(&result).unwrap());
+        }
         Commands::Kelly {
             probability,
             market_price,

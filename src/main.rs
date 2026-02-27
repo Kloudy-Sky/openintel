@@ -2,7 +2,7 @@ use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
 use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
-use openintel::infrastructure::feeds::{Feed, FeedResult};
+use openintel::infrastructure::feeds::{Feed, FeedResult, FetchOutput};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
 use openintel::domain::values::trade_outcome::TradeOutcome;
@@ -351,11 +351,14 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             for feed in feeds {
                 let feed_name = feed.name().to_string();
                 match feed.fetch().await {
-                    Ok(entries) => {
+                    Ok(FetchOutput {
+                        entries,
+                        fetch_errors,
+                    }) => {
                         let fetched = entries.len();
                         let mut added = 0;
                         let mut deduped = 0;
-                        let mut errors = Vec::new();
+                        let mut errors = fetch_errors;
 
                         for entry in entries {
                             match oi

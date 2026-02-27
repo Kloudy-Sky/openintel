@@ -5,14 +5,20 @@ pub mod yahoo;
 use crate::domain::entities::intel_entry::IntelEntry;
 use async_trait::async_trait;
 
+/// Result of fetching data — entries that succeeded plus any per-item errors.
+pub struct FetchOutput {
+    pub entries: Vec<IntelEntry>,
+    pub fetch_errors: Vec<String>,
+}
+
 /// A data feed that produces intel entries from an external source.
 #[async_trait]
 pub trait Feed: Send + Sync {
     /// Human-readable name of this feed.
     fn name(&self) -> &str;
 
-    /// Fetch data and return intel entries ready to be added.
-    async fn fetch(&self) -> Result<Vec<IntelEntry>, FeedError>;
+    /// Fetch data and return intel entries ready to be added, plus any per-item errors.
+    async fn fetch(&self) -> Result<FetchOutput, FeedError>;
 }
 
 #[derive(Debug)]

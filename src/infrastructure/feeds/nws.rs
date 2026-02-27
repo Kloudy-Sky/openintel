@@ -1,4 +1,4 @@
-use super::{Feed, FeedError};
+use super::{Feed, FeedError, FetchOutput};
 use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
@@ -79,7 +79,7 @@ impl Feed for NwsFeed {
         "nws_weather"
     }
 
-    async fn fetch(&self) -> Result<Vec<IntelEntry>, FeedError> {
+    async fn fetch(&self) -> Result<FetchOutput, FeedError> {
         let url = format!(
             "https://api.weather.gov/gridpoints/{}/{},{}/forecast",
             self.office, self.grid_x, self.grid_y
@@ -138,7 +138,7 @@ impl Feed for NwsFeed {
                     "NWS".to_string(),
                     self.location.clone(),
                     "nws-feed".to_string(),
-                    format!("{}F", period.temperature),
+                    format!("{}{}", period.temperature, period.temperature_unit),
                     period.name.to_lowercase().replace(' ', "-"),
                 ];
 
@@ -171,7 +171,10 @@ impl Feed for NwsFeed {
             })
             .collect();
 
-        Ok(entries)
+        Ok(FetchOutput {
+            entries,
+            fetch_errors: vec![],
+        })
     }
 }
 

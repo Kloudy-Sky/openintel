@@ -1,4 +1,4 @@
-use super::{Feed, FeedError};
+use super::{Feed, FeedError, FetchOutput};
 use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
@@ -73,23 +73,32 @@ impl Feed for YahooFeed {
         "yahoo_finance"
     }
 
-    async fn fetch(&self) -> Result<Vec<IntelEntry>, FeedError> {
+    async fn fetch(&self) -> Result<FetchOutput, FeedError> {
         if self.tickers.is_empty() {
-            return Ok(vec![]);
+            return Ok(FetchOutput {
+                entries: vec![],
+                fetch_errors: vec![],
+            });
         }
 
         let mut entries = Vec::new();
+        let mut fetch_errors = Vec::new();
 
         for ticker in &self.tickers {
             match self.fetch_one(ticker).await {
                 Ok(entry) => entries.push(entry),
                 Err(e) => {
-                    eprintln!("Warning: Failed to fetch {ticker}: {e}");
+                    let msg = format!("{ticker}: {e}");
+                    eprintln!("Warning: Failed to fetch {msg}");
+                    fetch_errors.push(msg);
                 }
             }
         }
 
-        Ok(entries)
+        Ok(FetchOutput {
+            entries,
+            fetch_errors,
+        })
     }
 }
 
@@ -210,7 +219,7 @@ impl YahooFeed {
             body,
             Some("yahoo_finance".to_string()),
             tags,
-            Confidence::new(conf_val).map_err(|e| FeedError::Config(e))?,
+            Confidence::new(conf_val).map_err(FeedError::Config)?,
             change_pct.abs() > 5.0,
             SourceType::External,
             Some(serde_json::json!({
@@ -244,6 +253,8 @@ mod tests {
         let feed = YahooFeed::new(vec![]);
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(feed.fetch());
-        assert!(result.unwrap().is_empty());
+        let output = result.unwrap();
+        assert!(output.entries.is_empty());
+        assert!(output.fetch_errors.is_empty());
     }
 }

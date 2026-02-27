@@ -1,4 +1,4 @@
-use super::{Feed, FeedError};
+use super::{Feed, FeedError, FetchOutput};
 use crate::domain::entities::intel_entry::IntelEntry;
 use crate::domain::values::category::Category;
 use crate::domain::values::confidence::Confidence;
@@ -55,17 +55,9 @@ struct KalshiMarket {
     #[serde(default)]
     yes_ask: Option<i64>,
     #[serde(default)]
-    no_bid: Option<i64>,
-    #[serde(default)]
-    no_ask: Option<i64>,
-    #[serde(default)]
-    volume: Option<i64>,
-    #[serde(default)]
     volume_24h: Option<i64>,
     #[serde(default)]
     open_interest: Option<i64>,
-    #[serde(default)]
-    status: Option<String>,
     #[serde(default)]
     close_time: Option<String>,
 }
@@ -76,33 +68,38 @@ impl Feed for KalshiFeed {
         "kalshi"
     }
 
-    async fn fetch(&self) -> Result<Vec<IntelEntry>, FeedError> {
+    async fn fetch(&self) -> Result<FetchOutput, FeedError> {
         let mut all_entries = Vec::new();
+        let mut fetch_errors = Vec::new();
 
         for series in &self.series {
             match self.fetch_series(series).await {
                 Ok(entries) => all_entries.extend(entries),
                 Err(e) => {
-                    // Log error but continue with other series
-                    eprintln!("Warning: Failed to fetch {series}: {e}");
+                    let msg = format!("{series}: {e}");
+                    eprintln!("Warning: Failed to fetch {msg}");
+                    fetch_errors.push(msg);
                 }
             }
         }
 
-        Ok(all_entries)
+        Ok(FetchOutput {
+            entries: all_entries,
+            fetch_errors,
+        })
     }
 }
 
 impl KalshiFeed {
     async fn fetch_series(&self, series_ticker: &str) -> Result<Vec<IntelEntry>, FeedError> {
-        let url = format!(
-            "{}/markets?series_ticker={}&limit=20&status=open",
-            self.base_url, series_ticker
-        );
-
         let resp = self
             .client
-            .get(&url)
+            .get(format!("{}/markets", self.base_url))
+            .query(&[
+                ("series_ticker", series_ticker),
+                ("limit", "20"),
+                ("status", "open"),
+            ])
             .send()
             .await
             .map_err(|e| FeedError::Network(e.to_string()))?;
@@ -197,23 +194,26 @@ impl KalshiFeed {
             .collect();
 
         // Band sum analysis — detect arbitrage
-        if entries.len() >= 2 {
-            let band_sum: f64 = data
-                .markets
-                .iter()
-                .filter_map(|m| {
-                    let bid = m.yes_bid.unwrap_or(0);
-                    let ask = m.yes_ask.unwrap_or(0);
-                    if bid == 0 && ask == 0 {
-                        return None;
-                    }
-                    Some(if bid > 0 && ask > 0 {
-                        (bid + ask) as f64 / 2.0
-                    } else {
-                        bid.max(ask) as f64
-                    })
+        let priced_markets: Vec<f64> = data
+            .markets
+            .iter()
+            .filter_map(|m| {
+                let bid = m.yes_bid.unwrap_or(0);
+                let ask = m.yes_ask.unwrap_or(0);
+                if bid == 0 && ask == 0 {
+                    return None;
+                }
+                Some(if bid > 0 && ask > 0 {
+                    (bid + ask) as f64 / 2.0
+                } else {
+                    bid.max(ask) as f64
                 })
-                .sum();
+            })
+            .collect();
+
+        if priced_markets.len() >= 2 {
+            let band_sum: f64 = priced_markets.iter().sum();
+            let priced_count = priced_markets.len();
 
             let deviation = (band_sum - 100.0).abs();
             if deviation > 5.0 {
@@ -229,10 +229,9 @@ impl KalshiFeed {
                         "{series_ticker} bands sum to {band_sum:.0}¢ — {direction} ({deviation:.0}¢ deviation)"
                     ),
                     format!(
-                        "{} open markets in {series_ticker} sum to {band_sum:.0}¢ vs expected 100¢. \
+                        "{priced_count} priced markets in {series_ticker} sum to {band_sum:.0}¢ vs expected 100¢. \
                          Deviation: {deviation:.0}¢. Direction: {direction}. \
-                         Potential band arbitrage opportunity.",
-                        data.markets.len()
+                         Potential band arbitrage opportunity."
                     ),
                     Some("kalshi".to_string()),
                     vec![
@@ -249,7 +248,7 @@ impl KalshiFeed {
                         "series": series_ticker,
                         "band_sum": band_sum,
                         "deviation": deviation,
-                        "market_count": data.markets.len(),
+                        "priced_count": priced_count,
                         "direction": direction,
                     })),
                 ));

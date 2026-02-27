@@ -8,6 +8,11 @@ use openintel::domain::values::trade_outcome::TradeOutcome;
 use openintel::infrastructure::feeds::{Feed, FeedResult, FetchOutput};
 use openintel::OpenIntel;
 
+/// Default Yahoo Finance watchlist tickers.
+const DEFAULT_YAHOO_TICKERS: &[&str] = &[
+    "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
+];
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -291,13 +296,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let feeds: Vec<Box<dyn Feed>> = match source.to_lowercase().as_str() {
                 "yahoo" => {
                     let t = if ticker_list.is_empty() {
-                        // Default watchlist
-                        vec![
-                            "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
-                        ]
-                        .into_iter()
-                        .map(String::from)
-                        .collect()
+                        DEFAULT_YAHOO_TICKERS
+                            .iter()
+                            .map(|s| String::from(*s))
+                            .collect()
                     } else {
                         ticker_list
                     };
@@ -323,12 +325,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                         eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
                     }
                     let yahoo_tickers = if ticker_list.is_empty() {
-                        vec![
-                            "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
-                        ]
-                        .into_iter()
-                        .map(String::from)
-                        .collect()
+                        DEFAULT_YAHOO_TICKERS
+                            .iter()
+                            .map(|s| String::from(*s))
+                            .collect()
                     } else {
                         ticker_list
                     };
@@ -427,6 +427,18 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
         } => {
             use openintel::infrastructure::feeds::FetchOutput;
 
+            // Validate numeric parameters (#6)
+            let min_confidence = min_confidence.clamp(0.0, 1.0);
+            let min_score = min_score.max(0.0);
+            let kelly_fraction = kelly_fraction.clamp(0.001, 1.0);
+
+            if !dry_run {
+                return Err(
+                    "Live execution is not yet implemented. Use --dry-run true (default) to preview trade plans."
+                        .into(),
+                );
+            }
+
             // Step 1: Run all feeds
             eprintln!("📡 Step 1: Ingesting live data feeds...");
             let ticker_list: Vec<String> = tickers
@@ -434,12 +446,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .unwrap_or_default();
 
             let yahoo_tickers = if ticker_list.is_empty() {
-                vec![
-                    "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect()
+                DEFAULT_YAHOO_TICKERS
+                    .iter()
+                    .map(|s| String::from(*s))
+                    .collect()
             } else {
                 ticker_list
             };
@@ -502,8 +512,8 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             );
 
             // Step 2: Run opportunity detection with Kelly sizing
+            // Pass None for min_score so all opps are returned — we filter in the loop (#4)
             eprintln!("🔍 Step 2: Scanning for opportunities...");
-            let bankroll_cents = bankroll.unwrap_or(8000); // default $80
             let kelly_config = openintel::domain::values::kelly::KellyConfig {
                 fraction: kelly_fraction,
                 max_position_cents: max_position,
@@ -512,10 +522,10 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
 
             let scan = oi.opportunities_with_sizing(
                 hours,
-                Some(min_score),
+                None, // no pre-filter — all filtering happens below for full audit trail
                 None,
                 None,
-                Some(bankroll_cents),
+                Some(bankroll),
                 Some(kelly_config),
             )?;
 
@@ -524,7 +534,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 scan.total_opportunities, scan.entries_scanned
             );
 
-            // Step 3: Filter by confidence and build trade plan
+            // Step 3: Filter by confidence, score, and build trade plan
             eprintln!("📋 Step 3: Building trade plan...");
 
             #[derive(serde::Serialize)]
@@ -543,6 +553,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             struct SkippedOpportunity {
                 title: String,
                 confidence: f64,
+                score: f64,
                 reason: String,
             }
 
@@ -551,6 +562,17 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let mut daily_deployed: u64 = 0;
 
             for opp in &scan.opportunities {
+                // Filter: minimum score (#4 — now visible in skipped list)
+                if opp.score < min_score {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        score: opp.score,
+                        reason: format!("Score {:.2} < {:.2} threshold", opp.score, min_score),
+                    });
+                    continue;
+                }
+
                 // Filter: must have market ticker
                 let ticker = match &opp.market_ticker {
                     Some(t) => t.clone(),
@@ -558,6 +580,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                         skipped.push(SkippedOpportunity {
                             title: opp.title.clone(),
                             confidence: opp.confidence,
+                            score: opp.score,
                             reason: "No market ticker".to_string(),
                         });
                         continue;
@@ -569,6 +592,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     skipped.push(SkippedOpportunity {
                         title: opp.title.clone(),
                         confidence: opp.confidence,
+                        score: opp.score,
                         reason: format!(
                             "Confidence {:.0}% < {:.0}% threshold",
                             opp.confidence * 100.0,
@@ -578,13 +602,14 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     continue;
                 }
 
-                // Get Kelly-sized position or use edge-based default
+                // Get Kelly-sized position (#3 — Kelly already caps via KellyConfig)
                 let size = match opp.suggested_size_cents {
-                    Some(s) => s.min(max_position),
+                    Some(s) => s,
                     None => {
                         skipped.push(SkippedOpportunity {
                             title: opp.title.clone(),
                             confidence: opp.confidence,
+                            score: opp.score,
                             reason: "No Kelly sizing available (missing market price)".to_string(),
                         });
                         continue;
@@ -595,6 +620,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     skipped.push(SkippedOpportunity {
                         title: opp.title.clone(),
                         confidence: opp.confidence,
+                        score: opp.score,
                         reason: "Kelly sizing returned 0 (no edge)".to_string(),
                     });
                     continue;
@@ -605,6 +631,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     skipped.push(SkippedOpportunity {
                         title: opp.title.clone(),
                         confidence: opp.confidence,
+                        score: opp.score,
                         reason: format!(
                             "Daily limit: ${:.2} deployed + ${:.2} would exceed ${:.2} cap",
                             daily_deployed as f64 / 100.0,
@@ -615,10 +642,16 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                     continue;
                 }
 
+                // Use serde serialization for consistent direction strings (#5)
                 let direction = opp
                     .suggested_direction
                     .as_ref()
-                    .map(|d| format!("{:?}", d))
+                    .map(|d| {
+                        serde_json::to_value(d)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| format!("{:?}", d))
+                    })
                     .unwrap_or_else(|| "unknown".to_string());
 
                 let action = opp.suggested_action.clone().unwrap_or_else(|| {
@@ -656,12 +689,8 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
 
             let result = ExecutionResult {
                 timestamp: chrono::Utc::now().to_rfc3339(),
-                mode: if dry_run {
-                    "dry_run".to_string()
-                } else {
-                    "live".to_string()
-                },
-                bankroll_cents,
+                mode: "dry_run".to_string(),
+                bankroll_cents: bankroll,
                 feeds_ingested: total_ingested,
                 feed_errors,
                 opportunities_found: scan.total_opportunities,
@@ -672,21 +701,11 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 skipped,
             };
 
-            if dry_run {
-                eprintln!(
-                    "   🏁 DRY RUN: {} trades qualified, ${:.2} total deployment",
-                    result.trades_qualified,
-                    daily_deployed as f64 / 100.0
-                );
-            } else {
-                eprintln!(
-                    "   ⚡ LIVE MODE: {} trades to execute, ${:.2} total deployment",
-                    result.trades_qualified,
-                    daily_deployed as f64 / 100.0
-                );
-                // TODO: Kalshi API integration for live execution
-                eprintln!("   ⚠️  Live execution not yet implemented — outputting trade plan");
-            }
+            eprintln!(
+                "   🏁 DRY RUN: {} trades qualified, ${:.2} total deployment",
+                result.trades_qualified,
+                daily_deployed as f64 / 100.0
+            );
 
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
         }

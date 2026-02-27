@@ -36,13 +36,14 @@ pub struct KellyConfig {
     pub max_bankroll_fraction: f64,
 }
 
+/// Default KellyConfig: half-Kelly (0.5), $25 max position, 5% min edge, 25% max bankroll fraction.
 impl Default for KellyConfig {
     fn default() -> Self {
         Self {
-            fraction: 0.5,
-            max_position_cents: 2500, // $25
-            min_edge: 0.05,           // 5% minimum edge
-            max_bankroll_fraction: 0.25,
+            fraction: 0.5,               // Half-Kelly for conservative sizing
+            max_position_cents: 2500,    // $25 max position
+            min_edge: 0.05,              // 5% minimum edge required
+            max_bankroll_fraction: 0.25, // 25% max of bankroll per position
         }
     }
 }

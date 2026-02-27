@@ -189,6 +189,37 @@ pub enum Commands {
         #[arg(long)]
         tickers: Option<String>,
     },
+    /// Automated execution: feed → opportunities → trade plan (or execute)
+    Execute {
+        /// Bankroll in cents for Kelly position sizing. Default: 8000 ($80)
+        #[arg(long, default_value = "8000")]
+        bankroll: u64,
+        /// Dry run — show trade plan without executing (default: true)
+        #[arg(long, default_value = "true")]
+        dry_run: bool,
+        /// Minimum confidence threshold (0.0–1.0). Default: 0.65
+        #[arg(long, default_value = "0.65")]
+        min_confidence: f64,
+        /// Minimum opportunity score (>= 0.0). Default: 0.3
+        #[arg(long, default_value = "0.3")]
+        min_score: f64,
+        /// Maximum position size in cents (> 0). Default: 2500 ($25)
+        #[arg(long, default_value = "2500")]
+        max_position: u64,
+        /// Maximum daily deployment in cents (> 0). Default: 3000 ($30)
+        #[arg(long, default_value = "3000")]
+        max_daily: u64,
+        /// Kelly fraction (0.0–1.0). Default: 0.5 (half-Kelly).
+        /// Other Kelly defaults: min_edge=5%, max_bankroll_fraction=25%.
+        #[arg(long, default_value = "0.5")]
+        kelly_fraction: f64,
+        /// Hours to look back for opportunities. Default: 48
+        #[arg(long, default_value = "48")]
+        hours: u32,
+        /// Custom tickers for Yahoo feed (comma-separated)
+        #[arg(long)]
+        tickers: Option<String>,
+    },
     /// Calculate Kelly criterion position size for a single trade
     Kelly {
         /// Estimated probability of winning (0.0–1.0)

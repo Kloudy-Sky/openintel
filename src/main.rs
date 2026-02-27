@@ -1,12 +1,20 @@
 use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
+use openintel::domain::values::execution::{
+    ExecutionMode, ExecutionResult, SkippedOpportunity, TradePlan,
+};
 use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
 use openintel::domain::values::trade_outcome::TradeOutcome;
 use openintel::infrastructure::feeds::{Feed, FeedResult, FetchOutput};
 use openintel::OpenIntel;
+
+/// Default Yahoo Finance watchlist tickers.
+const DEFAULT_YAHOO_TICKERS: &[&str] = &[
+    "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
+];
 
 #[tokio::main]
 async fn main() {
@@ -25,6 +33,59 @@ async fn main() {
     if let Err(e) = result {
         eprintln!("Error: {e}");
         std::process::exit(1);
+    }
+}
+
+/// Helper function to initialize feeds based on source and ticker list.
+fn initialize_feeds(source: &str, ticker_list: Vec<String>) -> Result<Vec<Box<dyn Feed>>, String> {
+    match source.to_lowercase().as_str() {
+        "yahoo" => {
+            let tickers = if ticker_list.is_empty() {
+                DEFAULT_YAHOO_TICKERS
+                    .iter()
+                    .map(|s| String::from(*s))
+                    .collect()
+            } else {
+                ticker_list
+            };
+            Ok(vec![Box::new(
+                openintel::infrastructure::feeds::yahoo::YahooFeed::new(tickers),
+            )])
+        }
+        "nws" => Ok(vec![Box::new(
+            openintel::infrastructure::feeds::nws::NwsFeed::central_park(),
+        )]),
+        "kalshi" => {
+            let feed = if ticker_list.is_empty() {
+                openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()
+            } else {
+                openintel::infrastructure::feeds::kalshi::KalshiFeed::new(ticker_list)
+            };
+            Ok(vec![Box::new(feed)])
+        }
+        "all" => {
+            if !ticker_list.is_empty() {
+                eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
+            }
+            let yahoo_tickers = if ticker_list.is_empty() {
+                DEFAULT_YAHOO_TICKERS
+                    .iter()
+                    .map(|s| String::from(*s))
+                    .collect()
+            } else {
+                ticker_list
+            };
+            Ok(vec![
+                Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
+                    yahoo_tickers,
+                )) as Box<dyn Feed>,
+                Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
+                Box::new(openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()),
+            ])
+        }
+        other => Err(format!(
+            "Unknown feed source: {other}. Use: yahoo, nws, kalshi, or all"
+        )),
     }
 }
 
@@ -288,67 +349,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .map(|t| t.split(',').map(|s| s.trim().to_uppercase()).collect())
                 .unwrap_or_default();
 
-            let feeds: Vec<Box<dyn Feed>> = match source.to_lowercase().as_str() {
-                "yahoo" => {
-                    let t = if ticker_list.is_empty() {
-                        // Default watchlist
-                        vec![
-                            "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
-                        ]
-                        .into_iter()
-                        .map(String::from)
-                        .collect()
-                    } else {
-                        ticker_list
-                    };
-                    vec![Box::new(
-                        openintel::infrastructure::feeds::yahoo::YahooFeed::new(t),
-                    )]
-                }
-                "nws" => {
-                    vec![Box::new(
-                        openintel::infrastructure::feeds::nws::NwsFeed::central_park(),
-                    )]
-                }
-                "kalshi" => {
-                    let feed = if ticker_list.is_empty() {
-                        openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()
-                    } else {
-                        openintel::infrastructure::feeds::kalshi::KalshiFeed::new(ticker_list)
-                    };
-                    vec![Box::new(feed)]
-                }
-                "all" => {
-                    if !ticker_list.is_empty() {
-                        eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
-                    }
-                    let yahoo_tickers = if ticker_list.is_empty() {
-                        vec![
-                            "IONQ", "NVDA", "CRCL", "COIN", "MARA", "RIOT", "SPY", "QQQ", "SQ",
-                        ]
-                        .into_iter()
-                        .map(String::from)
-                        .collect()
-                    } else {
-                        ticker_list
-                    };
-                    vec![
-                        Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
-                            yahoo_tickers,
-                        )) as Box<dyn Feed>,
-                        Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
-                        Box::new(
-                            openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series(),
-                        ),
-                    ]
-                }
-                other => {
-                    return Err(format!(
-                        "Unknown feed source: {other}. Use: yahoo, nws, kalshi, or all"
-                    )
-                    .into());
-                }
-            };
+            let feeds = initialize_feeds(&source, ticker_list)?;
 
             let mut results = Vec::new();
             for feed in feeds {
@@ -413,6 +414,281 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             }
 
             println!("{}", serde_json::to_string_pretty(&results).unwrap());
+        }
+        Commands::Execute {
+            bankroll,
+            dry_run,
+            min_confidence,
+            min_score,
+            max_position,
+            max_daily,
+            kelly_fraction,
+            hours,
+            tickers,
+        } => {
+            use openintel::infrastructure::feeds::FetchOutput;
+
+            // Validate numeric parameters
+            if bankroll == 0 {
+                return Err("--bankroll must be > 0".into());
+            }
+            if max_daily == 0 {
+                return Err("--max-daily must be > 0".into());
+            }
+            if max_position == 0 {
+                return Err("--max-position must be > 0".into());
+            }
+            let clamped_confidence = min_confidence.clamp(0.0, 1.0);
+            if clamped_confidence != min_confidence {
+                eprintln!(
+                    "Warning: --min-confidence {min_confidence} out of range, clamped to {clamped_confidence}"
+                );
+            }
+            let min_confidence = clamped_confidence;
+            let clamped_score = min_score.max(0.0);
+            if clamped_score != min_score {
+                eprintln!(
+                    "Warning: --min-score {min_score} out of range, clamped to {clamped_score}"
+                );
+            }
+            let min_score = clamped_score;
+            let clamped_kelly = kelly_fraction.clamp(0.001, 1.0);
+            if clamped_kelly != kelly_fraction {
+                eprintln!(
+                    "Warning: --kelly-fraction {kelly_fraction} out of range, clamped to {clamped_kelly}"
+                );
+            }
+            let kelly_fraction = clamped_kelly;
+
+            if !dry_run {
+                return Err(
+                    "Live execution is not yet implemented. Use --dry-run true (default) to preview trade plans."
+                        .into(),
+                );
+            }
+
+            // Step 1: Run all feeds
+            eprintln!("📡 Step 1: Ingesting live data feeds...");
+            let ticker_list: Vec<String> = tickers
+                .map(|t| t.split(',').map(|s| s.trim().to_uppercase()).collect())
+                .unwrap_or_default();
+
+            let feeds = initialize_feeds("all", ticker_list)?;
+
+            let mut total_ingested = 0usize;
+            let mut feed_errors = Vec::new();
+            for feed in feeds {
+                let feed_name = feed.name().to_string();
+                match feed.fetch().await {
+                    Ok(FetchOutput {
+                        entries,
+                        fetch_errors,
+                    }) => {
+                        if !fetch_errors.is_empty() {
+                            feed_errors
+                                .extend(fetch_errors.iter().map(|e| format!("{feed_name}: {e}")));
+                        }
+                        for entry in entries {
+                            match oi
+                                .add_intel(
+                                    entry.category,
+                                    entry.title.clone(),
+                                    entry.body.clone(),
+                                    entry.source.clone(),
+                                    entry.tags.clone(),
+                                    Some(entry.confidence.value()),
+                                    Some(entry.actionable),
+                                    entry.source_type,
+                                    entry.metadata.clone(),
+                                    false,
+                                )
+                                .await
+                            {
+                                Ok(result) => {
+                                    if !result.deduplicated {
+                                        total_ingested += 1;
+                                    }
+                                }
+                                Err(e) => {
+                                    feed_errors.push(format!("{feed_name}: {}: {e}", entry.title));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        feed_errors.push(format!("{feed_name}: {e}"));
+                    }
+                }
+            }
+            eprintln!(
+                "   ✅ Ingested {total_ingested} new entries ({})",
+                if feed_errors.is_empty() {
+                    "no errors".to_string()
+                } else {
+                    format!("{} errors", feed_errors.len())
+                }
+            );
+
+            // Step 2: Run opportunity detection with Kelly sizing
+            // Pass None for min_score so all opps are returned — we filter in the loop (#4)
+            eprintln!("🔍 Step 2: Scanning for opportunities...");
+            let kelly_config = openintel::domain::values::kelly::KellyConfig {
+                fraction: kelly_fraction,
+                max_position_cents: max_position,
+                ..Default::default()
+            };
+
+            let scan = oi.opportunities_with_sizing(
+                hours,
+                None, // no pre-filter — all filtering happens below for full audit trail
+                None,
+                None,
+                Some(bankroll),
+                Some(kelly_config),
+            )?;
+
+            eprintln!(
+                "   ✅ Found {} opportunities from {} entries",
+                scan.total_opportunities, scan.entries_scanned
+            );
+
+            // Step 3: Filter by confidence, score, and build trade plan
+            eprintln!("📋 Step 3: Building trade plan...");
+
+            let mut trades: Vec<TradePlan> = Vec::new();
+            let mut skipped: Vec<SkippedOpportunity> = Vec::new();
+            let mut daily_deployed: u64 = 0;
+
+            for opp in &scan.opportunities {
+                // Filter: minimum score (#4 — now visible in skipped list)
+                if opp.score < min_score {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        score: opp.score,
+                        reason: format!("Score {:.2} < {:.2} threshold", opp.score, min_score),
+                    });
+                    continue;
+                }
+
+                // Filter: must have market ticker
+                let ticker = match &opp.market_ticker {
+                    Some(t) => t.clone(),
+                    None => {
+                        skipped.push(SkippedOpportunity {
+                            title: opp.title.clone(),
+                            confidence: opp.confidence,
+                            score: opp.score,
+                            reason: "No market ticker".to_string(),
+                        });
+                        continue;
+                    }
+                };
+
+                // Filter: minimum confidence
+                if opp.confidence < min_confidence {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        score: opp.score,
+                        reason: format!(
+                            "Confidence {:.0}% < {:.0}% threshold",
+                            opp.confidence * 100.0,
+                            min_confidence * 100.0
+                        ),
+                    });
+                    continue;
+                }
+
+                // Get Kelly-sized position (#3 — Kelly already caps via KellyConfig)
+                let size = match opp.suggested_size_cents {
+                    Some(s) => s,
+                    None => {
+                        skipped.push(SkippedOpportunity {
+                            title: opp.title.clone(),
+                            confidence: opp.confidence,
+                            score: opp.score,
+                            reason: "No Kelly sizing available (missing market price)".to_string(),
+                        });
+                        continue;
+                    }
+                };
+
+                if size == 0 {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        score: opp.score,
+                        reason: "Kelly sizing returned 0 (no edge)".to_string(),
+                    });
+                    continue;
+                }
+
+                // Check daily deployment limit
+                if daily_deployed + size > max_daily {
+                    skipped.push(SkippedOpportunity {
+                        title: opp.title.clone(),
+                        confidence: opp.confidence,
+                        score: opp.score,
+                        reason: format!(
+                            "Daily limit: ${:.2} deployed + ${:.2} would exceed ${:.2} cap",
+                            daily_deployed as f64 / 100.0,
+                            size as f64 / 100.0,
+                            max_daily as f64 / 100.0
+                        ),
+                    });
+                    continue;
+                }
+
+                let direction = opp
+                    .suggested_direction
+                    .as_ref()
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let action = opp.suggested_action.clone().unwrap_or_else(|| {
+                    format!("Buy {} @ {}¢", ticker, opp.market_price.unwrap_or(0.0))
+                });
+
+                trades.push(TradePlan {
+                    ticker,
+                    direction,
+                    size_cents: size,
+                    confidence: opp.confidence,
+                    score: opp.score,
+                    edge_cents: opp.edge_cents,
+                    action,
+                    description: opp.description.clone(),
+                });
+                daily_deployed += size;
+            }
+
+            // Step 4: Output results
+            // Note: live mode returns early above; this will need updating
+            // when live execution is implemented.
+            let execution_mode = ExecutionMode::DryRun;
+
+            let result = ExecutionResult {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                mode: execution_mode,
+                bankroll_cents: bankroll,
+                feeds_ingested: total_ingested,
+                feed_errors,
+                opportunities_scanned: scan.total_opportunities,
+                trades_qualified: trades.len(),
+                trades_skipped: skipped.len(),
+                total_deployment_cents: daily_deployed,
+                trades,
+                skipped,
+            };
+
+            eprintln!(
+                "   🏁 DRY RUN: {} trades qualified, ${:.2} total deployment",
+                result.trades_qualified,
+                daily_deployed as f64 / 100.0
+            );
+
+            println!("{}", serde_json::to_string_pretty(&result).unwrap());
         }
         Commands::Kelly {
             probability,

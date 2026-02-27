@@ -1,6 +1,7 @@
 pub mod category;
 pub mod confidence;
 pub mod decay;
+pub mod execution;
 pub mod kelly;
 pub mod portfolio;
 pub mod source_type;

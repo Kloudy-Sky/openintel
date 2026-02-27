@@ -29,6 +29,17 @@ pub enum Direction {
     No,
 }
 
+impl std::fmt::Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Direction::Bullish => write!(f, "bullish"),
+            Direction::Bearish => write!(f, "bearish"),
+            Direction::Yes => write!(f, "yes"),
+            Direction::No => write!(f, "no"),
+        }
+    }
+}
+
 /// An opportunity detected by a strategy.
 ///
 /// Represents an actionable trading signal with confidence scoring,

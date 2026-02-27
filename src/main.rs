@@ -37,7 +37,6 @@ async fn main() {
 }
 
 /// Helper function to initialize feeds based on source and ticker list.
-/// Addresses issue #9: extract feed initialization logic into reusable function.
 fn initialize_feeds(source: &str, ticker_list: Vec<String>) -> Result<Vec<Box<dyn Feed>>, String> {
     match source.to_lowercase().as_str() {
         "yahoo" => {

@@ -209,7 +209,8 @@ pub enum Commands {
         /// Maximum daily deployment in cents (> 0). Default: 3000 ($30)
         #[arg(long, default_value = "3000")]
         max_daily: u64,
-        /// Kelly fraction (0.0–1.0). Default: 0.5 (half-Kelly)
+        /// Kelly fraction (0.0–1.0). Default: 0.5 (half-Kelly).
+        /// Other Kelly defaults: min_edge=5%, max_bankroll_fraction=25%.
         #[arg(long, default_value = "0.5")]
         kelly_fraction: f64,
         /// Hours to look back for opportunities. Default: 48

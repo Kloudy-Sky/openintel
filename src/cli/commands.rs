@@ -191,7 +191,7 @@ pub enum Commands {
     },
     /// Automated execution: feed → opportunities → trade plan (or execute)
     Execute {
-        /// Bankroll in cents. Default: 8000 ($80)
+        /// Bankroll in cents for Kelly position sizing. Default: 8000 ($80)
         #[arg(long, default_value = "8000")]
         bankroll: u64,
         /// Dry run — show trade plan without executing (default: true)

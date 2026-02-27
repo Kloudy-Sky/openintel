@@ -1,6 +1,7 @@
 use clap::Parser;
 use openintel::cli::commands::{Cli, Commands};
 use openintel::domain::values::category::Category;
+use openintel::domain::values::execution::{ExecutionMode, ExecutionResult, SkippedOpportunity, TradePlan};
 use openintel::domain::values::portfolio::{AssetClass, Portfolio, Position};
 use openintel::domain::values::source_type::SourceType;
 use openintel::domain::values::trade_direction::TradeDirection;
@@ -30,6 +31,57 @@ async fn main() {
     if let Err(e) = result {
         eprintln!("Error: {e}");
         std::process::exit(1);
+    }
+}
+
+/// Helper function to initialize feeds based on source and ticker list.
+/// Addresses issue #9: extract feed initialization logic into reusable function.
+fn initialize_feeds(
+    source: &str,
+    ticker_list: Vec<String>,
+) -> Result<Vec<Box<dyn Feed>>, String> {
+    match source.to_lowercase().as_str() {
+        "yahoo" => {
+            let tickers = if ticker_list.is_empty() {
+                DEFAULT_YAHOO_TICKERS.iter().map(|s| String::from(*s)).collect()
+            } else {
+                ticker_list
+            };
+            Ok(vec![Box::new(
+                openintel::infrastructure::feeds::yahoo::YahooFeed::new(tickers),
+            )])
+        }
+        "nws" => Ok(vec![Box::new(
+            openintel::infrastructure::feeds::nws::NwsFeed::central_park(),
+        )]),
+        "kalshi" => {
+            let feed = if ticker_list.is_empty() {
+                openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()
+            } else {
+                openintel::infrastructure::feeds::kalshi::KalshiFeed::new(ticker_list)
+            };
+            Ok(vec![Box::new(feed)])
+        }
+        "all" => {
+            if !ticker_list.is_empty() {
+                eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
+            }
+            let yahoo_tickers = if ticker_list.is_empty() {
+                DEFAULT_YAHOO_TICKERS.iter().map(|s| String::from(*s)).collect()
+            } else {
+                ticker_list
+            };
+            Ok(vec![
+                Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
+                    yahoo_tickers,
+                )) as Box<dyn Feed>,
+                Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
+                Box::new(openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()),
+            ])
+        }
+        other => Err(format!(
+            "Unknown feed source: {other}. Use: yahoo, nws, kalshi, or all"
+        )),
     }
 }
 
@@ -293,62 +345,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .map(|t| t.split(',').map(|s| s.trim().to_uppercase()).collect())
                 .unwrap_or_default();
 
-            let feeds: Vec<Box<dyn Feed>> = match source.to_lowercase().as_str() {
-                "yahoo" => {
-                    let t = if ticker_list.is_empty() {
-                        DEFAULT_YAHOO_TICKERS
-                            .iter()
-                            .map(|s| String::from(*s))
-                            .collect()
-                    } else {
-                        ticker_list
-                    };
-                    vec![Box::new(
-                        openintel::infrastructure::feeds::yahoo::YahooFeed::new(t),
-                    )]
-                }
-                "nws" => {
-                    vec![Box::new(
-                        openintel::infrastructure::feeds::nws::NwsFeed::central_park(),
-                    )]
-                }
-                "kalshi" => {
-                    let feed = if ticker_list.is_empty() {
-                        openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()
-                    } else {
-                        openintel::infrastructure::feeds::kalshi::KalshiFeed::new(ticker_list)
-                    };
-                    vec![Box::new(feed)]
-                }
-                "all" => {
-                    if !ticker_list.is_empty() {
-                        eprintln!("Note: --tickers only applies to Yahoo Finance in 'all' mode. NWS and Kalshi use defaults.");
-                    }
-                    let yahoo_tickers = if ticker_list.is_empty() {
-                        DEFAULT_YAHOO_TICKERS
-                            .iter()
-                            .map(|s| String::from(*s))
-                            .collect()
-                    } else {
-                        ticker_list
-                    };
-                    vec![
-                        Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
-                            yahoo_tickers,
-                        )) as Box<dyn Feed>,
-                        Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
-                        Box::new(
-                            openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series(),
-                        ),
-                    ]
-                }
-                other => {
-                    return Err(format!(
-                        "Unknown feed source: {other}. Use: yahoo, nws, kalshi, or all"
-                    )
-                    .into());
-                }
-            };
+            let feeds = initialize_feeds(&source, ticker_list)?;
 
             let mut results = Vec::new();
             for feed in feeds {
@@ -459,6 +456,17 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             }
             let kelly_fraction = clamped_kelly;
 
+            // Issue #6: CLI validation
+            if bankroll == 0 {
+                return Err("Bankroll must be > 0".into());
+            }
+            if max_position == 0 {
+                return Err("Max position must be > 0".into());
+            }
+            if max_daily == 0 {
+                return Err("Max daily deployment must be > 0".into());
+            }
+
             if !dry_run {
                 return Err(
                     "Live execution is not yet implemented. Use --dry-run true (default) to preview trade plans."
@@ -472,22 +480,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 .map(|t| t.split(',').map(|s| s.trim().to_uppercase()).collect())
                 .unwrap_or_default();
 
-            let yahoo_tickers = if ticker_list.is_empty() {
-                DEFAULT_YAHOO_TICKERS
-                    .iter()
-                    .map(|s| String::from(*s))
-                    .collect()
-            } else {
-                ticker_list
-            };
-
-            let feeds: Vec<Box<dyn Feed>> = vec![
-                Box::new(openintel::infrastructure::feeds::yahoo::YahooFeed::new(
-                    yahoo_tickers,
-                )) as Box<dyn Feed>,
-                Box::new(openintel::infrastructure::feeds::nws::NwsFeed::central_park()),
-                Box::new(openintel::infrastructure::feeds::kalshi::KalshiFeed::default_series()),
-            ];
+            let feeds = initialize_feeds("all", ticker_list)?;
 
             let mut total_ingested = 0usize;
             let mut feed_errors = Vec::new();
@@ -563,26 +556,6 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
 
             // Step 3: Filter by confidence, score, and build trade plan
             eprintln!("📋 Step 3: Building trade plan...");
-
-            #[derive(serde::Serialize)]
-            struct TradePlan {
-                ticker: String,
-                direction: String,
-                size_cents: u64,
-                confidence: f64,
-                score: f64,
-                edge_cents: Option<f64>,
-                action: String,
-                description: String,
-            }
-
-            #[derive(serde::Serialize)]
-            struct SkippedOpportunity {
-                title: String,
-                confidence: f64,
-                score: f64,
-                reason: String,
-            }
 
             let mut trades: Vec<TradePlan> = Vec::new();
             let mut skipped: Vec<SkippedOpportunity> = Vec::new();
@@ -693,24 +666,15 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             }
 
             // Step 4: Output results
-            #[derive(serde::Serialize)]
-            struct ExecutionResult {
-                timestamp: String,
-                mode: String,
-                bankroll_cents: u64,
-                feeds_ingested: usize,
-                feed_errors: Vec<String>,
-                opportunities_scanned: usize,
-                trades_qualified: usize,
-                trades_skipped: usize,
-                total_deployment_cents: u64,
-                trades: Vec<TradePlan>,
-                skipped: Vec<SkippedOpportunity>,
-            }
+            let execution_mode = if dry_run {
+                ExecutionMode::DryRun
+            } else {
+                ExecutionMode::Live
+            };
 
             let result = ExecutionResult {
                 timestamp: chrono::Utc::now().to_rfc3339(),
-                mode: "dry_run".to_string(),
+                mode: execution_mode,
                 bankroll_cents: bankroll,
                 feeds_ingested: total_ingested,
                 feed_errors,

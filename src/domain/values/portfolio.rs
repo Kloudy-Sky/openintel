@@ -247,7 +247,7 @@ impl Portfolio {
                 } else {
                     0.0
                 };
-                exchanges.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                exchanges.sort_by_key(|a| a.to_string());
                 ClassExposure {
                     asset_class,
                     position_count: count,

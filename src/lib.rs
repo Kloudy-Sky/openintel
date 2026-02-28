@@ -41,6 +41,7 @@ use rusqlite::Connection;
 use std::sync::Arc;
 
 pub struct OpenIntel {
+    intel_repo: Arc<dyn IntelRepository>,
     add_intel_uc: AddIntelUseCase,
     alerts_uc: AlertsUseCase,
     opportunities_uc: OpportunitiesUseCase,
@@ -155,6 +156,7 @@ impl OpenIntel {
         ];
 
         Ok(Self {
+            intel_repo: intel_repo.clone(),
             add_intel_uc: AddIntelUseCase::new(
                 intel_repo.clone(),
                 embedder.clone(),
@@ -174,6 +176,13 @@ impl OpenIntel {
             summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
             reindex_uc: ReindexUseCase::new(intel_repo, embedder, vector_store),
         })
+    }
+
+    /// Create a market resolver backed by the intel database.
+    pub fn market_resolver(&self) -> impl crate::domain::ports::market_resolver::MarketResolver {
+        crate::infrastructure::resolvers::intel_resolver::IntelResolver::new(
+            self.intel_repo.clone(),
+        )
     }
 
     // Delegating methods

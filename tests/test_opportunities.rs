@@ -1,15 +1,11 @@
 //! Tests for the OpportunitiesUseCase — strategy orchestration, scoring,
 //! filtering, and Kelly sizing integration.
 
+mod common;
+
+use common::setup;
 use openintel::domain::values::category::Category;
 use openintel::domain::values::source_type::SourceType;
-use openintel::infrastructure::embeddings::noop::NoopProvider;
-use openintel::OpenIntel;
-use std::sync::Arc;
-
-fn setup() -> OpenIntel {
-    OpenIntel::with_providers(":memory:", Arc::new(NoopProvider)).unwrap()
-}
 
 #[tokio::test]
 async fn test_opportunities_empty_db() {
@@ -17,15 +13,14 @@ async fn test_opportunities_empty_db() {
     let scan = oi.opportunities(24, None, None, None).unwrap();
     assert_eq!(scan.entries_scanned, 0);
     assert_eq!(scan.total_opportunities, 0);
-    assert_eq!(scan.strategies_run, 4); // all 4 strategies run even on empty data
+    assert_eq!(scan.strategies_run, 4);
     assert_eq!(scan.strategies_failed, 0);
 }
 
 #[tokio::test]
-async fn test_opportunities_with_data() {
+async fn test_opportunities_scans_all_strategies() {
     let oi = setup();
 
-    // Add enough data to potentially trigger tag_convergence or convergence
     for i in 0..5 {
         let source_type = if i % 2 == 0 {
             SourceType::External
@@ -51,15 +46,14 @@ async fn test_opportunities_with_data() {
     let scan = oi.opportunities(24, None, None, None).unwrap();
     assert_eq!(scan.entries_scanned, 5);
     assert_eq!(scan.strategies_run, 4);
+    assert_eq!(scan.strategies_failed, 0);
     assert_eq!(scan.window_hours, 24);
-    // Should have some opportunities from convergence strategies
 }
 
 #[tokio::test]
 async fn test_opportunities_min_score_filter() {
     let oi = setup();
 
-    // Seed data
     for i in 0..5 {
         let st = if i % 2 == 0 {
             SourceType::External
@@ -82,13 +76,10 @@ async fn test_opportunities_min_score_filter() {
         .unwrap();
     }
 
-    let all = oi.opportunities(24, None, None, None).unwrap();
     let filtered = oi.opportunities(24, Some(999.0), None, None).unwrap();
-
-    // Very high min_score should filter out everything
-    assert!(
-        filtered.total_opportunities <= all.total_opportunities,
-        "High min_score should filter opportunities"
+    assert_eq!(
+        filtered.total_opportunities, 0,
+        "min_score 999.0 should filter all opportunities"
     );
 }
 
@@ -96,7 +87,6 @@ async fn test_opportunities_min_score_filter() {
 async fn test_opportunities_result_limit() {
     let oi = setup();
 
-    // Seed enough data for multiple opportunities
     for i in 0..10 {
         let st = if i % 2 == 0 {
             SourceType::External
@@ -127,10 +117,9 @@ async fn test_opportunities_result_limit() {
 }
 
 #[tokio::test]
-async fn test_opportunities_with_kelly_sizing() {
+async fn test_opportunities_with_kelly_sizing_no_market_price() {
     let oi = setup();
 
-    // Add convergent data to generate opportunities with confidence
     for i in 0..4 {
         let st = if i % 2 == 0 {
             SourceType::External
@@ -153,22 +142,13 @@ async fn test_opportunities_with_kelly_sizing() {
         .unwrap();
     }
 
-    // Without bankroll — no sizing
-    let without = oi
-        .opportunities_with_sizing(24, None, None, None, None, None)
-        .unwrap();
-
-    // With bankroll — sizing applied (only to opps with market_price)
-    let with = oi
+    let scan = oi
         .opportunities_with_sizing(24, None, None, None, Some(10000), None)
         .unwrap();
 
-    // Both should have the same number of opportunities
-    assert_eq!(without.total_opportunities, with.total_opportunities);
-
-    // Kelly sizing only applies when market_price is set by a resolver,
-    // so in this test (no resolver), suggested_size_cents should remain None
-    for opp in &with.opportunities {
+    // Without a resolver, no opportunities have market_price set,
+    // so Kelly sizing should NOT produce suggested_size_cents
+    for opp in &scan.opportunities {
         if opp.market_price.is_none() {
             assert!(
                 opp.suggested_size_cents.is_none(),
@@ -179,10 +159,48 @@ async fn test_opportunities_with_kelly_sizing() {
 }
 
 #[tokio::test]
+async fn test_opportunities_without_sizing_has_no_size() {
+    let oi = setup();
+
+    for i in 0..4 {
+        let st = if i % 2 == 0 {
+            SourceType::External
+        } else {
+            SourceType::Internal
+        };
+        oi.add_intel(
+            Category::Market,
+            format!("MSFT signal {i}"),
+            format!("Microsoft {i} earnings analysis"),
+            Some(format!("Source {i}")),
+            vec!["MSFT".into(), "earnings".into()],
+            Some(0.8),
+            Some(true),
+            st,
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    }
+
+    let scan = oi
+        .opportunities_with_sizing(24, None, None, None, None, None)
+        .unwrap();
+
+    // Without bankroll, no sizing at all
+    for opp in &scan.opportunities {
+        assert!(
+            opp.suggested_size_cents.is_none(),
+            "No bankroll → no suggested_size_cents"
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_opportunities_sorted_by_score_descending() {
     let oi = setup();
 
-    // Add varied data
     for i in 0..6 {
         let st = if i % 2 == 0 {
             SourceType::External
@@ -209,7 +227,9 @@ async fn test_opportunities_sorted_by_score_descending() {
     for window in scan.opportunities.windows(2) {
         assert!(
             window[0].score >= window[1].score,
-            "Opportunities should be sorted by score descending"
+            "Opportunities should be sorted by score descending: {} >= {}",
+            window[0].score,
+            window[1].score
         );
     }
 }
@@ -234,14 +254,8 @@ fn test_compute_score_without_edge() {
 fn test_compute_score_low_liquidity_penalty() {
     let full_liq = Opportunity::compute_score(0.8, Some(50.0), Some(1.0));
     let low_liq = Opportunity::compute_score(0.8, Some(50.0), Some(0.25));
-    assert!(
-        low_liq < full_liq,
-        "Low liquidity should reduce score: {} < {}",
-        low_liq,
-        full_liq
-    );
-    // sqrt(0.25) = 0.5, so low_liq should be half of full_liq
-    assert!((low_liq - 20.0).abs() < 0.01);
+    assert!(low_liq < full_liq);
+    assert!((low_liq - 20.0).abs() < 0.01, "sqrt(0.25) = 0.5, so 40 * 0.5 = 20");
 }
 
 #[test]

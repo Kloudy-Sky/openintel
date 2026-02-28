@@ -1,15 +1,11 @@
 //! Tests for the IntelResolver — market price resolution from intel DB.
 
+mod common;
+
+use common::setup;
 use openintel::domain::ports::market_resolver::MarketResolver;
 use openintel::domain::values::category::Category;
 use openintel::domain::values::source_type::SourceType;
-use openintel::infrastructure::embeddings::noop::NoopProvider;
-use openintel::OpenIntel;
-use std::sync::Arc;
-
-fn setup() -> OpenIntel {
-    OpenIntel::with_providers(":memory:", Arc::new(NoopProvider)).unwrap()
-}
 
 #[tokio::test]
 async fn test_resolver_empty_db_kalshi() {
@@ -230,7 +226,7 @@ async fn test_resolver_skips_invalid_midpoint() {
 }
 
 #[tokio::test]
-async fn test_resolver_ticker_case_insensitive() {
+async fn test_resolver_normalizes_lowercase_input_to_uppercase() {
     let oi = setup();
 
     let meta = serde_json::json!({
@@ -255,11 +251,14 @@ async fn test_resolver_ticker_case_insensitive() {
 
     let resolver = oi.market_resolver();
 
-    // Should resolve with lowercase input
+    // The resolver uppercases input ("aapl" → "AAPL") then matches against
+    // stored tags. This tests uppercase normalization, not true case-insensitive
+    // tag matching (tags are stored as-is).
     let result = resolver.resolve("aapl").await;
-    // The resolver normalizes to uppercase, but tags are stored as-is
-    // So "AAPL" tag matches "AAPL" (uppercased input)
-    assert!(result.is_some(), "Should resolve case-insensitively");
+    assert!(
+        result.is_some(),
+        "Lowercase input should be normalized to uppercase for matching"
+    );
 }
 
 #[tokio::test]

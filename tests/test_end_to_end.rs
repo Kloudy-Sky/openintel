@@ -1,16 +1,12 @@
 //! End-to-end tests exercising the full pipeline: add → query → search →
 //! opportunities → alerts → summarize → resolver.
 
+mod common;
+
+use common::setup;
 use openintel::domain::ports::market_resolver::MarketResolver;
 use openintel::domain::values::category::Category;
 use openintel::domain::values::source_type::SourceType;
-use openintel::infrastructure::embeddings::noop::NoopProvider;
-use openintel::OpenIntel;
-use std::sync::Arc;
-
-fn setup() -> OpenIntel {
-    OpenIntel::with_providers(":memory:", Arc::new(NoopProvider)).unwrap()
-}
 
 /// Full pipeline: ingest market data, run opportunities, check alerts, summarize.
 #[tokio::test]

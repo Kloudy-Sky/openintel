@@ -529,28 +529,50 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
                 }
             );
 
-            // Step 2: Run opportunity detection with Kelly sizing
-            // Pass None for min_score so all opps are returned — we filter in the loop (#4)
+            // Step 2: Run opportunity detection (without Kelly — prices not yet resolved)
             eprintln!("🔍 Step 2: Scanning for opportunities...");
-            let kelly_config = openintel::domain::values::kelly::KellyConfig {
-                fraction: kelly_fraction,
-                max_position_cents: max_position,
-                ..Default::default()
-            };
-
-            let scan = oi.opportunities_with_sizing(
-                hours,
-                None, // no pre-filter — all filtering happens below for full audit trail
-                None,
-                None,
-                Some(bankroll),
-                Some(kelly_config),
-            )?;
+            let mut scan = oi.opportunities(hours, None, None, None)?;
 
             eprintln!(
                 "   ✅ Found {} opportunities from {} entries",
                 scan.total_opportunities, scan.entries_scanned
             );
+
+            // Step 2b: Resolve market prices from intel DB
+            eprintln!("💱 Step 2b: Resolving market prices...");
+            let resolver = openintel::infrastructure::resolvers::intel_resolver::IntelResolver::new(
+                oi.intel_repo(),
+            );
+            use openintel::domain::ports::market_resolver::MarketResolver;
+            let kelly_config = openintel::domain::values::kelly::KellyConfig {
+                fraction: kelly_fraction,
+                max_position_cents: max_position,
+                ..Default::default()
+            };
+            let mut resolved_count = 0usize;
+            for opp in &mut scan.opportunities {
+                if opp.market_price.is_some() {
+                    continue; // already has a price
+                }
+                if let Some(ticker) = &opp.market_ticker {
+                    if let Some(resolved) = resolver.resolve(ticker).await {
+                        opp.market_price = Some(resolved.price_cents);
+                        // Re-run Kelly sizing now that we have a price
+                        if let Some(sizing) = openintel::domain::values::kelly::compute_kelly(
+                            opp.confidence,
+                            resolved.price_cents,
+                            bankroll,
+                            &kelly_config,
+                        ) {
+                            if sizing.suggested_size_cents > 0 {
+                                opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                            }
+                        }
+                        resolved_count += 1;
+                    }
+                }
+            }
+            eprintln!("   ✅ Resolved {resolved_count} market prices");
 
             // Step 3: Filter by confidence, score, and build trade plan
             eprintln!("📋 Step 3: Building trade plan...");

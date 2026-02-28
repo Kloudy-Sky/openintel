@@ -41,6 +41,7 @@ use rusqlite::Connection;
 use std::sync::Arc;
 
 pub struct OpenIntel {
+    intel_repo: Arc<dyn IntelRepository>,
     add_intel_uc: AddIntelUseCase,
     alerts_uc: AlertsUseCase,
     opportunities_uc: OpportunitiesUseCase,
@@ -155,6 +156,7 @@ impl OpenIntel {
         ];
 
         Ok(Self {
+            intel_repo: intel_repo.clone(),
             add_intel_uc: AddIntelUseCase::new(
                 intel_repo.clone(),
                 embedder.clone(),
@@ -174,6 +176,11 @@ impl OpenIntel {
             summarize_uc: SummarizeUseCase::new(intel_repo.clone()),
             reindex_uc: ReindexUseCase::new(intel_repo, embedder, vector_store),
         })
+    }
+
+    /// Get a reference to the intel repository (for market resolution, etc.)
+    pub fn intel_repo(&self) -> Arc<dyn IntelRepository> {
+        self.intel_repo.clone()
     }
 
     // Delegating methods

@@ -178,15 +178,8 @@ impl OpenIntel {
         })
     }
 
-    /// Get a reference to the intel repository.
-    pub fn intel_repo(&self) -> Arc<dyn IntelRepository> {
-        self.intel_repo.clone()
-    }
-
     /// Create a market resolver backed by the intel database.
-    pub fn market_resolver(
-        &self,
-    ) -> crate::infrastructure::resolvers::intel_resolver::IntelResolver {
+    pub fn market_resolver(&self) -> impl crate::domain::ports::market_resolver::MarketResolver {
         crate::infrastructure::resolvers::intel_resolver::IntelResolver::new(
             self.intel_repo.clone(),
         )

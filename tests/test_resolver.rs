@@ -60,10 +60,7 @@ async fn test_resolver_stock_from_yahoo_feed() {
     assert_eq!(resolved.contract_ticker, "IONQ");
     // Price should be in cents: $38.50 → 3850
     assert!((resolved.price_cents - 3850.0).abs() < 1.0);
-    assert_eq!(
-        format!("{}", resolved.exchange),
-        "equity"
-    );
+    assert_eq!(format!("{}", resolved.exchange), "equity");
 }
 
 #[tokio::test]

@@ -1,6 +1,8 @@
 //! Tests for domain execution types — serialization, display, and value semantics.
 
-use openintel::domain::values::execution::{ExecutionMode, ExecutionResult, SkippedOpportunity, TradePlan};
+use openintel::domain::values::execution::{
+    ExecutionMode, ExecutionResult, SkippedOpportunity, TradePlan,
+};
 
 #[test]
 fn test_execution_mode_display() {

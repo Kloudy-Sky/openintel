@@ -120,7 +120,10 @@ async fn test_opportunities_result_limit() {
     }
 
     let limited = oi.opportunities(24, None, None, Some(1)).unwrap();
-    assert!(limited.total_opportunities <= 1, "Result limit should cap output");
+    assert!(
+        limited.total_opportunities <= 1,
+        "Result limit should cap output"
+    );
 }
 
 #[tokio::test]
@@ -252,5 +255,8 @@ fn test_compute_score_no_liquidity_defaults_to_one() {
 fn test_compute_score_clamps_liquidity() {
     let over = Opportunity::compute_score(0.8, Some(50.0), Some(2.0));
     let at_one = Opportunity::compute_score(0.8, Some(50.0), Some(1.0));
-    assert!((over - at_one).abs() < 0.01, "Liquidity > 1.0 clamped to 1.0");
+    assert!(
+        (over - at_one).abs() < 0.01,
+        "Liquidity > 1.0 clamped to 1.0"
+    );
 }

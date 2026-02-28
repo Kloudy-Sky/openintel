@@ -1,4 +1,4 @@
-//! End-to-end tests exercising the full pipeline: add → query → search → 
+//! End-to-end tests exercising the full pipeline: add → query → search →
 //! opportunities → alerts → summarize → resolver.
 
 use openintel::domain::ports::market_resolver::MarketResolver;
@@ -45,7 +45,10 @@ async fn test_full_pipeline() {
         oi.add_intel(
             Category::Newsletter,
             format!("{} earnings momentum", ticker),
-            format!("{} beat expectations with strong guidance, earnings growth", ticker),
+            format!(
+                "{} beat expectations with strong guidance, earnings growth",
+                ticker
+            ),
             Some("Morning Brew".into()),
             vec![ticker.to_string(), "earnings".into()],
             Some(0.8),
@@ -61,7 +64,10 @@ async fn test_full_pipeline() {
         oi.add_intel(
             Category::Social,
             format!("{} trending on social", ticker),
-            format!("Strong bullish sentiment on {} from multiple sources", ticker),
+            format!(
+                "Strong bullish sentiment on {} from multiple sources",
+                ticker
+            ),
             Some("BlueSky".into()),
             vec![ticker.to_string(), "bullish".into()],
             Some(0.6),
@@ -104,7 +110,10 @@ async fn test_full_pipeline() {
 
     // 3. Run keyword search
     let results = oi.keyword_search("earnings", 10).unwrap();
-    assert!(results.len() >= 3, "Should find earnings entries for all 3 tickers");
+    assert!(
+        results.len() >= 3,
+        "Should find earnings entries for all 3 tickers"
+    );
 
     // 4. Run opportunities
     let scan = oi.opportunities(24, None, None, None).unwrap();

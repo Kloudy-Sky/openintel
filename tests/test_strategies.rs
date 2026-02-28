@@ -47,15 +47,30 @@ fn test_earnings_momentum_no_earnings_entries() {
     let strategy = EarningsMomentumStrategy;
     let ctx = DetectionContext {
         entries: vec![
-            make_entry("Weather update", "Sunny skies ahead", vec!["weather"], SourceType::External, None),
-            make_entry("Sports news", "Team won the game", vec!["sports"], SourceType::External, None),
+            make_entry(
+                "Weather update",
+                "Sunny skies ahead",
+                vec!["weather"],
+                SourceType::External,
+                None,
+            ),
+            make_entry(
+                "Sports news",
+                "Team won the game",
+                vec!["sports"],
+                SourceType::External,
+                None,
+            ),
         ],
         open_trades: vec![],
         window_hours: 24,
     };
 
     let opps = strategy.detect(&ctx).unwrap();
-    assert!(opps.is_empty(), "No earnings-related entries should produce no opportunities");
+    assert!(
+        opps.is_empty(),
+        "No earnings-related entries should produce no opportunities"
+    );
 }
 
 #[test]
@@ -65,16 +80,37 @@ fn test_earnings_momentum_single_ticker_multiple_signals() {
     let strategy = EarningsMomentumStrategy;
     let ctx = DetectionContext {
         entries: vec![
-            make_entry("NVDA earnings beat", "Nvidia crushed Q4 earnings with $68B revenue", vec!["NVDA", "earnings"], SourceType::External, Some("Morning Brew")),
-            make_entry("NVDA guidance strong", "Nvidia Q1 guidance $78B above expectations", vec!["NVDA", "guidance"], SourceType::External, Some("Tech Brew")),
-            make_entry("Nvidia momentum", "Analysts raising EPS targets after earnings beat", vec!["NVDA", "eps"], SourceType::External, Some("Yahoo Finance")),
+            make_entry(
+                "NVDA earnings beat",
+                "Nvidia crushed Q4 earnings with $68B revenue",
+                vec!["NVDA", "earnings"],
+                SourceType::External,
+                Some("Morning Brew"),
+            ),
+            make_entry(
+                "NVDA guidance strong",
+                "Nvidia Q1 guidance $78B above expectations",
+                vec!["NVDA", "guidance"],
+                SourceType::External,
+                Some("Tech Brew"),
+            ),
+            make_entry(
+                "Nvidia momentum",
+                "Analysts raising EPS targets after earnings beat",
+                vec!["NVDA", "eps"],
+                SourceType::External,
+                Some("Yahoo Finance"),
+            ),
         ],
         open_trades: vec![],
         window_hours: 24,
     };
 
     let opps = strategy.detect(&ctx).unwrap();
-    assert!(!opps.is_empty(), "3 earnings signals for NVDA should produce an opportunity");
+    assert!(
+        !opps.is_empty(),
+        "3 earnings signals for NVDA should produce an opportunity"
+    );
     assert_eq!(opps[0].strategy, "earnings_momentum");
     assert!(opps[0].market_ticker.as_deref() == Some("NVDA"));
 }
@@ -86,15 +122,22 @@ fn test_earnings_momentum_insufficient_signals() {
     let strategy = EarningsMomentumStrategy;
     // Only 1 entry — below the minimum cluster threshold
     let ctx = DetectionContext {
-        entries: vec![
-            make_entry("AAPL earnings beat", "Apple beat Q1 earnings", vec!["AAPL", "earnings"], SourceType::External, None),
-        ],
+        entries: vec![make_entry(
+            "AAPL earnings beat",
+            "Apple beat Q1 earnings",
+            vec!["AAPL", "earnings"],
+            SourceType::External,
+            None,
+        )],
         open_trades: vec![],
         window_hours: 24,
     };
 
     let opps = strategy.detect(&ctx).unwrap();
-    assert!(opps.is_empty(), "Single earnings entry should not trigger opportunity");
+    assert!(
+        opps.is_empty(),
+        "Single earnings entry should not trigger opportunity"
+    );
 }
 
 // ── TagConvergenceStrategy ───────────────────────────────────────────────
@@ -106,9 +149,27 @@ fn test_tag_convergence_multi_source_cluster() {
     let strategy = TagConvergenceStrategy;
     let ctx = DetectionContext {
         entries: vec![
-            make_entry("BTC surge", "Bitcoin above 100k", vec!["btc", "crypto"], SourceType::External, Some("Newsletter")),
-            make_entry("BTC analysis", "Bitcoin RSI overbought", vec!["btc", "technical"], SourceType::Internal, Some("Agent")),
-            make_entry("BTC institutional", "BlackRock buys more BTC", vec!["btc", "institutional"], SourceType::External, Some("Twitter")),
+            make_entry(
+                "BTC surge",
+                "Bitcoin above 100k",
+                vec!["btc", "crypto"],
+                SourceType::External,
+                Some("Newsletter"),
+            ),
+            make_entry(
+                "BTC analysis",
+                "Bitcoin RSI overbought",
+                vec!["btc", "technical"],
+                SourceType::Internal,
+                Some("Agent"),
+            ),
+            make_entry(
+                "BTC institutional",
+                "BlackRock buys more BTC",
+                vec!["btc", "institutional"],
+                SourceType::External,
+                Some("Twitter"),
+            ),
         ],
         open_trades: vec![],
         window_hours: 24,
@@ -116,7 +177,10 @@ fn test_tag_convergence_multi_source_cluster() {
 
     let opps = strategy.detect(&ctx).unwrap();
     // 3 entries with "btc" tag from 2 source types (External + Internal)
-    assert!(!opps.is_empty(), "3 entries from 2 source types on same tag should converge");
+    assert!(
+        !opps.is_empty(),
+        "3 entries from 2 source types on same tag should converge"
+    );
     assert_eq!(opps[0].strategy, "tag_convergence");
 }
 
@@ -128,16 +192,37 @@ fn test_tag_convergence_skips_generic_tags() {
     // "market" and "news" are in the skip list
     let ctx = DetectionContext {
         entries: vec![
-            make_entry("Entry 1", "Body", vec!["market", "news"], SourceType::External, None),
-            make_entry("Entry 2", "Body", vec!["market", "news"], SourceType::Internal, None),
-            make_entry("Entry 3", "Body", vec!["market", "news"], SourceType::External, None),
+            make_entry(
+                "Entry 1",
+                "Body",
+                vec!["market", "news"],
+                SourceType::External,
+                None,
+            ),
+            make_entry(
+                "Entry 2",
+                "Body",
+                vec!["market", "news"],
+                SourceType::Internal,
+                None,
+            ),
+            make_entry(
+                "Entry 3",
+                "Body",
+                vec!["market", "news"],
+                SourceType::External,
+                None,
+            ),
         ],
         open_trades: vec![],
         window_hours: 24,
     };
 
     let opps = strategy.detect(&ctx).unwrap();
-    assert!(opps.is_empty(), "Generic tags like 'market' and 'news' should be skipped");
+    assert!(
+        opps.is_empty(),
+        "Generic tags like 'market' and 'news' should be skipped"
+    );
 }
 
 // ── ConvergenceStrategy ──────────────────────────────────────────────────
@@ -149,9 +234,27 @@ fn test_convergence_multi_source_directional() {
     let strategy = ConvergenceStrategy;
     let ctx = DetectionContext {
         entries: vec![
-            make_entry("Fed hawkish signal", "Fed rate cut expectations falling", vec!["fed", "rates", "hawkish"], SourceType::External, Some("Morning Brew")),
-            make_entry("Bond yields rising", "Treasury yields spike on Fed comments", vec!["fed", "bonds", "bearish"], SourceType::Internal, Some("Agent")),
-            make_entry("Fed meeting preview", "Markets expect no cut at next meeting", vec!["fed", "fomc", "hawkish"], SourceType::External, Some("CFO Brew")),
+            make_entry(
+                "Fed hawkish signal",
+                "Fed rate cut expectations falling",
+                vec!["fed", "rates", "hawkish"],
+                SourceType::External,
+                Some("Morning Brew"),
+            ),
+            make_entry(
+                "Bond yields rising",
+                "Treasury yields spike on Fed comments",
+                vec!["fed", "bonds", "bearish"],
+                SourceType::Internal,
+                Some("Agent"),
+            ),
+            make_entry(
+                "Fed meeting preview",
+                "Markets expect no cut at next meeting",
+                vec!["fed", "fomc", "hawkish"],
+                SourceType::External,
+                Some("CFO Brew"),
+            ),
         ],
         open_trades: vec![],
         window_hours: 48,
@@ -204,9 +307,13 @@ fn test_cross_market_no_kalshi_entries() {
 
     let strategy = CrossMarketStrategy;
     let ctx = DetectionContext {
-        entries: vec![
-            make_entry("Stock news", "Market rally", vec!["stocks"], SourceType::External, None),
-        ],
+        entries: vec![make_entry(
+            "Stock news",
+            "Market rally",
+            vec!["stocks"],
+            SourceType::External,
+            None,
+        )],
         open_trades: vec![],
         window_hours: 24,
     };

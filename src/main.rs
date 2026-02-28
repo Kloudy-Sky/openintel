@@ -543,36 +543,44 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             let resolver = openintel::infrastructure::resolvers::intel_resolver::IntelResolver::new(
                 oi.intel_repo(),
             );
-            use openintel::domain::ports::market_resolver::MarketResolver;
+            use openintel::domain::ports::market_resolver::{Exchange, MarketResolver};
             let kelly_config = openintel::domain::values::kelly::KellyConfig {
                 fraction: kelly_fraction,
                 max_position_cents: max_position,
                 ..Default::default()
             };
             let mut resolved_count = 0usize;
+            let mut unresolved_count = 0usize;
             for opp in &mut scan.opportunities {
                 if opp.market_price.is_some() {
                     continue; // already has a price
                 }
-                if let Some(ticker) = &opp.market_ticker {
+                if let Some(ticker) = &opp.market_ticker.clone() {
                     if let Some(resolved) = resolver.resolve(ticker).await {
                         opp.market_price = Some(resolved.price_cents);
-                        // Re-run Kelly sizing now that we have a price
-                        if let Some(sizing) = openintel::domain::values::kelly::compute_kelly(
-                            opp.confidence,
-                            resolved.price_cents,
-                            bankroll,
-                            &kelly_config,
-                        ) {
-                            if sizing.suggested_size_cents > 0 {
-                                opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                        // Only apply Kelly sizing to Kalshi binary contracts (1–99¢).
+                        // Equity prices are in dollar-cents and use different sizing logic.
+                        if resolved.exchange == Exchange::Kalshi {
+                            if let Some(sizing) = openintel::domain::values::kelly::compute_kelly(
+                                opp.confidence,
+                                resolved.price_cents,
+                                bankroll,
+                                &kelly_config,
+                            ) {
+                                if sizing.suggested_size_cents > 0 {
+                                    opp.suggested_size_cents = Some(sizing.suggested_size_cents);
+                                }
                             }
                         }
                         resolved_count += 1;
+                    } else {
+                        unresolved_count += 1;
                     }
                 }
             }
-            eprintln!("   ✅ Resolved {resolved_count} market prices");
+            eprintln!(
+                "   ✅ Resolved {resolved_count} market prices ({unresolved_count} unresolved)"
+            );
 
             // Step 3: Filter by confidence, score, and build trade plan
             eprintln!("📋 Step 3: Building trade plan...");

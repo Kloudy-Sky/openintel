@@ -540,9 +540,7 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
 
             // Step 2b: Resolve market prices from intel DB
             eprintln!("💱 Step 2b: Resolving market prices...");
-            let resolver = openintel::infrastructure::resolvers::intel_resolver::IntelResolver::new(
-                oi.intel_repo(),
-            );
+            let resolver = oi.market_resolver();
             use openintel::domain::ports::market_resolver::{Exchange, MarketResolver};
             let kelly_config = openintel::domain::values::kelly::KellyConfig {
                 fraction: kelly_fraction,
@@ -551,35 +549,41 @@ async fn run_command(oi: OpenIntel, cmd: Commands) -> Result<(), Box<dyn std::er
             };
             let mut resolved_count = 0usize;
             let mut unresolved_count = 0usize;
+            let mut no_ticker_count = 0usize;
             for opp in &mut scan.opportunities {
                 if opp.market_price.is_some() {
                     continue; // already has a price
                 }
-                if let Some(ticker) = &opp.market_ticker.clone() {
-                    if let Some(resolved) = resolver.resolve(ticker).await {
-                        opp.market_price = Some(resolved.price_cents);
-                        // Only apply Kelly sizing to Kalshi binary contracts (1–99¢).
-                        // Equity prices are in dollar-cents and use different sizing logic.
-                        if resolved.exchange == Exchange::Kalshi {
-                            if let Some(sizing) = openintel::domain::values::kelly::compute_kelly(
-                                opp.confidence,
-                                resolved.price_cents,
-                                bankroll,
-                                &kelly_config,
-                            ) {
-                                if sizing.suggested_size_cents > 0 {
-                                    opp.suggested_size_cents = Some(sizing.suggested_size_cents);
-                                }
+                let ticker = match &opp.market_ticker {
+                    Some(t) => t.clone(),
+                    None => {
+                        no_ticker_count += 1;
+                        continue;
+                    }
+                };
+                if let Some(resolved) = resolver.resolve(&ticker).await {
+                    opp.market_price = Some(resolved.price_cents);
+                    // Only apply Kelly sizing to Kalshi binary contracts (1–99¢).
+                    // Equity prices are in dollar-cents and use different sizing logic.
+                    if resolved.exchange == Exchange::Kalshi {
+                        if let Some(sizing) = openintel::domain::values::kelly::compute_kelly(
+                            opp.confidence,
+                            resolved.price_cents,
+                            bankroll,
+                            &kelly_config,
+                        ) {
+                            if sizing.suggested_size_cents > 0 {
+                                opp.suggested_size_cents = Some(sizing.suggested_size_cents);
                             }
                         }
-                        resolved_count += 1;
-                    } else {
-                        unresolved_count += 1;
                     }
+                    resolved_count += 1;
+                } else {
+                    unresolved_count += 1;
                 }
             }
             eprintln!(
-                "   ✅ Resolved {resolved_count} market prices ({unresolved_count} unresolved)"
+                "   ✅ Resolved {resolved_count} prices ({unresolved_count} failed, {no_ticker_count} no ticker)"
             );
 
             // Step 3: Filter by confidence, score, and build trade plan

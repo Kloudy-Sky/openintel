@@ -178,9 +178,18 @@ impl OpenIntel {
         })
     }
 
-    /// Get a reference to the intel repository (for market resolution, etc.)
+    /// Get a reference to the intel repository.
     pub fn intel_repo(&self) -> Arc<dyn IntelRepository> {
         self.intel_repo.clone()
+    }
+
+    /// Create a market resolver backed by the intel database.
+    pub fn market_resolver(
+        &self,
+    ) -> crate::infrastructure::resolvers::intel_resolver::IntelResolver {
+        crate::infrastructure::resolvers::intel_resolver::IntelResolver::new(
+            self.intel_repo.clone(),
+        )
     }
 
     // Delegating methods

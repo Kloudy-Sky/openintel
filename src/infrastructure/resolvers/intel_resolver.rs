@@ -30,7 +30,10 @@ impl IntelResolver {
         Self { intel_repo }
     }
 
-    /// Detect Kalshi tickers dynamically by prefix rather than hardcoded list.
+    /// Detect Kalshi tickers dynamically by prefix.
+    /// Kalshi series all use the "KX" prefix (e.g., KXHIGHNY, KXFED, KXBTC).
+    /// If a future equity ticker starts with "KX", this would misroute it —
+    /// unlikely but documented here for awareness.
     fn is_kalshi_ticker(&self, ticker: &str) -> bool {
         ticker.starts_with("KX")
     }
@@ -132,11 +135,14 @@ impl IntelResolver {
     /// binary contract prices). The execute pipeline only uses Kelly for Kalshi
     /// contracts; stock prices are informational for IBKR position sizing.
     async fn resolve_stock(&self, ticker: &str) -> Option<ResolvedMarket> {
+        // Query by yahoo-feed tag and filter by ticker in-memory.
+        // This avoids missing Yahoo entries when many non-Yahoo entries
+        // share the same ticker tag (e.g., strategy-generated entries).
         let filter = QueryFilter {
             category: Some(Category::Market),
-            tag: Some(ticker.to_string()),
+            tag: Some("yahoo-feed".to_string()),
             since: Some(Utc::now() - Duration::hours(MAX_FEED_AGE_HOURS)),
-            limit: Some(5),
+            limit: Some(50),
             ..Default::default()
         };
 
@@ -149,11 +155,10 @@ impl IntelResolver {
             })
             .ok()?;
 
-        // Find the most recent yahoo-feed entry for this ticker
-        // Note: QueryFilter returns newest-first from SQLite insertion order.
-        // The first match is the most recent.
+        // Find the most recent yahoo-feed entry for this ticker.
+        // Results are ordered newest-first (SQLite ORDER BY created_at DESC).
         for entry in &entries {
-            if !entry.tags.iter().any(|t| t == "yahoo-feed") {
+            if !entry.tags.iter().any(|t| t == ticker) {
                 continue;
             }
 

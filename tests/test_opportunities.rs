@@ -87,7 +87,9 @@ async fn test_opportunities_min_score_filter() {
 async fn test_opportunities_result_limit() {
     let oi = setup();
 
-    for i in 0..10 {
+    // Seed data that reliably triggers earnings_momentum:
+    // 3+ entries with same ticker tag + earnings keywords
+    for i in 0..5 {
         let st = if i % 2 == 0 {
             SourceType::External
         } else {
@@ -95,10 +97,10 @@ async fn test_opportunities_result_limit() {
         };
         oi.add_intel(
             Category::Market,
-            format!("Entry {i}"),
-            format!("Body {i} about earnings momentum"),
+            format!("TSLA earnings signal {i}"),
+            format!("Tesla {i} earnings beat with strong revenue growth"),
             Some(format!("Source {i}")),
-            vec![format!("tag{}", i % 3), "earnings".into()],
+            vec!["TSLA".into(), "earnings".into()],
             Some(0.8),
             Some(true),
             st,
@@ -109,10 +111,18 @@ async fn test_opportunities_result_limit() {
         .unwrap();
     }
 
-    let limited = oi.opportunities(24, None, None, Some(1)).unwrap();
+    // Verify strategies actually produce opportunities
+    let unlimited = oi.opportunities(24, None, None, None).unwrap();
     assert!(
-        limited.total_opportunities <= 1,
-        "Result limit should cap output"
+        unlimited.total_opportunities > 0,
+        "Seeded data should trigger at least one opportunity"
+    );
+
+    // Now test the limit
+    let limited = oi.opportunities(24, None, None, Some(1)).unwrap();
+    assert_eq!(
+        limited.total_opportunities, 1,
+        "Result limit of 1 should cap output to exactly 1"
     );
 }
 
@@ -255,7 +265,10 @@ fn test_compute_score_low_liquidity_penalty() {
     let full_liq = Opportunity::compute_score(0.8, Some(50.0), Some(1.0));
     let low_liq = Opportunity::compute_score(0.8, Some(50.0), Some(0.25));
     assert!(low_liq < full_liq);
-    assert!((low_liq - 20.0).abs() < 0.01, "sqrt(0.25) = 0.5, so 40 * 0.5 = 20");
+    assert!(
+        (low_liq - 20.0).abs() < 0.01,
+        "sqrt(0.25) = 0.5, so 40 * 0.5 = 20"
+    );
 }
 
 #[test]

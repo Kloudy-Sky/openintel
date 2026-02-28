@@ -45,7 +45,7 @@ async fn test_alerts_tag_concentration() {
 }
 
 #[tokio::test]
-async fn test_alerts_window_hours() {
+async fn test_alerts_window_hours_reflects_parameter() {
     let oi = setup();
 
     for i in 0..5 {

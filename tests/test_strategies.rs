@@ -254,39 +254,50 @@ fn test_convergence_above_threshold_triggers() {
     use openintel::application::strategies::convergence::ConvergenceStrategy;
 
     let strategy = ConvergenceStrategy;
-    // Need >= 3 entries, >= 2 source types to meet MIN_CLUSTER_SIZE and MIN_SOURCE_DIVERSITY
+    // Thresholds: MIN_CLUSTER_SIZE=3, MIN_SOURCE_DIVERSITY=2, MIN_CONFIDENCE=0.4
+    // Confidence = (entries/10).min(0.7) × (1 + 0.15×(sources-1)) × (0.5 + 0.5×alignment)
+    // With 5 entries, 2 source types, strong bullish alignment:
+    //   base=0.5, diversity=1.15, alignment~1.0 → confidence≈0.575 > 0.4 ✓
     let ctx = DetectionContext {
         entries: vec![
             make_entry(
-                "Fed hawkish signal",
-                "Fed rate cut expectations falling sharply",
-                vec!["fed", "rates", "hawkish"],
+                "NVDA earnings beat strong",
+                "Nvidia beat estimates with massive surge in revenue and bullish guidance",
+                vec!["nvda-topic", "momentum"],
                 SourceType::External,
                 Some("Morning Brew"),
                 true,
             ),
             make_entry(
-                "Bond yields rising",
-                "Treasury yields spike on Fed hawkish comments",
-                vec!["fed", "bonds", "bearish"],
+                "NVDA rally continues",
+                "Nvidia rally driven by strong growth and bullish AI demand",
+                vec!["nvda-topic", "momentum"],
                 SourceType::Internal,
-                Some("Agent"),
+                Some("Agent Analysis"),
                 true,
             ),
             make_entry(
-                "Fed meeting preview",
-                "Markets expect no cut at next meeting, hawkish tone",
-                vec!["fed", "fomc", "hawkish"],
+                "NVDA momentum builds",
+                "Analysts raised targets after beat, positive momentum and growth outlook",
+                vec!["nvda-topic", "momentum"],
                 SourceType::External,
-                Some("CFO Brew"),
+                Some("Tech Brew"),
                 true,
             ),
             make_entry(
-                "Rate expectations shift",
-                "CME FedWatch tool shows hawkish shift in rate probabilities",
-                vec!["fed", "rates", "hawkish"],
+                "NVDA institutional buying surge",
+                "BlackRock increased position, strong bullish signal and buy ratings",
+                vec!["nvda-topic", "institutional"],
                 SourceType::External,
                 Some("Yahoo Finance"),
+                true,
+            ),
+            make_entry(
+                "NVDA options flow bullish",
+                "Massive upside call buying, strong bullish sentiment and gain expectations",
+                vec!["nvda-topic", "options"],
+                SourceType::Internal,
+                Some("Options Flow"),
                 true,
             ),
         ],
@@ -295,13 +306,11 @@ fn test_convergence_above_threshold_triggers() {
     };
 
     let opps = strategy.detect(&ctx).unwrap();
-    // With 4 entries, 2 source types, all tagged "fed" — should trigger
-    if !opps.is_empty() {
-        assert_eq!(opps[0].strategy, "convergence");
-    }
-    // If it doesn't trigger, the strategy's internal thresholds are stricter
-    // than our test data. That's fine — the empty-context test below covers
-    // the "no false positives" case.
+    assert!(
+        !opps.is_empty(),
+        "5 entries from 2 source types with strong bullish alignment should trigger convergence"
+    );
+    assert_eq!(opps[0].strategy, "convergence");
 }
 
 #[test]

@@ -441,10 +441,10 @@ fn extract_expiry_date(meta: &serde_json::Value, ticker: &str) -> String {
             return dt.format("%Y-%m-%d").to_string();
         }
         // Try parsing just the date portion
-        if close_time.len() >= 10 {
-            if NaiveDate::parse_from_str(&close_time[..10], "%Y-%m-%d").is_ok() {
-                return close_time[..10].to_string();
-            }
+        if close_time.len() >= 10
+            && NaiveDate::parse_from_str(&close_time[..10], "%Y-%m-%d").is_ok()
+        {
+            return close_time[..10].to_string();
         }
     }
 

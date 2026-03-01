@@ -116,10 +116,7 @@ impl CrossMarketStrategy {
 
                 // Try to extract from metadata first (preferred — structured data)
                 if let Some(ref meta) = entry.metadata {
-                    let ticker = meta
-                        .get("ticker")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let ticker = meta.get("ticker").and_then(|v| v.as_str()).unwrap_or("");
 
                     // Skip threshold contracts — they're cumulative, not
                     // mutually exclusive. Band-sum only applies to B contracts.
@@ -556,7 +553,12 @@ mod tests {
             id: id.to_string(),
             category: Category::Market,
             title: format!("{} — {}¢", ticker, midpoint),
-            body: format!("Bid: {}¢, Ask: {}¢, Midpoint: {}¢", midpoint - 0.5, midpoint + 0.5, midpoint),
+            body: format!(
+                "Bid: {}¢, Ask: {}¢, Midpoint: {}¢",
+                midpoint - 0.5,
+                midpoint + 0.5,
+                midpoint
+            ),
             source: Some("kalshi".to_string()),
             tags: vec![
                 ticker.to_string(),
@@ -663,15 +665,63 @@ mod tests {
         // Create bands for TWO different expiry dates in the same series
         let entries = vec![
             // Expiry 1: Feb 27 — bands sum to 85 (underpriced)
-            make_band_entry("e1", "KXHIGHNY-26FEB27-B38.5", "kxhighny", 10.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e2", "KXHIGHNY-26FEB27-B40.5", "kxhighny", 25.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e3", "KXHIGHNY-26FEB27-B42.5", "kxhighny", 30.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e4", "KXHIGHNY-26FEB27-B44.5", "kxhighny", 20.0, "2026-02-28T04:59:00Z"),
+            make_band_entry(
+                "e1",
+                "KXHIGHNY-26FEB27-B38.5",
+                "kxhighny",
+                10.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e2",
+                "KXHIGHNY-26FEB27-B40.5",
+                "kxhighny",
+                25.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e3",
+                "KXHIGHNY-26FEB27-B42.5",
+                "kxhighny",
+                30.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e4",
+                "KXHIGHNY-26FEB27-B44.5",
+                "kxhighny",
+                20.0,
+                "2026-02-28T04:59:00Z",
+            ),
             // Expiry 2: Feb 28 — bands sum to 110 (overpriced)
-            make_band_entry("e5", "KXHIGHNY-26FEB28-B38.5", "kxhighny", 15.0, "2026-03-01T04:59:00Z"),
-            make_band_entry("e6", "KXHIGHNY-26FEB28-B40.5", "kxhighny", 30.0, "2026-03-01T04:59:00Z"),
-            make_band_entry("e7", "KXHIGHNY-26FEB28-B42.5", "kxhighny", 35.0, "2026-03-01T04:59:00Z"),
-            make_band_entry("e8", "KXHIGHNY-26FEB28-B44.5", "kxhighny", 30.0, "2026-03-01T04:59:00Z"),
+            make_band_entry(
+                "e5",
+                "KXHIGHNY-26FEB28-B38.5",
+                "kxhighny",
+                15.0,
+                "2026-03-01T04:59:00Z",
+            ),
+            make_band_entry(
+                "e6",
+                "KXHIGHNY-26FEB28-B40.5",
+                "kxhighny",
+                30.0,
+                "2026-03-01T04:59:00Z",
+            ),
+            make_band_entry(
+                "e7",
+                "KXHIGHNY-26FEB28-B42.5",
+                "kxhighny",
+                35.0,
+                "2026-03-01T04:59:00Z",
+            ),
+            make_band_entry(
+                "e8",
+                "KXHIGHNY-26FEB28-B44.5",
+                "kxhighny",
+                30.0,
+                "2026-03-01T04:59:00Z",
+            ),
         ];
 
         let ctx = DetectionContext {
@@ -683,16 +733,35 @@ mod tests {
         let result = strategy.detect_band_sum_arbitrage(&ctx).unwrap();
 
         // Should get 2 separate opportunities, NOT one combined 195% opportunity
-        assert_eq!(result.len(), 2, "Expected 2 opportunities (one per expiry), got {}", result.len());
+        assert_eq!(
+            result.len(),
+            2,
+            "Expected 2 opportunities (one per expiry), got {}",
+            result.len()
+        );
 
         // Find the underpriced one (85%)
-        let underpriced = result.iter().find(|o| o.title.contains("85")).expect("Should have 85% opportunity");
-        assert!(underpriced.suggested_action.as_ref().unwrap().contains("Buy"));
+        let underpriced = result
+            .iter()
+            .find(|o| o.title.contains("85"))
+            .expect("Should have 85% opportunity");
+        assert!(underpriced
+            .suggested_action
+            .as_ref()
+            .unwrap()
+            .contains("Buy"));
         assert!(underpriced.title.contains("4 bands"));
 
         // Find the overpriced one (110%)
-        let overpriced = result.iter().find(|o| o.title.contains("110")).expect("Should have 110% opportunity");
-        assert!(overpriced.suggested_action.as_ref().unwrap().contains("Fade"));
+        let overpriced = result
+            .iter()
+            .find(|o| o.title.contains("110"))
+            .expect("Should have 110% opportunity");
+        assert!(overpriced
+            .suggested_action
+            .as_ref()
+            .unwrap()
+            .contains("Fade"));
         assert!(overpriced.title.contains("4 bands"));
     }
 
@@ -702,12 +771,48 @@ mod tests {
 
         // KXFED threshold contracts — should NOT trigger band-sum arbitrage
         let entries = vec![
-            make_band_entry("e1", "KXFED-26MAR-T2.75", "kxfed", 99.5, "2026-03-18T17:55:00Z"),
-            make_band_entry("e2", "KXFED-26MAR-T3.00", "kxfed", 99.5, "2026-03-18T17:55:00Z"),
-            make_band_entry("e3", "KXFED-26MAR-T3.25", "kxfed", 98.5, "2026-03-18T17:55:00Z"),
-            make_band_entry("e4", "KXFED-26MAR-T3.50", "kxfed", 95.0, "2026-03-18T17:55:00Z"),
-            make_band_entry("e5", "KXFED-26MAR-T3.75", "kxfed", 85.0, "2026-03-18T17:55:00Z"),
-            make_band_entry("e6", "KXFED-26MAR-T4.00", "kxfed", 55.0, "2026-03-18T17:55:00Z"),
+            make_band_entry(
+                "e1",
+                "KXFED-26MAR-T2.75",
+                "kxfed",
+                99.5,
+                "2026-03-18T17:55:00Z",
+            ),
+            make_band_entry(
+                "e2",
+                "KXFED-26MAR-T3.00",
+                "kxfed",
+                99.5,
+                "2026-03-18T17:55:00Z",
+            ),
+            make_band_entry(
+                "e3",
+                "KXFED-26MAR-T3.25",
+                "kxfed",
+                98.5,
+                "2026-03-18T17:55:00Z",
+            ),
+            make_band_entry(
+                "e4",
+                "KXFED-26MAR-T3.50",
+                "kxfed",
+                95.0,
+                "2026-03-18T17:55:00Z",
+            ),
+            make_band_entry(
+                "e5",
+                "KXFED-26MAR-T3.75",
+                "kxfed",
+                85.0,
+                "2026-03-18T17:55:00Z",
+            ),
+            make_band_entry(
+                "e6",
+                "KXFED-26MAR-T4.00",
+                "kxfed",
+                55.0,
+                "2026-03-18T17:55:00Z",
+            ),
         ];
 
         let ctx = DetectionContext {
@@ -732,11 +837,41 @@ mod tests {
 
         // Bands that sum to ~100 (within 95-105 tolerance)
         let entries = vec![
-            make_band_entry("e1", "KXHIGHNY-26FEB27-B38.5", "kxhighny", 5.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e2", "KXHIGHNY-26FEB27-B40.5", "kxhighny", 15.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e3", "KXHIGHNY-26FEB27-B42.5", "kxhighny", 35.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e4", "KXHIGHNY-26FEB27-B44.5", "kxhighny", 30.0, "2026-02-28T04:59:00Z"),
-            make_band_entry("e5", "KXHIGHNY-26FEB27-B46.5", "kxhighny", 15.0, "2026-02-28T04:59:00Z"),
+            make_band_entry(
+                "e1",
+                "KXHIGHNY-26FEB27-B38.5",
+                "kxhighny",
+                5.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e2",
+                "KXHIGHNY-26FEB27-B40.5",
+                "kxhighny",
+                15.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e3",
+                "KXHIGHNY-26FEB27-B42.5",
+                "kxhighny",
+                35.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e4",
+                "KXHIGHNY-26FEB27-B44.5",
+                "kxhighny",
+                30.0,
+                "2026-02-28T04:59:00Z",
+            ),
+            make_band_entry(
+                "e5",
+                "KXHIGHNY-26FEB27-B46.5",
+                "kxhighny",
+                15.0,
+                "2026-02-28T04:59:00Z",
+            ),
         ];
 
         let ctx = DetectionContext {
@@ -747,7 +882,11 @@ mod tests {
 
         let result = strategy.detect_band_sum_arbitrage(&ctx).unwrap();
         // Sum = 100, within tolerance — no opportunity
-        assert!(result.is_empty(), "Bands summing to 100 should not trigger, got {} opportunities", result.len());
+        assert!(
+            result.is_empty(),
+            "Bands summing to 100 should not trigger, got {} opportunities",
+            result.len()
+        );
     }
 
     #[test]

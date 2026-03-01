@@ -99,58 +99,73 @@ impl CrossMarketStrategy {
         for entry in &ctx.entries {
             let tags_lower: Vec<String> = entry.tags.iter().map(|t| t.to_lowercase()).collect();
 
-            // Find Kalshi series tags (KXBTC, KXHIGHNY, KXINXY, KXFED, etc.)
-            for tag in &tags_lower {
-                if !tag.starts_with("kx") && tag != "kalshi" {
+            // Find the series root tag. Skip contract ticker tags (3+ dash
+            // segments like "kxhighny-26feb27-b42.5") — they create spurious
+            // singleton groups that waste work.
+            let series = tags_lower
+                .iter()
+                .find(|t| {
+                    t.starts_with("kx") && t.matches('-').count() == 0 // pure series tag, e.g. "kxhighny"
+                })
+                .or_else(|| {
+                    // If "kalshi" tag present, look for a kx* tag (any form)
+                    if tags_lower.contains(&"kalshi".to_string()) {
+                        tags_lower
+                            .iter()
+                            .find(|t| t.starts_with("kx") && t.matches('-').count() == 0)
+                    } else {
+                        None
+                    }
+                });
+
+            let series = match series {
+                Some(s) => s.clone(),
+                None => continue,
+            };
+
+            // Extract expiry and ticker from metadata (hoist so fallback can
+            // reuse the expiry even when midpoint is missing — fixes bug #1).
+            let mut expiry = String::new();
+            let mut used_metadata = false;
+
+            if let Some(ref meta) = entry.metadata {
+                let ticker = meta.get("ticker").and_then(|v| v.as_str()).unwrap_or("");
+
+                // Only include band contracts (B-prefix). Skip threshold
+                // contracts (T-prefix, cumulative) and any unknown contract
+                // types for safety.
+                if !ticker.is_empty() && !is_band_contract(ticker) {
                     continue;
                 }
 
-                let series = if tag == "kalshi" {
-                    match tags_lower.iter().find(|t| t.starts_with("kx")) {
-                        Some(kx_tag) => kx_tag.clone(),
-                        None => continue,
-                    }
-                } else {
-                    tag.clone()
-                };
+                expiry = extract_expiry_date(meta, ticker);
 
-                // Try to extract from metadata first (preferred — structured data)
-                if let Some(ref meta) = entry.metadata {
-                    let ticker = meta.get("ticker").and_then(|v| v.as_str()).unwrap_or("");
-
-                    // Skip threshold contracts — they're cumulative, not
-                    // mutually exclusive. Band-sum only applies to B contracts.
-                    if is_threshold_contract(ticker) {
-                        continue;
-                    }
-
-                    // Extract expiry date from metadata
-                    let expiry = extract_expiry_date(meta, ticker);
-                    if expiry.is_empty() {
-                        // No expiry info — skip to avoid cross-date contamination
-                        continue;
-                    }
-
-                    // Use midpoint price from metadata
-                    if let Some(midpoint) = meta.get("midpoint").and_then(|v| v.as_f64()) {
-                        if midpoint > 0.0 && midpoint < 100.0 {
-                            let key = (series.clone(), expiry);
-                            band_groups.entry(key).or_default().push(BandEntry {
-                                entry_id: entry.id.clone(),
-                                midpoint,
-                            });
-                            continue;
-                        }
+                // Use midpoint price from metadata when available
+                if let Some(midpoint) = meta.get("midpoint").and_then(|v| v.as_f64()) {
+                    if midpoint > 0.0 && midpoint < 100.0 && !expiry.is_empty() {
+                        let key = (series.clone(), expiry.clone());
+                        band_groups.entry(key).or_default().push(BandEntry {
+                            entry_id: entry.id.clone(),
+                            midpoint,
+                        });
+                        used_metadata = true;
                     }
                 }
+            }
 
-                // Fallback: extract prices from body text (legacy entries without metadata)
+            // Fallback: extract prices from body text (legacy entries without
+            // metadata, or entries where midpoint was missing/invalid)
+            if !used_metadata {
                 let prices = extract_band_prices(&entry.body);
                 if !prices.is_empty() {
-                    // Without metadata we can't reliably determine expiry date,
-                    // so use "unknown" — these will only group with other
-                    // metadata-less entries from the same series.
-                    let key = (series.clone(), "unknown".to_string());
+                    // Use extracted expiry if we got one from metadata;
+                    // otherwise fall back to "unspecified".
+                    let fallback_expiry = if expiry.is_empty() {
+                        "unspecified".to_string()
+                    } else {
+                        expiry
+                    };
+                    let key = (series.clone(), fallback_expiry);
                     for price in prices {
                         band_groups.entry(key.clone()).or_default().push(BandEntry {
                             entry_id: entry.id.clone(),
@@ -197,10 +212,16 @@ impl CrossMarketStrategy {
                 Direction::No // Bands overpriced — sell/fade
             };
 
-            let expiry_label = if expiry == "unknown" {
+            let expiry_label = if expiry == "unspecified" {
                 String::new()
             } else {
                 format!(" (expiry: {})", expiry)
+            };
+
+            let expiry_display = if expiry == "unspecified" {
+                "(mixed dates)"
+            } else {
+                expiry.as_str()
             };
 
             let suggested_action = if total < 100.0 {
@@ -230,7 +251,7 @@ impl CrossMarketStrategy {
                 title: format!(
                     "{} {} bands sum to {:.0}% ({} bands, deviation: {:.1}%)",
                     series.to_uppercase(),
-                    expiry,
+                    expiry_display,
                     total,
                     bands.len(),
                     deviation
@@ -239,7 +260,7 @@ impl CrossMarketStrategy {
                     "{} band prices for expiry {} ({} contracts) sum to {:.1}% \
                      instead of ~100%. This suggests {} across the band set.",
                     series.to_uppercase(),
-                    expiry,
+                    expiry_display,
                     bands.len(),
                     total,
                     if total < 100.0 {
@@ -412,17 +433,21 @@ impl CrossMarketStrategy {
     }
 }
 
-/// Check if a ticker represents a threshold contract (cumulative, not
-/// mutually exclusive). Threshold tickers contain "-T" followed by a number
-/// (e.g., "KXFED-26MAR-T3.25").
-fn is_threshold_contract(ticker: &str) -> bool {
-    // Match pattern: ...-T<number>...
-    // Examples: KXFED-26MAR-T2.75, KXFED-26MAR-T3.00
-    // Non-matches: KXHIGHNY-26FEB27-B42.5, empty string
-    let upper = ticker.to_uppercase();
-    upper
-        .split('-')
-        .any(|part| part.starts_with('T') && part[1..].parse::<f64>().is_ok())
+/// Check if a ticker represents a band contract (mutually exclusive outcomes).
+/// Band tickers contain a segment starting with "B" followed by a number
+/// (e.g., "KXHIGHNY-26FEB27-B42.5", "KXINXY-26DEC31H1600-B7700").
+///
+/// Returns `false` for threshold contracts (T-prefix, cumulative), unknown
+/// contract types, and empty strings. This is a positive allowlist check —
+/// only B-prefix contracts are included in band-sum arbitrage.
+fn is_band_contract(ticker: &str) -> bool {
+    // Check without allocating — ticker segments are ASCII
+    ticker.split('-').any(|part| {
+        let bytes = part.as_bytes();
+        !bytes.is_empty()
+            && bytes[0].eq_ignore_ascii_case(&b'B')
+            && part[1..].parse::<f64>().is_ok()
+    })
 }
 
 /// Extract expiry date string from metadata or ticker.
@@ -447,9 +472,10 @@ fn extract_expiry_date(meta: &serde_json::Value, ticker: &str) -> String {
 
     // Fallback: extract date component from ticker
     // Ticker format: SERIES-DATEPART-CONTRACT (e.g., KXHIGHNY-26FEB27-B42.5)
+    // or SERIES-DATEPART (e.g., KXFED-26MAR) for 2-segment tickers
     let parts: Vec<&str> = ticker.split('-').collect();
-    if parts.len() >= 3 {
-        // The date part is typically the second segment (e.g., "26FEB27", "26MAR", "26DEC31H1600")
+    if parts.len() >= 2 {
+        // The date part is the second segment (e.g., "26FEB27", "26MAR", "26DEC31H1600")
         return parts[1].to_string();
     }
 
@@ -627,14 +653,21 @@ mod tests {
     }
 
     #[test]
-    fn test_is_threshold_contract() {
-        assert!(is_threshold_contract("KXFED-26MAR-T2.75"));
-        assert!(is_threshold_contract("KXFED-26MAR-T3.00"));
-        assert!(is_threshold_contract("KXFED-26JUN-T4.50"));
-        assert!(!is_threshold_contract("KXHIGHNY-26FEB27-B42.5"));
-        assert!(!is_threshold_contract("KXINXY-26DEC31H1600-B7700"));
-        assert!(!is_threshold_contract(""));
-        assert!(!is_threshold_contract("KXFED")); // series tag, no contract
+    fn test_is_band_contract() {
+        // Band contracts (B-prefix) → true
+        assert!(is_band_contract("KXHIGHNY-26FEB27-B42.5"));
+        assert!(is_band_contract("KXINXY-26DEC31H1600-B7700"));
+        assert!(is_band_contract("KXBTC-26MAR-B50000"));
+
+        // Threshold contracts (T-prefix) → false
+        assert!(!is_band_contract("KXFED-26MAR-T2.75"));
+        assert!(!is_band_contract("KXFED-26MAR-T3.00"));
+        assert!(!is_band_contract("KXFED-26JUN-T4.50"));
+
+        // Unknown contract types → false
+        assert!(!is_band_contract("KXFED-26MAR-YES"));
+        assert!(!is_band_contract(""));
+        assert!(!is_band_contract("KXFED")); // series tag, no contract
     }
 
     #[test]
@@ -656,6 +689,13 @@ mod tests {
     fn test_extract_expiry_empty_when_no_info() {
         let meta = serde_json::json!({});
         assert_eq!(extract_expiry_date(&meta, "KXFED"), "");
+    }
+
+    #[test]
+    fn test_extract_expiry_two_segment_ticker() {
+        // 2-segment tickers like "KXFED-26MAR" should extract the date part
+        let meta = serde_json::json!({});
+        assert_eq!(extract_expiry_date(&meta, "KXFED-26MAR"), "26MAR");
     }
 
     #[test]
@@ -769,7 +809,8 @@ mod tests {
     fn test_threshold_contracts_excluded_from_band_sum() {
         let strategy = CrossMarketStrategy;
 
-        // KXFED threshold contracts — should NOT trigger band-sum arbitrage
+        // KXFED threshold contracts (T-prefix) — not band contracts, so
+        // is_band_contract returns false and they're excluded entirely
         let entries = vec![
             make_band_entry(
                 "e1",
@@ -933,6 +974,70 @@ mod tests {
         assert_eq!(result[0].signal_type, "band_sum_arbitrage");
         // 40 + 45 = 85 < 95 → underpriced
         assert!(result[0].suggested_action.as_ref().unwrap().contains("Buy"));
+        // Title should show "(mixed dates)" not raw "unspecified"
+        assert!(
+            result[0].title.contains("(mixed dates)"),
+            "Expected '(mixed dates)' in title, got: {}",
+            result[0].title
+        );
+    }
+
+    #[test]
+    fn test_band_sum_metadata_with_expiry_but_no_midpoint() {
+        let strategy = CrossMarketStrategy;
+        // Entries with metadata close_time but NO midpoint — should use
+        // text extraction fallback but preserve the extracted expiry
+        let entries = vec![
+            IntelEntry {
+                id: "e1".to_string(),
+                category: Category::Market,
+                title: "Band A".to_string(),
+                body: "Yes 40c".to_string(),
+                source: None,
+                tags: vec!["kxbtc".to_string()],
+                confidence: crate::domain::values::confidence::Confidence::new(0.8).unwrap(),
+                actionable: false,
+                source_type: SourceType::External,
+                metadata: Some(serde_json::json!({
+                    "ticker": "KXBTC-26MAR-B50000",
+                    "close_time": "2026-03-15T00:00:00Z",
+                    // no midpoint field
+                })),
+                updated_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+            IntelEntry {
+                id: "e2".to_string(),
+                category: Category::Market,
+                title: "Band B".to_string(),
+                body: "No 45c".to_string(),
+                source: None,
+                tags: vec!["kxbtc".to_string()],
+                confidence: crate::domain::values::confidence::Confidence::new(0.8).unwrap(),
+                actionable: false,
+                source_type: SourceType::External,
+                metadata: Some(serde_json::json!({
+                    "ticker": "KXBTC-26MAR-B60000",
+                    "close_time": "2026-03-15T00:00:00Z",
+                    // no midpoint field
+                })),
+                updated_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+        ];
+        let ctx = DetectionContext {
+            entries,
+            open_trades: vec![],
+            window_hours: 48,
+        };
+        let result = strategy.detect_band_sum_arbitrage(&ctx).unwrap();
+        assert_eq!(result.len(), 1);
+        // Should use the extracted expiry "2026-03-15", not "unspecified"
+        assert!(
+            result[0].title.contains("2026-03-15"),
+            "Expected expiry '2026-03-15' in title, got: {}",
+            result[0].title
+        );
     }
 
     #[test]

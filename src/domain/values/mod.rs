@@ -1,4 +1,4 @@
-pub mod category;
-pub mod confidence;
-pub mod trade_direction;
-pub mod trade_outcome;
+pub mod polarity;
+pub mod post_signal;
+pub mod source_kind;
+pub mod speculation;

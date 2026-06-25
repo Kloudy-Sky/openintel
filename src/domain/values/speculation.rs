@@ -52,6 +52,28 @@ mod tests {
     fn speculation_index_clamps() {
         assert_eq!(SpeculationIndex::new(1.5).value(), 1.0);
         assert_eq!(SpeculationIndex::new(-0.2).value(), 0.0);
+        assert_eq!(SpeculationIndex::new(0.5).value(), 0.5);
+    }
+
+    #[test]
+    fn confidence_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&Confidence::Low).unwrap(), "\"low\"");
+        assert_eq!(
+            serde_json::to_string(&Confidence::High).unwrap(),
+            "\"high\""
+        );
+    }
+
+    #[test]
+    fn alignment_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&Alignment::ConfirmingBullish).unwrap(),
+            "\"confirming_bullish\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Alignment::Quiet).unwrap(),
+            "\"quiet\""
+        );
     }
 
     #[test]

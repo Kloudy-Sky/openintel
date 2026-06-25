@@ -393,4 +393,102 @@ mod tests {
         .unwrap();
         assert_eq!(report.fusion.crowding, 1.0);
     }
+
+    #[test]
+    fn confirming_bearish_when_sentiment_and_price_agree_down() {
+        let posts: Vec<_> = (0..12).map(|_| post(SourceKind::Reddit)).collect();
+        let mut signals = vec![sig(-0.8, true); 9];
+        signals.extend(vec![sig(0.0, false); 3]);
+        let m = snapshot(90.0, 100.0, 1, 1, None); // -10%
+        let report = SpeculationEngine::aggregate(
+            &ticker(),
+            &posts,
+            &signals,
+            Some(&m),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(report.fusion.alignment, Alignment::ConfirmingBearish);
+    }
+
+    #[test]
+    fn min_sample_gate_quiet_even_with_agreeing_market() {
+        // 5 mentions < min_sample (10): Quiet despite sentiment+price agreeing, market present.
+        let posts: Vec<_> = (0..5).map(|_| post(SourceKind::Reddit)).collect();
+        let signals = vec![sig(0.8, true); 5];
+        let m = snapshot(110.0, 100.0, 1, 1, Some(0.5)); // +10%
+        let report = SpeculationEngine::aggregate(
+            &ticker(),
+            &posts,
+            &signals,
+            Some(&m),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert!(report.market.is_some());
+        assert_eq!(report.fusion.alignment, Alignment::Quiet);
+    }
+
+    #[test]
+    fn previous_close_zero_guarded() {
+        let posts = vec![post(SourceKind::Reddit)];
+        let signals = vec![sig(0.0, false)];
+        let m = snapshot(100.0, 0.0, 10, 10, None);
+        let report = SpeculationEngine::aggregate(
+            &ticker(),
+            &posts,
+            &signals,
+            Some(&m),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(report.market.unwrap().pct_change, 0.0);
+        assert!(report
+            .fusion
+            .notes
+            .iter()
+            .any(|n| n.contains("previous_close")));
+    }
+
+    #[test]
+    fn crowding_uses_market_and_iv_branch_and_renormalizes() {
+        // 1 non-speculative post (spec_index 0), market rvol = 10/10 = 1.0 -> rvol_norm = 1/3.
+        let posts = vec![post(SourceKind::Reddit)];
+        let signals = vec![sig(0.0, false)];
+        // iv present: weighted = 0.5*0 + 0.3*(1/3) + 0.2*0.5 = 0.2 ; weight_sum = 1.0 -> crowding 0.2
+        let with_iv = snapshot(100.0, 100.0, 10, 10, Some(0.5));
+        let r1 = SpeculationEngine::aggregate(
+            &ticker(),
+            &posts,
+            &signals,
+            Some(&with_iv),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert!(
+            (r1.fusion.crowding - 0.2).abs() < 1e-9,
+            "got {}",
+            r1.fusion.crowding
+        );
+        // iv absent: weighted = 0.1 ; weight_sum = 0.8 -> crowding 0.125 (renormalized, NOT deflated to 0.1)
+        let no_iv = snapshot(100.0, 100.0, 10, 10, None);
+        let r2 = SpeculationEngine::aggregate(
+            &ticker(),
+            &posts,
+            &signals,
+            Some(&no_iv),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert!(
+            (r2.fusion.crowding - 0.125).abs() < 1e-9,
+            "got {}",
+            r2.fusion.crowding
+        );
+    }
 }

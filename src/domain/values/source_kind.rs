@@ -33,5 +33,10 @@ mod tests {
     fn serializes_lowercase() {
         let json = serde_json::to_string(&SourceKind::Bluesky).unwrap();
         assert_eq!(json, "\"bluesky\"");
+        assert_eq!(serde_json::to_string(&SourceKind::X).unwrap(), "\"x\"");
+        assert_eq!(
+            serde_json::to_string(&SourceKind::Reddit).unwrap(),
+            "\"reddit\""
+        );
     }
 }

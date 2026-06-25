@@ -201,6 +201,7 @@ mod tests {
     async fn table_output_has_sections_and_disclaimer() {
         let (_, rendered) = analyze(&config(false, OutputFormat::Table)).await.unwrap();
         assert!(rendered.contains("SOCIAL"));
+        assert!(rendered.contains("MARKET"));
         assert!(rendered.contains("FUSION"));
         assert!(rendered.contains("Not financial advice"));
     }

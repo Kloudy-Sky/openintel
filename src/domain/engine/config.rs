@@ -41,7 +41,13 @@ mod tests {
         let c = EngineConfig::default();
         assert_eq!(c.bull_bear_threshold, 0.2);
         assert_eq!(c.net_sentiment_threshold, 0.05);
+        assert_eq!(c.price_move_threshold, 1.0);
+        assert_eq!(c.crowding_weight_spec, 0.5);
+        assert_eq!(c.crowding_weight_rvol, 0.3);
+        assert_eq!(c.crowding_weight_iv, 0.2);
+        assert_eq!(c.rvol_cap, 3.0);
         assert_eq!(c.min_sample, 10);
-        assert_eq!((c.confidence_low, c.confidence_high), (10, 50));
+        assert_eq!(c.confidence_low, 10);
+        assert_eq!(c.confidence_high, 50);
     }
 }

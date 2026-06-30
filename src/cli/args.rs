@@ -17,6 +17,9 @@ pub struct Cli {
 pub enum Command {
     /// Analyze a ticker across social + market sources
     Analyze(AnalyzeArgs),
+
+    /// Run as an MCP server over stdio (for AI agents).
+    Mcp,
 }
 
 #[derive(clap::Args, Debug)]

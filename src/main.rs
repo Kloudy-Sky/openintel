@@ -26,5 +26,12 @@ async fn main() -> ExitCode {
                 }
             }
         }
+        Command::Mcp => match openintel::mcp::server::serve().await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("mcp server error: {e}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }

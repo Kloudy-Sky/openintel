@@ -52,6 +52,21 @@ impl OpenIntelServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
+
+    #[tool(
+        description = "Analyze a watchlist of tickers concurrently. Returns one entry per \
+                       ticker (report or error); one bad ticker does not fail the batch. \
+                       Read-only — does not trade."
+    )]
+    async fn scan_watchlist(
+        &self,
+        Parameters(args): Parameters<tools::ScanArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_scan(args).await;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]

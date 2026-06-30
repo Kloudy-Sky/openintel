@@ -108,6 +108,72 @@ pub async fn run_analyze(args: AnalyzeArgs) -> Result<AnalyzeOutput, DomainError
     })
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ScanArgs {
+    /// Ticker symbols to analyze concurrently.
+    pub tickers: Vec<String>,
+    pub enable_reddit: Option<bool>,
+    pub enable_x: Option<bool>,
+    pub enable_bluesky: Option<bool>,
+    /// Skip the market snapshot (social-only report).
+    pub no_market: Option<bool>,
+    /// Posts to fetch per source (default 50).
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScanEntry {
+    pub ticker: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<SpeculationReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScanOutput {
+    pub entries: Vec<ScanEntry>,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_scan(args: ScanArgs) -> ScanOutput {
+    let ScanArgs {
+        tickers,
+        enable_reddit,
+        enable_x,
+        enable_bluesky,
+        no_market,
+        limit,
+    } = args;
+    let futures = tickers.into_iter().map(|t| async move {
+        let req = request_from(
+            t.clone(),
+            enable_reddit,
+            enable_x,
+            enable_bluesky,
+            no_market,
+            limit,
+        );
+        match application::analyze(&req).await {
+            Ok(report) => ScanEntry {
+                ticker: t,
+                report: Some(report),
+                error: None,
+            },
+            Err(e) => ScanEntry {
+                ticker: t,
+                report: None,
+                error: Some(e.to_string()),
+            },
+        }
+    });
+    let entries = futures::future::join_all(futures).await;
+    ScanOutput {
+        entries,
+        disclaimer: DISCLAIMER,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,5 +213,36 @@ mod tests {
             limit: None,
         };
         assert!(run_analyze(args).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn run_scan_handles_mixed_batch() {
+        let out = run_scan(ScanArgs {
+            tickers: vec!["AAPL".into(), "$$$".into()],
+            enable_reddit: None,
+            enable_x: None,
+            enable_bluesky: None,
+            no_market: None,
+            limit: None,
+        })
+        .await;
+        assert_eq!(out.entries.len(), 2);
+        assert!(out.entries[0].report.is_some() && out.entries[0].error.is_none());
+        assert!(out.entries[1].report.is_none() && out.entries[1].error.is_some());
+        assert!(out.disclaimer.contains("Not financial advice"));
+    }
+
+    #[tokio::test]
+    async fn run_scan_empty_list_is_empty() {
+        let out = run_scan(ScanArgs {
+            tickers: vec![],
+            enable_reddit: None,
+            enable_x: None,
+            enable_bluesky: None,
+            no_market: None,
+            limit: None,
+        })
+        .await;
+        assert!(out.entries.is_empty());
     }
 }

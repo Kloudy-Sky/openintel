@@ -38,7 +38,7 @@ impl AppConfig {
             enabled_sources.push(SourceKind::Bluesky);
         }
         if enabled_sources.is_empty() {
-            enabled_sources = vec![SourceKind::Reddit, SourceKind::X, SourceKind::Bluesky];
+            enabled_sources = SourceKind::ALL.to_vec();
         }
 
         AppConfig {

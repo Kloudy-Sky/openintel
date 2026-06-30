@@ -9,6 +9,10 @@ pub enum SourceKind {
 }
 
 impl SourceKind {
+    /// The full set of social sources, in canonical order — the single source of
+    /// truth used by the CLI source-builder, AppConfig defaults, and `list_sources`.
+    pub const ALL: [SourceKind; 3] = [SourceKind::Reddit, SourceKind::X, SourceKind::Bluesky];
+
     pub fn as_str(self) -> &'static str {
         match self {
             SourceKind::Reddit => "reddit",
@@ -37,6 +41,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&SourceKind::Reddit).unwrap(),
             "\"reddit\""
+        );
+    }
+
+    #[test]
+    fn all_lists_every_variant_in_order() {
+        assert_eq!(
+            SourceKind::ALL,
+            [SourceKind::Reddit, SourceKind::X, SourceKind::Bluesky]
         );
     }
 }

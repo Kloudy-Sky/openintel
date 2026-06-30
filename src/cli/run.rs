@@ -1,93 +1,17 @@
-use chrono::Utc;
-use futures::future::join_all;
-
-use crate::adapters::analyzer::lexicon::LexiconAnalyzer;
-use crate::adapters::market::mock_market::MockMarketSource;
-use crate::adapters::sources::mock_bluesky::MockBlueskySource;
-use crate::adapters::sources::mock_reddit::MockRedditSource;
-use crate::adapters::sources::mock_x::MockXSource;
+use crate::application::{self, request::AnalysisRequest, DISCLAIMER};
 use crate::config::settings::{AppConfig, OutputFormat};
-use crate::domain::engine::speculation_engine::SpeculationEngine;
-use crate::domain::entities::market_snapshot::MarketSnapshot;
-use crate::domain::entities::social_post::SocialPost;
 use crate::domain::entities::speculation_report::SpeculationReport;
-use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
-use crate::domain::ports::market_data_source::MarketDataSource;
-use crate::domain::ports::post_analyzer::PostAnalyzer;
-use crate::domain::ports::social_data_source::SocialDataSource;
-use crate::domain::values::source_kind::SourceKind;
-
-pub const DISCLAIMER: &str = "Not financial advice. OpenIntel is a research/screening tool; \
-markets are risky and social data is easily manipulated. Do your own diligence.";
-
-fn build_sources(config: &AppConfig) -> Vec<Box<dyn SocialDataSource>> {
-    config
-        .enabled_sources
-        .iter()
-        .map(|kind| -> Box<dyn SocialDataSource> {
-            match kind {
-                SourceKind::Reddit => Box::new(MockRedditSource),
-                SourceKind::X => Box::new(MockXSource),
-                SourceKind::Bluesky => Box::new(MockBlueskySource),
-            }
-        })
-        .collect()
-}
 
 pub async fn analyze(config: &AppConfig) -> Result<(SpeculationReport, String), DomainError> {
-    let ticker = Ticker::parse(&config.ticker)?;
-    let sources = build_sources(config);
-
-    // Concurrent social fetch; a single source failing is non-fatal.
-    let fetches = sources.iter().map(|source| {
-        let ticker = ticker.clone();
-        async move { (source.kind(), source.fetch(&ticker, config.limit).await) }
-    });
-    let results = join_all(fetches).await;
-
-    let mut posts: Vec<SocialPost> = Vec::new();
-    let mut notes: Vec<String> = Vec::new();
-    for (kind, result) in results {
-        match result {
-            Ok(mut fetched) => posts.append(&mut fetched),
-            Err(e) => notes.push(format!("source {} failed: {e}", kind.as_str())),
-        }
-    }
-
-    let market: Option<MarketSnapshot> = if config.market_enabled {
-        match MockMarketSource.snapshot(&ticker).await {
-            Ok(snapshot) => Some(snapshot),
-            Err(e) => {
-                notes.push(format!("market source failed: {e}"));
-                None
-            }
-        }
-    } else {
-        None
+    let req = AnalysisRequest {
+        ticker: config.ticker.clone(),
+        enabled_sources: config.enabled_sources.clone(),
+        market_enabled: config.market_enabled,
+        limit: config.limit,
+        engine: config.engine.clone(),
     };
-
-    if posts.is_empty() && market.is_none() {
-        return Err(DomainError::NoData);
-    }
-
-    let analyzer = LexiconAnalyzer::new();
-    let signals = analyzer.analyze(&posts).await?;
-
-    let now = Utc::now();
-    let mut report = SpeculationEngine::aggregate(
-        &ticker,
-        &posts,
-        &signals,
-        market.as_ref(),
-        now,
-        &config.engine,
-    )?;
-
-    // Prepend orchestration notes (source/market failures) ahead of engine notes.
-    let engine_notes = std::mem::take(&mut report.fusion.notes);
-    report.fusion.notes = notes.into_iter().chain(engine_notes).collect();
-
+    let report = application::analyze(&req).await?;
     let rendered = render(&report, config.format);
     Ok((report, rendered))
 }

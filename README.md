@@ -24,6 +24,45 @@ openintel analyze AAPL --no-market --format json
 | `--limit <N>` | Posts per source (default 50) |
 | `--format table\|json` | Output format (default table) |
 
+## Use with an AI agent (MCP)
+
+OpenIntel can run as a local **MCP server** so an AI agent can consult its analysis while
+you trade through **Robinhood's official Agentic Trading MCP**. OpenIntel is the
+intelligence layer; the agent is the brain; Robinhood's MCP is execution.
+
+```
+your agent (Claude Code on your subscription / ChatGPT / Codex / Cursor / Grok)
+  ├─ MCP → openintel                          (analysis — this tool)
+  └─ MCP → agent.robinhood.com/mcp/trading    (execution, sandboxed agentic wallet)
+```
+
+Wire it up (Claude Code shown; other agents add the same `openintel mcp` stdio command in
+their MCP settings):
+
+```bash
+cargo install --path .          # puts `openintel` on your PATH
+claude mcp add openintel -- openintel mcp
+```
+
+Tools exposed (all **read-only** — OpenIntel never places trades):
+
+| Tool | What it does |
+|---|---|
+| `analyze_ticker` | One symbol → full speculation report (sentiment, speculation index, crowding, alignment) |
+| `scan_watchlist` | A list of symbols → reports, run concurrently |
+| `compare_tickers` | Rank a set by `crowding` / `speculation_index` / `net_sentiment` / `divergence` |
+| `list_sources` | Which data sources are available |
+
+### Safety
+
+OpenIntel is a **screener, not financial advice**, and it **cannot execute trades** — that
+boundary is by design. When you connect a trading MCP:
+
+- Keep the broker's **approval-required** mode on; don't authorize unattended execution.
+- Fund a deliberately **small agentic wallet** — that balance is your blast-radius cap.
+- Treat the agent's reads of your accounts as a privacy surface, and the analysis as one
+  signal among many. AI agents err; you are responsible for every trade placed.
+
 ## What it computes
 
 - **net sentiment** — mean per-post polarity `[-1, 1]`

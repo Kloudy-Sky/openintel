@@ -1,247 +1,124 @@
-<p align="center">
-  <h1 align="center">🎯 OpenIntel</h1>
-</p>
+# OpenIntel
 
-<p align="center">
-  <em>A structured intelligence engine with hybrid semantic search, strategy detection, and trade journaling — built in Rust.</em>
-</p>
+Security-first CLI that fuses social-media chatter with market action into a **speculation report** — a crowding & divergence detector for a ticker.
 
-<p align="center">
-  <a href="https://github.com/Kloudy-Sky/openintel/actions"><img src="https://github.com/Kloudy-Sky/openintel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/Kloudy-Sky/openintel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
-  <a href="https://github.com/Kloudy-Sky/openintel"><img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust"></a>
-</p>
+> **Not financial advice.** OpenIntel is a research/screening tool. Social data is noisy and easily manipulated. Do your own diligence.
 
----
-
-> Most vector databases want you to deploy Kubernetes, provision cloud infra, and pay per query. OpenIntel is a single binary and a single `.db` file. Add intelligence, search it with keywords or vectors, detect trading signals, and journal your trades. Copy two files to a new machine and you're done. If that sounds too simple, it is — that's the point.
-
----
-
-## Highlights
-
-- **Hybrid search** — BM25 keyword matching + semantic vector similarity with Reciprocal Rank Fusion
-- **Strategy engine** — pluggable signal detection with built-in earnings momentum, tag convergence, cross-intel convergence, and cross-market arbitrage strategies
-- **Opportunity scoring** — confidence × edge × √liquidity, ranked and ready to trade
-- **Kelly criterion sizing** — mathematically optimal position sizing with configurable guardrails
-- **Cross-market arbitrage** — detect pricing divergences across exchanges (Kalshi × IBKR)
-- **Portfolio manager** — unified cross-exchange view with asset class correlation and concentration warnings
-- **Trade journal** — track entries, exits, P&L, and auto-resolve trades against external sources
-- **Alert system** — volume spikes, confidence decay, actionable item tracking
-- **Daily summaries** — category breakdown, trending tags, confidence distribution
-- **SQLite everything** — single file, zero infrastructure, portable across machines
-- **Pluggable embeddings** — Voyage AI, OpenAI, or none (keyword search still works)
-
-## Installation
-
-Build from source (requires Rust 1.75+):
+## Usage
 
 ```bash
-git clone https://github.com/Kloudy-Sky/openintel.git
-cd openintel
-cargo install --path .
+# All social sources + market snapshot (default)
+openintel analyze AAPL
+
+# Narrow to specific sources
+openintel analyze AAPL --enable-reddit --enable-x
+
+# Social only, JSON output
+openintel analyze AAPL --no-market --format json
 ```
 
-Or grab the release binary:
+| Flag | Meaning |
+|---|---|
+| `--enable-reddit/--enable-x/--enable-bluesky` | Restrict to these sources (none given → all enabled) |
+| `--no-market` | Skip the market snapshot (social-only report) |
+| `--limit <N>` | Posts per source (default 50) |
+| `--format table\|json` | Output format (default table) |
+
+## Use with an AI agent (MCP)
+
+OpenIntel can run as a local **MCP server** so an AI agent can consult its analysis while
+you trade through **Robinhood's official Agentic Trading MCP**. OpenIntel is the
+intelligence layer; the agent is the brain; Robinhood's MCP is execution.
+
+```text
+your agent (Claude Code on your subscription / ChatGPT / Codex / Cursor / Grok)
+  ├─ MCP → openintel                          (analysis — this tool)
+  └─ MCP → agent.robinhood.com/mcp/trading    (execution, sandboxed agentic wallet)
+```
+
+Wire it up (Claude Code shown; other agents add the same `openintel mcp` stdio command in
+their MCP settings):
 
 ```bash
-cargo build --release
-# → target/release/openintel
+cargo install --path .          # puts `openintel` on your PATH
+claude mcp add openintel -- openintel mcp
 ```
 
-## Quick Start
+Tools exposed (all **read-only** — OpenIntel never places trades):
 
-```console
-$ openintel add market '{"title":"AAPL beats earnings","body":"Revenue up 8% YoY, services at ATH","tags":["AAPL","earnings","beat"],"confidence":0.9}'
+| Tool | What it does |
+|---|---|
+| `analyze_ticker` | One symbol → full speculation report (sentiment, speculation index, crowding, alignment) |
+| `scan_watchlist` | A list of symbols → reports, run concurrently |
+| `compare_tickers` | Rank a set by `crowding` / `speculation_index` / `net_sentiment` / `divergence` |
+| `list_sources` | Which data sources are available |
 
-$ openintel search "Apple revenue"
+### ⚠️ Risk & responsibility — read before connecting a broker
 
-$ openintel opportunities --hours 48
+Connecting an AI agent to a brokerage MCP means **an AI can place real trades with real money
+in your account.** Understand exactly what you're authorizing:
 
-$ openintel scan --hours 24
+- **OpenIntel is a screener, not advice — and not a proven edge.** It surfaces *attention* and
+  *crowding / divergence* signals from social chatter. Social sentiment is noisy, easily
+  manipulated (bots, coordinated pumps), and mostly coincident-to-lagging — not predictive.
+  Treat its output as one input to your own judgment, never as a buy/sell instruction.
+- **AI agents make mistakes.** They hallucinate, misread data, act on stale or incomplete
+  information, and can behave unexpectedly — including placing a wrong or oversized trade.
+  Trading automatically on automated signals can lose money quickly.
+- **You are fully responsible for every trade placed.** This software has no warranty and is
+  not financial advice. Nothing here is a strategy shown to be profitable.
+- **Only fund money you can afford to lose — entirely.** Use a dedicated broker *agentic
+  sub-account* and fund a deliberately small wallet. **That balance is your hard blast-radius
+  cap** — the agent cannot spend beyond it.
+- **Keep the broker's approval-required mode on.** Review and approve trades before they
+  execute; do not authorize unattended / autonomous trading until you genuinely trust the
+  setup. Connecting also grants the agent broad **read** access to your accounts — a privacy
+  surface.
+- **Scope / status:** Robinhood's Agentic Trading is a **beta, US-only, equities-only**
+  product. OpenIntel itself is early software (mocked data sources today); the intelligence
+  layer is meant to be iterated on.
 
-$ openintel stats
-```
+By design, **OpenIntel never executes trades, touches a broker, or holds credentials** —
+execution happens only through the broker's own MCP, gated by the broker's controls and your
+approval. That boundary *is* the safety model; keep it.
 
-## Commands
+## What it computes
 
-| Command | Description |
-|---------|-------------|
-| `add <category> '<json>'` | Add an intel entry |
-| `search <query>` | BM25 keyword search |
-| `semantic <query>` | Vector similarity search |
-| `think <query>` | Hybrid search (BM25 + vector + RRF) |
-| `query <category>` | Query by category with filters |
-| `opportunities` | Run all strategies, rank signals |
-| `scan` | Alert scan — volume spikes, decay, actionable items |
-| `summarize` | Daily intelligence summary |
-| `pending` | Show actionable items needing attention |
-| `stats` | Database statistics |
-| `tags [category]` | Tag frequency counts |
-| `trade-add '<json>'` | Open a trade |
-| `trade-resolve <id> <outcome> <pnl>` | Close a trade |
-| `trades` | List trades with filters |
-| `kelly '<json>'` | Kelly criterion position sizing |
-| `portfolio '<json>'` | Cross-exchange portfolio view |
-| `reindex` | Re-embed entries missing vectors |
-| `export` | Export entries as JSON |
-
-## Strategies
-
-OpenIntel ships with three detection strategies. Each implements the `Strategy` trait and can be extended:
-
-| Strategy | Signal | What it detects |
-|----------|--------|-----------------|
-| `earnings_momentum` | Tag frequency + sentiment | Stocks with multiple bullish/bearish mentions across sources |
-| `tag_convergence` | Co-occurring tags | Tags appearing together repeatedly, suggesting a trend |
-| `convergence` | Cross-source clustering | Same topic from multiple source types with time-decay weighted sentiment |
-| `cross_market` | Exchange price divergence | Same underlying asset priced differently across Kalshi, IBKR, etc. |
-
-```console
-$ openintel opportunities --hours 48
-{
-  "strategies_run": 3,
-  "entries_scanned": 59,
-  "opportunities": [
-    {
-      "title": "CRCL — bullish earnings momentum (4 signals)",
-      "confidence": 0.80,
-      "score": 80,
-      "suggested_direction": "bullish",
-      "market_ticker": "CRCL",
-      "strategy": "earnings_momentum"
-    }
-  ]
-}
-```
-
-### Custom Strategies
-
-Implement `domain::ports::strategy::Strategy` to add your own:
-
-```rust
-pub trait Strategy: Send + Sync {
-    fn name(&self) -> &str;
-    fn detect(&self, ctx: &DetectionContext) -> Vec<Opportunity>;
-}
-```
-
-See [src/application/strategies/](src/application/strategies/) for examples.
-
-## Kelly Criterion Sizing
-
-Size positions mathematically based on edge and confidence:
-
-```console
-$ openintel kelly '{"bankroll":10000,"confidence":0.75,"market_price":40,"max_position":2500}'
-{
-  "kelly_fraction": 0.1667,
-  "recommended_size": 1666.67,
-  "expected_edge": 0.35,
-  "binding_constraint": null
-}
-```
-
-Supports configurable guardrails: `max_position`, `max_bankroll_fraction`, and `min_edge`. When a constraint binds, it tells you which one.
-
-## Portfolio Manager
-
-Unified view across exchanges with automatic asset class detection:
-
-```console
-$ openintel portfolio '[
-  {"exchange":"kalshi","ticker":"KXBTC-123","direction":"yes","quantity":10,"cost_basis":50},
-  {"exchange":"ibkr","ticker":"COIN","direction":"long","quantity":5,"cost_basis":500}
-]' --threshold 0.5
-```
-
-Auto-classifies tickers (COIN/MARA/RIOT → Crypto, SPY/QQQ → Equities, KXHIGHNY → Weather) and flags concentration risk when any asset class exceeds the threshold.
+- **net sentiment** — mean per-post polarity `[-1, 1]`
+- **speculation index** — share of posts using options/leverage jargon
+- **rvol / pct change** — volume vs average, day move
+- **crowding** — blended speculation + RVOL + IV rank `[0, 1]`
+- **alignment** — `ConfirmingBullish/Bearish`, `Diverging`, or `Quiet`
 
 ## Architecture
 
-```
-domain/           Pure types, zero dependencies
-  entities/       IntelEntry, Trade
-  values/         Category, Confidence, Decay, Kelly, Portfolio
-  ports/          Repository, Embedding, Strategy traits
+Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clock live at the edge.
 
-application/      Use-case orchestration
-  strategies/     EarningsMomentum, TagConvergence, Convergence
+- `domain/` — entities, value objects, the pure `SpeculationEngine`, and port traits.
+- `adapters/` — `LexiconAnalyzer` + mock data sources.
+- `config/` — env-only secrets (`secrecy`) and runtime settings.
+- `cli/` — clap args, orchestration, rendering.
 
-infrastructure/   Adapters
-  sqlite/         Persistence (rusqlite)
-  embeddings/     Voyage AI, OpenAI, NoOp
+Secrets come only from environment variables (`OPENINTEL_REDDIT_TOKEN`, `OPENINTEL_X_BEARER`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`), wrapped in `SecretString` — never logged or written to disk.
 
-cli/              Commands and argument parsing
-```
+## Extending
 
-Hexagonal architecture — domain logic knows nothing about databases, APIs, or the CLI.
+**Add a social source** (e.g. real Reddit):
+1. New struct in `src/adapters/sources/`, `impl SocialDataSource`.
+2. Add a `SourceKind` variant in `src/domain/values/source_kind.rs`.
+3. Add one arm to `build_sources` in `src/cli/run.rs`.
 
-## Embedding Providers
+**Add a market source** (e.g. Yahoo Finance):
+1. New struct in `src/adapters/market/`, `impl MarketDataSource`.
+2. Select it in `cli::run`.
 
-Configure via environment variables:
-
-```bash
-# Voyage AI (recommended)
-export OPENINTEL_EMBEDDING_PROVIDER=voyage
-export OPENINTEL_EMBEDDING_MODEL=voyage-3-lite
-export VOYAGE_API_KEY=pa-xxx
-
-# OpenAI
-export OPENINTEL_EMBEDDING_PROVIDER=openai
-export OPENINTEL_EMBEDDING_MODEL=text-embedding-3-small
-export OPENAI_API_KEY=sk-xxx
-
-# No embeddings (keyword search only)
-# Just don't set the provider — everything else still works.
-```
-
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENINTEL_DB` | `./openintel.db` | Database path |
-| `OPENINTEL_EMBEDDING_PROVIDER` | `noop` | `voyage`, `openai`, or `noop` |
-| `OPENINTEL_EMBEDDING_MODEL` | provider default | Embedding model name |
-| `VOYAGE_API_KEY` | — | Voyage AI key |
-| `OPENAI_API_KEY` | — | OpenAI key |
-
-## Categories
-
-Intel entries are typed by category:
-
-`market` · `newsletter` · `social` · `trading` · `opportunity` · `competitor` · `general` · `earnings` · `macro` · `crypto` · `weather` · `politics` · `technology` · `research` · `regulatory` · `sentiment` · `geopolitical` · `sector` · `company`
-
-## Use Cases
-
-- **Autonomous agents** — structured memory and retrieval
-- **Trading systems** — signal detection → opportunity scoring → trade journaling
-- **Research pipelines** — collect, tag, search, and surface insights
-- **Newsletter analysis** — archive and semantically query content
-- **Competitive intelligence** — track moves with confidence and decay
-- **Personal knowledge base** — your embedded second brain
+**Swap the analyzer** (lexicon → LLM/ML):
+1. New struct in `src/adapters/analyzer/`, `impl PostAnalyzer`. No engine change.
 
 ## Development
 
 ```bash
-cargo test           # Run tests
-cargo fmt            # Format
-cargo clippy         # Lint
-cargo build --release  # Optimized build
-RUST_LOG=debug cargo run -- stats  # Debug logging
+cargo test
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
 ```
-
-## Contributing
-
-1. Fork → branch (`feat/my-feature`) → tests → `cargo fmt` → `cargo clippy` → PR
-2. All PRs run CI (fmt, clippy, tests) and automated Claude Code Review
-
-## License
-
-MIT — see [Cargo.toml](Cargo.toml).
-
----
-
-<p align="center">
-  Built with 🎩 by <a href="https://github.com/jrvsai">Jarvis</a> at <a href="https://github.com/Kloudy-Sky">Kloudy-Sky</a>
-</p>

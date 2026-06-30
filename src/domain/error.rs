@@ -2,30 +2,46 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DomainError {
-    #[error("Not found: {0}")]
-    NotFound(String),
+    #[error("invalid ticker: {0}")]
+    InvalidTicker(String),
 
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
+    #[error("invalid post text: {0}")]
+    InvalidPostText(String),
 
-    #[error("Database error: {0}")]
-    Database(String),
+    #[error("analyzer returned {got} signals for {expected} posts")]
+    AnalyzerMismatch { expected: usize, got: usize },
 
-    #[error("Embedding error: {0}")]
-    Embedding(String),
+    #[error("market snapshot ticker '{got}' does not match requested '{expected}'")]
+    MarketTickerMismatch { expected: String, got: String },
 
-    #[error("Parse error: {0}")]
-    Parse(String),
+    #[error("data source '{name}' failed: {message}")]
+    SourceFailure { name: String, message: String },
+
+    #[error("no data: no posts and no market snapshot available")]
+    NoData,
 }
 
-impl From<String> for DomainError {
-    fn from(s: String) -> Self {
-        DomainError::Database(s)
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl From<&str> for DomainError {
-    fn from(s: &str) -> Self {
-        DomainError::InvalidInput(s.to_string())
+    #[test]
+    fn displays_human_messages() {
+        assert_eq!(
+            DomainError::InvalidTicker("@@".into()).to_string(),
+            "invalid ticker: @@"
+        );
+        assert_eq!(
+            DomainError::AnalyzerMismatch {
+                expected: 3,
+                got: 2
+            }
+            .to_string(),
+            "analyzer returned 2 signals for 3 posts"
+        );
+        assert_eq!(
+            DomainError::NoData.to_string(),
+            "no data: no posts and no market snapshot available"
+        );
     }
 }

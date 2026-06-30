@@ -7,6 +7,7 @@ use crate::domain::entities::speculation_report::SpeculationReport;
 use crate::domain::error::DomainError;
 use crate::domain::ports::market_data_source::MarketDataSource;
 use crate::domain::values::source_kind::SourceKind;
+use crate::domain::values::speculation::Alignment;
 
 #[derive(Debug, Serialize)]
 pub struct SourcesOutput {
@@ -174,6 +175,130 @@ pub async fn run_scan(args: ScanArgs) -> ScanOutput {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RankBy {
+    /// Blended crowding score (default).
+    #[default]
+    Crowding,
+    SpeculationIndex,
+    NetSentiment,
+    /// Diverging tickers first, then by crowding.
+    Divergence,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CompareArgs {
+    pub tickers: Vec<String>,
+    #[serde(default)]
+    pub rank_by: RankBy,
+    pub enable_reddit: Option<bool>,
+    pub enable_x: Option<bool>,
+    pub enable_bluesky: Option<bool>,
+    pub no_market: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RankedEntry {
+    pub ticker: String,
+    pub rank_metric: f64,
+    pub report: SpeculationReport,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompareError {
+    pub ticker: String,
+    pub error: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompareOutput {
+    pub rank_by: RankBy,
+    pub ranked: Vec<RankedEntry>,
+    pub errors: Vec<CompareError>,
+    pub disclaimer: &'static str,
+}
+
+fn rank_metric(report: &SpeculationReport, rank_by: RankBy) -> f64 {
+    match rank_by {
+        // `divergence` ranks categorically (diverging first) then by crowding,
+        // so its numeric metric is crowding.
+        RankBy::Crowding | RankBy::Divergence => report.fusion.crowding,
+        RankBy::SpeculationIndex => report.social.speculation_index.value(),
+        RankBy::NetSentiment => report.social.net_sentiment.value(),
+    }
+}
+
+pub(crate) fn sort_ranked(ranked: &mut [RankedEntry], rank_by: RankBy) {
+    ranked.sort_by(|a, b| {
+        if matches!(rank_by, RankBy::Divergence) {
+            let a_div = matches!(a.report.fusion.alignment, Alignment::Diverging);
+            let b_div = matches!(b.report.fusion.alignment, Alignment::Diverging);
+            b_div.cmp(&a_div).then_with(|| {
+                b.rank_metric
+                    .partial_cmp(&a.rank_metric)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        } else {
+            b.rank_metric
+                .partial_cmp(&a.rank_metric)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+}
+
+pub async fn run_compare(args: CompareArgs) -> CompareOutput {
+    let CompareArgs {
+        tickers,
+        rank_by,
+        enable_reddit,
+        enable_x,
+        enable_bluesky,
+        no_market,
+        limit,
+    } = args;
+    let futures = tickers.into_iter().map(|t| async move {
+        let req = request_from(
+            t.clone(),
+            enable_reddit,
+            enable_x,
+            enable_bluesky,
+            no_market,
+            limit,
+        );
+        (t, application::analyze(&req).await)
+    });
+    let results = futures::future::join_all(futures).await;
+
+    let mut ranked: Vec<RankedEntry> = Vec::new();
+    let mut errors: Vec<CompareError> = Vec::new();
+    for (ticker, res) in results {
+        match res {
+            Ok(report) => {
+                let metric = rank_metric(&report, rank_by);
+                ranked.push(RankedEntry {
+                    ticker,
+                    rank_metric: metric,
+                    report,
+                });
+            }
+            Err(e) => errors.push(CompareError {
+                ticker,
+                error: e.to_string(),
+            }),
+        }
+    }
+    sort_ranked(&mut ranked, rank_by);
+
+    CompareOutput {
+        rank_by,
+        ranked,
+        errors,
+        disclaimer: DISCLAIMER,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +369,87 @@ mod tests {
         })
         .await;
         assert!(out.entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sort_ranked_orders_by_crowding_desc() {
+        use crate::domain::engine::config::EngineConfig;
+        use crate::domain::engine::speculation_engine::SpeculationEngine;
+        use crate::domain::entities::social_post::{PostText, SocialPost};
+        use crate::domain::entities::ticker::Ticker;
+        use crate::domain::values::polarity::Polarity;
+        use crate::domain::values::post_signal::PostSignal;
+        use chrono::{TimeZone, Utc};
+
+        let t = Ticker::parse("AAPL").unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 6, 29, 0, 0, 0).unwrap();
+        let post = SocialPost {
+            id: "1".into(),
+            source: SourceKind::Reddit,
+            author: "a".into(),
+            text: PostText::parse("x").unwrap(),
+            created_at: now,
+            engagement: 0,
+        };
+        // high crowding: speculative post; low crowding: non-speculative.
+        let hi = SpeculationEngine::aggregate(
+            &t,
+            std::slice::from_ref(&post),
+            &[PostSignal {
+                polarity: Polarity::new(0.0),
+                speculative: true,
+            }],
+            None,
+            now,
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        let lo = SpeculationEngine::aggregate(
+            &t,
+            std::slice::from_ref(&post),
+            &[PostSignal {
+                polarity: Polarity::new(0.0),
+                speculative: false,
+            }],
+            None,
+            now,
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert!(hi.fusion.crowding > lo.fusion.crowding);
+
+        let mut ranked = vec![
+            RankedEntry {
+                ticker: "LO".into(),
+                rank_metric: lo.fusion.crowding,
+                report: lo,
+            },
+            RankedEntry {
+                ticker: "HI".into(),
+                rank_metric: hi.fusion.crowding,
+                report: hi,
+            },
+        ];
+        sort_ranked(&mut ranked, RankBy::Crowding);
+        assert_eq!(ranked[0].ticker, "HI");
+        assert_eq!(ranked[1].ticker, "LO");
+    }
+
+    #[tokio::test]
+    async fn run_compare_partitions_valid_and_invalid() {
+        let out = run_compare(CompareArgs {
+            tickers: vec!["AAPL".into(), "$$$".into()],
+            rank_by: RankBy::Crowding,
+            enable_reddit: None,
+            enable_x: None,
+            enable_bluesky: None,
+            no_market: None,
+            limit: None,
+        })
+        .await;
+        assert_eq!(out.ranked.len(), 1);
+        assert_eq!(out.errors.len(), 1);
+        assert_eq!(out.errors[0].ticker, "$$$");
+        assert!(out.ranked[0].rank_metric.is_finite());
     }
 }

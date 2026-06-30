@@ -67,6 +67,21 @@ impl OpenIntelServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
+
+    #[tool(
+        description = "Compare tickers and rank them by a chosen signal: rank_by ∈ \
+                       {crowding (default), speculation_index, net_sentiment, divergence}. \
+                       Read-only — does not trade."
+    )]
+    async fn compare_tickers(
+        &self,
+        Parameters(args): Parameters<tools::CompareArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_compare(args).await;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]

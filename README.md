@@ -53,15 +53,34 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `compare_tickers` | Rank a set by `crowding` / `speculation_index` / `net_sentiment` / `divergence` |
 | `list_sources` | Which data sources are available |
 
-### Safety
+### ⚠️ Risk & responsibility — read before connecting a broker
 
-OpenIntel is a **screener, not financial advice**, and it **cannot execute trades** — that
-boundary is by design. When you connect a trading MCP:
+Connecting an AI agent to a brokerage MCP means **an AI can place real trades with real money
+in your account.** Understand exactly what you're authorizing:
 
-- Keep the broker's **approval-required** mode on; don't authorize unattended execution.
-- Fund a deliberately **small agentic wallet** — that balance is your blast-radius cap.
-- Treat the agent's reads of your accounts as a privacy surface, and the analysis as one
-  signal among many. AI agents err; you are responsible for every trade placed.
+- **OpenIntel is a screener, not advice — and not a proven edge.** It surfaces *attention* and
+  *crowding / divergence* signals from social chatter. Social sentiment is noisy, easily
+  manipulated (bots, coordinated pumps), and mostly coincident-to-lagging — not predictive.
+  Treat its output as one input to your own judgment, never as a buy/sell instruction.
+- **AI agents make mistakes.** They hallucinate, misread data, act on stale or incomplete
+  information, and can behave unexpectedly — including placing a wrong or oversized trade.
+  Trading automatically on automated signals can lose money quickly.
+- **You are fully responsible for every trade placed.** This software has no warranty and is
+  not financial advice. Nothing here is a strategy shown to be profitable.
+- **Only fund money you can afford to lose — entirely.** Use a dedicated broker *agentic
+  sub-account* and fund a deliberately small wallet. **That balance is your hard blast-radius
+  cap** — the agent cannot spend beyond it.
+- **Keep the broker's approval-required mode on.** Review and approve trades before they
+  execute; do not authorize unattended / autonomous trading until you genuinely trust the
+  setup. Connecting also grants the agent broad **read** access to your accounts — a privacy
+  surface.
+- **Scope / status:** Robinhood's Agentic Trading is a **beta, US-only, equities-only**
+  product. OpenIntel itself is early software (mocked data sources today); the intelligence
+  layer is meant to be iterated on.
+
+By design, **OpenIntel never executes trades, touches a broker, or holds credentials** —
+execution happens only through the broker's own MCP, gated by the broker's controls and your
+approval. That boundary *is* the safety model; keep it.
 
 ## What it computes
 

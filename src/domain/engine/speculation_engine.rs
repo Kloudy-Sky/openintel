@@ -33,6 +33,15 @@ impl SpeculationEngine {
             });
         }
 
+        if let Some(m) = market {
+            if m.ticker.as_str() != ticker.as_str() {
+                return Err(DomainError::MarketTickerMismatch {
+                    expected: ticker.as_str().to_string(),
+                    got: m.ticker.as_str().to_string(),
+                });
+            }
+        }
+
         let mut notes: Vec<String> = Vec::new();
         let social = Self::social_summary(posts, signals, cfg);
         let market_summary = market.map(|m| Self::market_summary(m, &mut notes));
@@ -123,10 +132,10 @@ impl SpeculationEngine {
             (m.last_price - m.previous_close) / m.previous_close * 100.0
         };
         let rvol = if m.avg_volume == 0 {
-            notes.push("avg_volume is 0; rvol set to 0".to_string());
-            0.0
+            notes.push("avg_volume is 0; rvol unavailable".into());
+            None
         } else {
-            m.volume as f64 / m.avg_volume as f64
+            Some(m.volume as f64 / m.avg_volume as f64)
         };
         MarketSummary {
             last_price: m.last_price,
@@ -148,9 +157,11 @@ impl SpeculationEngine {
             weight_sum += cfg.crowding_weight_spec;
         }
         if let Some(m) = market {
-            let rvol_norm = (m.rvol / cfg.rvol_cap).clamp(0.0, 1.0);
-            weighted += cfg.crowding_weight_rvol * rvol_norm;
-            weight_sum += cfg.crowding_weight_rvol;
+            if let Some(rvol) = m.rvol {
+                let rvol_norm = (rvol / cfg.rvol_cap).clamp(0.0, 1.0);
+                weighted += cfg.crowding_weight_rvol * rvol_norm;
+                weight_sum += cfg.crowding_weight_rvol;
+            }
             if let Some(iv) = m.iv_rank {
                 weighted += cfg.crowding_weight_iv * iv.clamp(0.0, 1.0);
                 weight_sum += cfg.crowding_weight_iv;
@@ -373,8 +384,59 @@ mod tests {
             &EngineConfig::default(),
         )
         .unwrap();
-        assert_eq!(report.market.unwrap().rvol, 0.0);
+        assert!(report.market.unwrap().rvol.is_none());
         assert!(report.fusion.notes.iter().any(|n| n.contains("avg_volume")));
+    }
+
+    #[test]
+    fn crowding_renormalizes_when_rvol_unavailable() {
+        // 1 speculative post (spec_index 1.0), avg_volume=0 so rvol omitted, iv_rank=None.
+        // Only spec weight present: weighted = 0.5*1.0, weight_sum = 0.5 → crowding = 1.0.
+        let posts = vec![post(SourceKind::Reddit)];
+        let signals = vec![sig(0.0, true)];
+        let m = snapshot(100.0, 100.0, 0, 0, None);
+        let report = SpeculationEngine::aggregate(
+            &ticker(),
+            &posts,
+            &signals,
+            Some(&m),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap();
+        assert!(
+            (report.fusion.crowding - 1.0).abs() < 1e-9,
+            "got {}",
+            report.fusion.crowding
+        );
+    }
+
+    #[test]
+    fn market_ticker_mismatch_errors() {
+        let msft = MarketSnapshot {
+            ticker: Ticker::parse("MSFT").unwrap(),
+            as_of: now(),
+            last_price: 100.0,
+            previous_close: 100.0,
+            volume: 1,
+            avg_volume: 1,
+            realized_vol: None,
+            put_call_ratio: None,
+            iv_rank: None,
+        };
+        let err = SpeculationEngine::aggregate(
+            &ticker(), // AAPL
+            &[],
+            &[],
+            Some(&msft),
+            now(),
+            &EngineConfig::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, DomainError::MarketTickerMismatch { .. }),
+            "expected MarketTickerMismatch, got {err:?}"
+        );
     }
 
     #[test]

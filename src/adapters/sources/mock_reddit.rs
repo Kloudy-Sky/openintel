@@ -43,18 +43,20 @@ impl SocialDataSource for MockRedditSource {
                 31,
             ),
         ];
-        Ok(fixtures
+        fixtures
             .iter()
             .take(limit)
-            .map(|(id, author, text, eng)| SocialPost {
-                id: (*id).to_string(),
-                source: SourceKind::Reddit,
-                author: (*author).to_string(),
-                text: PostText::parse(text).expect("fixture text is valid"),
-                created_at: Utc.with_ymd_and_hms(2026, 6, 24, 14, 0, 0).unwrap(),
-                engagement: *eng,
+            .map(|(id, author, text, eng)| {
+                Ok(SocialPost {
+                    id: (*id).to_string(),
+                    source: SourceKind::Reddit,
+                    author: (*author).to_string(),
+                    text: PostText::parse(text)?,
+                    created_at: Utc.with_ymd_and_hms(2026, 6, 24, 14, 0, 0).unwrap(),
+                    engagement: *eng,
+                })
             })
-            .collect())
+            .collect::<Result<Vec<_>, DomainError>>()
     }
 }
 

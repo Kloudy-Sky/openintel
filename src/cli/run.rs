@@ -72,11 +72,15 @@ fn render_table(report: &SpeculationReport) -> String {
 
     match &report.market {
         Some(m) => {
+            let rvol_str = m
+                .rvol
+                .map(|r| format!("{r:.2}x"))
+                .unwrap_or_else(|| "n/a".to_string());
             let _ = writeln!(out, "\nMARKET");
             let _ = writeln!(
                 out,
-                "  last: {:.2}  change: {:+.2}%  rvol: {:.2}x",
-                m.last_price, m.pct_change, m.rvol
+                "  last: {:.2}  change: {:+.2}%  rvol: {}",
+                m.last_price, m.pct_change, rvol_str
             );
         }
         None => {

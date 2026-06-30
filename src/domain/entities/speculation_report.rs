@@ -24,7 +24,7 @@ pub struct SocialSummary {
 pub struct MarketSummary {
     pub last_price: f64,
     pub pct_change: f64,
-    pub rvol: f64,
+    pub rvol: Option<f64>,
     pub realized_vol: Option<f64>,
     pub put_call_ratio: Option<f64>,
     pub iv_rank: Option<f64>,

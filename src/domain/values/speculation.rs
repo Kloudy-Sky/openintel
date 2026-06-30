@@ -6,7 +6,11 @@ pub struct SpeculationIndex(f64);
 
 impl SpeculationIndex {
     pub fn new(value: f64) -> Self {
-        SpeculationIndex(value.clamp(0.0, 1.0))
+        if value.is_nan() {
+            SpeculationIndex(0.0)
+        } else {
+            SpeculationIndex(value.clamp(0.0, 1.0))
+        }
     }
 
     pub fn value(self) -> f64 {
@@ -53,6 +57,11 @@ mod tests {
         assert_eq!(SpeculationIndex::new(1.5).value(), 1.0);
         assert_eq!(SpeculationIndex::new(-0.2).value(), 0.0);
         assert_eq!(SpeculationIndex::new(0.5).value(), 0.5);
+    }
+
+    #[test]
+    fn nan_becomes_zero() {
+        assert_eq!(SpeculationIndex::new(f64::NAN).value(), 0.0);
     }
 
     #[test]

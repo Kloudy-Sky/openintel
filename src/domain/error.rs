@@ -11,10 +11,13 @@ pub enum DomainError {
     #[error("analyzer returned {got} signals for {expected} posts")]
     AnalyzerMismatch { expected: usize, got: usize },
 
+    #[error("market snapshot ticker '{got}' does not match requested '{expected}'")]
+    MarketTickerMismatch { expected: String, got: String },
+
     #[error("data source '{name}' failed: {message}")]
     SourceFailure { name: String, message: String },
 
-    #[error("no data: all sources failed")]
+    #[error("no data: no posts and no market snapshot available")]
     NoData,
 }
 
@@ -38,7 +41,7 @@ mod tests {
         );
         assert_eq!(
             DomainError::NoData.to_string(),
-            "no data: all sources failed"
+            "no data: no posts and no market snapshot available"
         );
     }
 }

@@ -8,10 +8,14 @@ pub struct Ticker(String);
 
 impl Ticker {
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
-        let symbol = raw.trim().to_uppercase();
-        if symbol.is_empty() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
             return Err(DomainError::InvalidTicker("empty".into()));
         }
+        if !trimmed.is_ascii() {
+            return Err(DomainError::InvalidTicker(raw.to_string()));
+        }
+        let symbol = trimmed.to_ascii_uppercase();
 
         let (base, class) = match symbol.split_once('.') {
             Some((b, c)) => (b, Some(c)),
@@ -48,7 +52,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_symbols() {
-        for bad in ["", "   ", "TOOLONG", "A1", "AB.CD", "AAPL.", "$AAPL"] {
+        for bad in [
+            "", "   ", "TOOLONG", "A1", "AB.CD", "AAPL.", "$AAPL", "ß", "ﬁ",
+        ] {
             assert!(
                 Ticker::parse(bad).is_err(),
                 "expected {bad:?} to be rejected"

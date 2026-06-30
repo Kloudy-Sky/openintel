@@ -1,4 +1,5 @@
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::transport::io::stdio;
 use rmcp::{tool, tool_handler, tool_router, ErrorData, ServerHandler, ServiceExt};
@@ -31,6 +32,23 @@ impl OpenIntelServer {
     )]
     async fn list_sources(&self) -> Result<CallToolResult, ErrorData> {
         let json = serde_json::to_string_pretty(&tools::run_list_sources())
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        description = "Analyze one ticker: fuse social sentiment with market action into a \
+                       speculation report (net sentiment, speculation index, crowding, \
+                       alignment = confirming/diverging/quiet). Read-only — does not trade."
+    )]
+    async fn analyze_ticker(
+        &self,
+        Parameters(args): Parameters<tools::AnalyzeArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_analyze(args)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }

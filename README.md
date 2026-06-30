@@ -30,7 +30,7 @@ OpenIntel can run as a local **MCP server** so an AI agent can consult its analy
 you trade through **Robinhood's official Agentic Trading MCP**. OpenIntel is the
 intelligence layer; the agent is the brain; Robinhood's MCP is execution.
 
-```
+```text
 your agent (Claude Code on your subscription / ChatGPT / Codex / Cursor / Grok)
   ├─ MCP → openintel                          (analysis — this tool)
   └─ MCP → agent.robinhood.com/mcp/trading    (execution, sandboxed agentic wallet)

@@ -25,7 +25,7 @@
 
 ## File Structure
 
-```
+```text
 Cargo.toml                                   # deps + bin/lib config
 src/
   main.rs                                    # composition root (Task 16)
@@ -74,7 +74,7 @@ find . -name 'Icon?' -not -path './.git/*' -print -delete   # the literal "Icon\
 
 Append to `.gitignore`:
 
-```gitignore
+```text
 # macOS Finder artifacts
 Icon?
 .DS_Store

@@ -28,7 +28,9 @@ pub enum Confidence {
 
 impl Confidence {
     /// `n < low` -> Low, `low <= n < high` -> Medium, `n >= high` -> High.
+    /// Tolerates reversed thresholds by normalizing them first.
     pub fn from_sample(n: usize, low: usize, high: usize) -> Self {
+        let (low, high) = (low.min(high), low.max(high));
         if n < low {
             Confidence::Low
         } else if n < high {
@@ -91,5 +93,13 @@ mod tests {
         assert_eq!(Confidence::from_sample(10, 10, 50), Confidence::Medium);
         assert_eq!(Confidence::from_sample(49, 10, 50), Confidence::Medium);
         assert_eq!(Confidence::from_sample(50, 10, 50), Confidence::High);
+    }
+
+    #[test]
+    fn reversed_thresholds_match_ordered() {
+        assert_eq!(
+            Confidence::from_sample(30, 50, 10),
+            Confidence::from_sample(30, 10, 50)
+        );
     }
 }

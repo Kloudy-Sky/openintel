@@ -26,7 +26,7 @@
 
 ## File Structure
 
-```
+```text
 Cargo.toml                              # + rmcp, schemars                      (Task 2)
 src/lib.rs                              # + pub mod application; pub mod mcp;    (Tasks 1,2)
 src/domain/values/source_kind.rs        # + SourceKind::ALL                      (Task 1)

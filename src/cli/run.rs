@@ -34,7 +34,9 @@ fn render_json(report: &SpeculationReport) -> String {
         report,
         disclaimer: DISCLAIMER,
     })
-    .unwrap_or_else(|e| format!("{{\"error\":\"serialization failed: {e}\"}}"))
+    .unwrap_or_else(|e| {
+        serde_json::json!({ "error": format!("serialization failed: {e}") }).to_string()
+    })
 }
 
 fn render_table(report: &SpeculationReport) -> String {
@@ -84,7 +86,17 @@ fn render_table(report: &SpeculationReport) -> String {
             );
         }
         None => {
-            let _ = writeln!(out, "\nMARKET\n  (disabled)");
+            let failed = report
+                .fusion
+                .notes
+                .iter()
+                .any(|n| n.contains("market source failed"));
+            let label = if failed {
+                "(unavailable — fetch failed; see notes)"
+            } else {
+                "(disabled)"
+            };
+            let _ = writeln!(out, "\nMARKET\n  {label}");
         }
     }
 

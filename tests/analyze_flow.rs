@@ -17,7 +17,7 @@ fn cfg(reddit: bool, x: bool, bluesky: bool, no_market: bool) -> AppConfig {
 
 #[tokio::test]
 async fn end_to_end_all_sources_with_market() {
-    let (report, json) = analyze(&cfg(false, false, false, false), &MockMarketSource)
+    let (report, json) = analyze(&cfg(false, false, false, false), Some(&MockMarketSource))
         .await
         .unwrap();
     // 4 + 3 + 3 mock posts across reddit/x/bluesky (>= min_sample of 10)
@@ -30,7 +30,7 @@ async fn end_to_end_all_sources_with_market() {
 
 #[tokio::test]
 async fn single_source_only() {
-    let (report, _) = analyze(&cfg(true, false, false, false), &MockMarketSource)
+    let (report, _) = analyze(&cfg(true, false, false, false), Some(&MockMarketSource))
         .await
         .unwrap();
     assert_eq!(report.social.total_mentions, 4); // reddit fixtures only
@@ -38,7 +38,7 @@ async fn single_source_only() {
 
 #[tokio::test]
 async fn social_only_when_market_disabled() {
-    let (report, _) = analyze(&cfg(false, false, false, true), &MockMarketSource)
+    let (report, _) = analyze(&cfg(false, false, false, true), None)
         .await
         .unwrap();
     assert!(report.market.is_none());

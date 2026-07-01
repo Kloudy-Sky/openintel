@@ -6,7 +6,7 @@ use crate::domain::ports::market_data_source::MarketDataSource;
 
 pub async fn analyze(
     config: &AppConfig,
-    market_source: &dyn MarketDataSource,
+    market_source: Option<&dyn MarketDataSource>,
 ) -> Result<(SpeculationReport, String), DomainError> {
     let req = AnalysisRequest {
         ticker: config.ticker.clone(),
@@ -128,9 +128,10 @@ mod tests {
 
     #[tokio::test]
     async fn full_run_confirms_bullish_with_market() {
-        let (report, rendered) = analyze(&config(false, OutputFormat::Json), &MockMarketSource)
-            .await
-            .unwrap();
+        let (report, rendered) =
+            analyze(&config(false, OutputFormat::Json), Some(&MockMarketSource))
+                .await
+                .unwrap();
         assert!(report.market.is_some());
         assert_eq!(report.fusion.alignment, Alignment::ConfirmingBullish);
         assert!(rendered.contains("Not financial advice"));
@@ -139,7 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_market_run_is_quiet() {
-        let (report, _) = analyze(&config(true, OutputFormat::Table), &MockMarketSource)
+        let (report, _) = analyze(&config(true, OutputFormat::Table), None)
             .await
             .unwrap();
         assert!(report.market.is_none());
@@ -148,7 +149,7 @@ mod tests {
 
     #[tokio::test]
     async fn table_output_has_sections_and_disclaimer() {
-        let (_, rendered) = analyze(&config(false, OutputFormat::Table), &MockMarketSource)
+        let (_, rendered) = analyze(&config(false, OutputFormat::Table), Some(&MockMarketSource))
             .await
             .unwrap();
         assert!(rendered.contains("SOCIAL"));
@@ -168,6 +169,6 @@ mod tests {
             50,
             OutputFormat::Table,
         );
-        assert!(analyze(&cfg, &MockMarketSource).await.is_err());
+        assert!(analyze(&cfg, Some(&MockMarketSource)).await.is_err());
     }
 }

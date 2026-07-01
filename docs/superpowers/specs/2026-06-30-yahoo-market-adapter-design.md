@@ -157,16 +157,17 @@ degradation covers transient failures; a retry/backoff is an easy future add.
 
 ## Dependency
 
-Add `reqwest` with rustls (no OpenSSL) + JSON. Resolve the current version
+Add `reqwest` with rustls (no OpenSSL). Resolve the current version
 with `cargo add` — do not hand-pin from memory:
 
 ```
-cargo add reqwest --no-default-features --features rustls-tls,json
+cargo add reqwest --no-default-features --features rustls-tls
 ```
 
 This yields a `reqwest = { version = "…", default-features = false, features =
-["rustls-tls", "json"] }` entry. `rustls-tls` avoids an OpenSSL system
-dependency; `json` enables typed deserialization.
+["rustls-tls"] }` entry. `rustls-tls` avoids an OpenSSL system dependency.
+The response body is read with `.text()` and parsed via our own `serde_json`,
+so reqwest's `json` feature is not needed.
 
 ## Testing
 

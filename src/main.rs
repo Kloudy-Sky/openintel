@@ -16,14 +16,19 @@ async fn main() -> ExitCode {
     match cli.command {
         Command::Analyze(args) => {
             let config = to_app_config(&args);
-            let market = match YahooMarketSource::new() {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    return ExitCode::FAILURE;
-                }
+            let outcome = if config.market_enabled {
+                let market = match YahooMarketSource::new() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                analyze(&config, Some(&market)).await
+            } else {
+                analyze(&config, None).await
             };
-            match analyze(&config, &market).await {
+            match outcome {
                 Ok((_report, rendered)) => {
                     println!("{rendered}");
                     ExitCode::SUCCESS

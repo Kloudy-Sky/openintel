@@ -6,7 +6,7 @@ Security-first CLI that fuses social-media chatter with market action into a **s
 
 ## Quickstart
 
-Run it immediately — no install, uses built-in mock data:
+Run it immediately — no install; market data comes from Yahoo Finance, social data stays mocked:
 
 ```bash
 cargo run -- analyze AAPL

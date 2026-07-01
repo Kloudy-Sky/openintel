@@ -32,7 +32,7 @@ fn build_sources(req: &AnalysisRequest) -> Vec<Box<dyn SocialDataSource>> {
 
 pub async fn analyze(
     req: &AnalysisRequest,
-    market_source: &dyn MarketDataSource,
+    market_source: Option<&dyn MarketDataSource>,
 ) -> Result<SpeculationReport, DomainError> {
     let ticker = Ticker::parse(&req.ticker)?;
     let sources = build_sources(req);
@@ -52,16 +52,15 @@ pub async fn analyze(
         }
     }
 
-    let market: Option<MarketSnapshot> = if req.market_enabled {
-        match market_source.snapshot(&ticker).await {
+    let market: Option<MarketSnapshot> = match (req.market_enabled, market_source) {
+        (true, Some(source)) => match source.snapshot(&ticker).await {
             Ok(snapshot) => Some(snapshot),
             Err(e) => {
                 notes.push(format!("market source failed: {e}"));
                 None
             }
-        }
-    } else {
-        None
+        },
+        _ => None,
     };
 
     if posts.is_empty() && market.is_none() {
@@ -99,7 +98,7 @@ mod tests {
     #[tokio::test]
     async fn analyzes_default_request_confirming_bullish() {
         use crate::domain::values::speculation::Alignment;
-        let report = analyze(&req("AAPL", true), &MockMarketSource)
+        let report = analyze(&req("AAPL", true), Some(&MockMarketSource))
             .await
             .unwrap();
         assert_eq!(report.social.total_mentions, 10);
@@ -109,6 +108,16 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_ticker_errors() {
-        assert!(analyze(&req("$$$", true), &MockMarketSource).await.is_err());
+        assert!(analyze(&req("$$$", true), Some(&MockMarketSource))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn social_only_when_no_source_provided() {
+        use crate::domain::values::speculation::Alignment;
+        let report = analyze(&req("AAPL", false), None).await.unwrap();
+        assert!(report.market.is_none());
+        assert_eq!(report.fusion.alignment, Alignment::Quiet);
     }
 }

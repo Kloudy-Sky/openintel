@@ -102,7 +102,7 @@ pub async fn run_analyze(
         args.no_market,
         args.limit,
     );
-    let report = application::analyze(&req, market_source).await?;
+    let report = application::analyze(&req, Some(market_source)).await?;
     Ok(AnalyzeOutput {
         summary: summarize(&report),
         report,
@@ -156,7 +156,7 @@ pub async fn run_scan(args: ScanArgs, market_source: &dyn MarketDataSource) -> S
             no_market,
             limit,
         );
-        match application::analyze(&req, market_source).await {
+        match application::analyze(&req, Some(market_source)).await {
             Ok(report) => ScanEntry {
                 ticker: t,
                 report: Some(report),
@@ -268,7 +268,7 @@ pub async fn run_compare(args: CompareArgs, market_source: &dyn MarketDataSource
             no_market,
             limit,
         );
-        (t, application::analyze(&req, market_source).await)
+        (t, application::analyze(&req, Some(market_source)).await)
     });
     let results = futures::future::join_all(futures).await;
 

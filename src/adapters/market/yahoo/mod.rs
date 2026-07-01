@@ -44,7 +44,7 @@ impl MarketDataSource for YahooMarketSource {
 
         let resp = self
             .client
-            .get(&url)
+            .get(url)
             .send()
             .await
             .map_err(|e| DomainError::SourceFailure {
@@ -57,13 +57,35 @@ impl MarketDataSource for YahooMarketSource {
             message: format!("reading body failed (HTTP {status}): {e}"),
         })?;
 
-        response::parse_snapshot(&body, ticker, fetched_at)
+        to_snapshot(status, &body, ticker, fetched_at)
+    }
+}
+
+/// Map an HTTP status + body to a snapshot. On a failed parse, prefix the HTTP
+/// status when the response was not 2xx, so transient failures (e.g. 429) are
+/// self-describing without discarding Yahoo's own JSON error message.
+fn to_snapshot(
+    status: reqwest::StatusCode,
+    body: &str,
+    ticker: &Ticker,
+    fetched_at: chrono::DateTime<chrono::Utc>,
+) -> Result<MarketSnapshot, DomainError> {
+    match response::parse_snapshot(body, ticker, fetched_at) {
+        Ok(snapshot) => Ok(snapshot),
+        Err(DomainError::SourceFailure { message, .. }) if !status.is_success() => {
+            Err(DomainError::SourceFailure {
+                name: "yahoo".into(),
+                message: format!("HTTP {status}: {message}"),
+            })
+        }
+        Err(e) => Err(e),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn new_builds_and_names_yahoo() {
@@ -78,5 +100,26 @@ mod tests {
         let snap = src.snapshot(&Ticker::parse("AAPL").unwrap()).await.unwrap();
         assert!(snap.last_price > 0.0, "last_price = {}", snap.last_price);
         assert!(snap.previous_close > 0.0);
+    }
+
+    #[test]
+    fn to_snapshot_prefixes_http_status_on_failed_non_2xx() {
+        let t = Ticker::parse("AAPL").unwrap();
+        let at = chrono::Utc.timestamp_opt(0, 0).single().unwrap();
+        let err =
+            to_snapshot(reqwest::StatusCode::TOO_MANY_REQUESTS, "garbage", &t, at).unwrap_err();
+        assert!(err.to_string().contains("429"), "got {err}");
+    }
+
+    #[test]
+    fn to_snapshot_passes_parser_error_through_on_2xx() {
+        let t = Ticker::parse("AAPL").unwrap();
+        let at = chrono::Utc.timestamp_opt(0, 0).single().unwrap();
+        let err = to_snapshot(reqwest::StatusCode::OK, "garbage", &t, at).unwrap_err();
+        // On a 2xx, no HTTP prefix is added — the parser's message stands.
+        assert!(
+            !err.to_string().contains("HTTP "),
+            "unexpected HTTP prefix: {err}"
+        );
     }
 }

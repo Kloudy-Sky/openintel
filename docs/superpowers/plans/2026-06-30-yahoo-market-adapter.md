@@ -508,6 +508,8 @@ impl MarketDataSource for YahooMarketSource {
 }
 ```
 
+Finally, delete the transient `#![allow(dead_code)]` line at the top of `src/adapters/market/yahoo/response.rs`. It was a Task-1 scaffold (the parser was only test-used); now that `snapshot()` calls `response::parse_snapshot`, the parser chain is live in the lib target, so the suppression is no longer needed and must be removed — the Step 7 clippy run confirms no dead-code warnings remain.
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cargo test -p openintel --lib adapters::market::yahoo`

@@ -4,6 +4,23 @@ Security-first CLI that fuses social-media chatter with market action into a **s
 
 > **Not financial advice.** OpenIntel is a research/screening tool. Social data is noisy and easily manipulated. Do your own diligence.
 
+## Quickstart
+
+Run it immediately — no install, uses built-in mock data:
+
+```bash
+cargo run -- analyze AAPL
+```
+
+Or install it on your PATH for the shorter `openintel` command used throughout this README:
+
+```bash
+cargo install --path .
+openintel analyze AAPL
+```
+
+> **Mock data today.** The numbers are illustrative until real data adapters land — a real market source is the next milestone.
+
 ## Usage
 
 ```bash
@@ -36,12 +53,12 @@ your agent (Claude Code on your subscription / ChatGPT / Codex / Cursor / Grok)
   └─ MCP → agent.robinhood.com/mcp/trading    (execution, sandboxed agentic wallet)
 ```
 
-Wire it up (Claude Code shown; other agents add the same `openintel mcp` stdio command in
-their MCP settings):
+Wire up both MCPs (Claude Code shown; other agents add the same commands in their MCP
+settings). Requires `openintel` on your PATH — see [Quickstart](#quickstart):
 
 ```bash
-cargo install --path .          # puts `openintel` on your PATH
 claude mcp add openintel -- openintel mcp
+claude mcp add robinhood-trading --transport http https://agent.robinhood.com/mcp/trading
 ```
 
 Tools exposed (all **read-only** — OpenIntel never places trades):

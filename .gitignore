@@ -1,7 +1,6 @@
 /target
 *.db
 *.db-journal
-Cargo.lock
 .env
 
 # SDD orchestration scratch (briefs, reports, progress ledger)

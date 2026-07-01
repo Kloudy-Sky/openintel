@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 

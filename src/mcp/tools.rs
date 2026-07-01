@@ -16,15 +16,13 @@ pub struct SourcesOutput {
 }
 
 /// Derived from `SourceKind::ALL` (one source of truth) + the market adapter's name.
-pub fn run_list_sources() -> SourcesOutput {
+pub fn run_list_sources(market_source: &dyn MarketDataSource) -> SourcesOutput {
     SourcesOutput {
         social: SourceKind::ALL
             .iter()
             .map(|s| s.as_str().to_string())
             .collect(),
-        market: vec![crate::adapters::market::mock_market::MockMarketSource
-            .name()
-            .to_string()],
+        market: vec![market_source.name().to_string()],
     }
 }
 
@@ -92,7 +90,10 @@ pub(crate) fn summarize(report: &SpeculationReport) -> String {
     )
 }
 
-pub async fn run_analyze(args: AnalyzeArgs) -> Result<AnalyzeOutput, DomainError> {
+pub async fn run_analyze(
+    args: AnalyzeArgs,
+    market_source: &dyn MarketDataSource,
+) -> Result<AnalyzeOutput, DomainError> {
     let req = request_from(
         args.ticker,
         args.enable_reddit,
@@ -101,7 +102,7 @@ pub async fn run_analyze(args: AnalyzeArgs) -> Result<AnalyzeOutput, DomainError
         args.no_market,
         args.limit,
     );
-    let report = application::analyze(&req).await?;
+    let report = application::analyze(&req, Some(market_source)).await?;
     Ok(AnalyzeOutput {
         summary: summarize(&report),
         report,
@@ -137,7 +138,7 @@ pub struct ScanOutput {
     pub disclaimer: &'static str,
 }
 
-pub async fn run_scan(args: ScanArgs) -> ScanOutput {
+pub async fn run_scan(args: ScanArgs, market_source: &dyn MarketDataSource) -> ScanOutput {
     let ScanArgs {
         tickers,
         enable_reddit,
@@ -155,7 +156,7 @@ pub async fn run_scan(args: ScanArgs) -> ScanOutput {
             no_market,
             limit,
         );
-        match application::analyze(&req).await {
+        match application::analyze(&req, Some(market_source)).await {
             Ok(report) => ScanEntry {
                 ticker: t,
                 report: Some(report),
@@ -248,7 +249,7 @@ pub(crate) fn sort_ranked(ranked: &mut [RankedEntry], rank_by: RankBy) {
     });
 }
 
-pub async fn run_compare(args: CompareArgs) -> CompareOutput {
+pub async fn run_compare(args: CompareArgs, market_source: &dyn MarketDataSource) -> CompareOutput {
     let CompareArgs {
         tickers,
         rank_by,
@@ -267,7 +268,7 @@ pub async fn run_compare(args: CompareArgs) -> CompareOutput {
             no_market,
             limit,
         );
-        (t, application::analyze(&req).await)
+        (t, application::analyze(&req, Some(market_source)).await)
     });
     let results = futures::future::join_all(futures).await;
 
@@ -302,24 +303,28 @@ pub async fn run_compare(args: CompareArgs) -> CompareOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::market::mock_market::MockMarketSource;
 
     #[test]
     fn list_sources_reports_all_adapters() {
-        let out = run_list_sources();
+        let out = run_list_sources(&MockMarketSource);
         assert_eq!(out.social, vec!["reddit", "x", "bluesky"]);
         assert_eq!(out.market, vec!["mock-market"]);
     }
 
     #[tokio::test]
     async fn run_analyze_returns_confirming_bullish_report() {
-        let out = run_analyze(AnalyzeArgs {
-            ticker: "AAPL".into(),
-            enable_reddit: None,
-            enable_x: None,
-            enable_bluesky: None,
-            no_market: None,
-            limit: None,
-        })
+        let out = run_analyze(
+            AnalyzeArgs {
+                ticker: "AAPL".into(),
+                enable_reddit: None,
+                enable_x: None,
+                enable_bluesky: None,
+                no_market: None,
+                limit: None,
+            },
+            &MockMarketSource,
+        )
         .await
         .unwrap();
         assert!(out.summary.contains("ConfirmingBullish"));
@@ -337,19 +342,22 @@ mod tests {
             no_market: None,
             limit: None,
         };
-        assert!(run_analyze(args).await.is_err());
+        assert!(run_analyze(args, &MockMarketSource).await.is_err());
     }
 
     #[tokio::test]
     async fn run_scan_handles_mixed_batch() {
-        let out = run_scan(ScanArgs {
-            tickers: vec!["AAPL".into(), "$$$".into()],
-            enable_reddit: None,
-            enable_x: None,
-            enable_bluesky: None,
-            no_market: None,
-            limit: None,
-        })
+        let out = run_scan(
+            ScanArgs {
+                tickers: vec!["AAPL".into(), "$$$".into()],
+                enable_reddit: None,
+                enable_x: None,
+                enable_bluesky: None,
+                no_market: None,
+                limit: None,
+            },
+            &MockMarketSource,
+        )
         .await;
         assert_eq!(out.entries.len(), 2);
         assert!(out.entries[0].report.is_some() && out.entries[0].error.is_none());
@@ -359,14 +367,17 @@ mod tests {
 
     #[tokio::test]
     async fn run_scan_empty_list_is_empty() {
-        let out = run_scan(ScanArgs {
-            tickers: vec![],
-            enable_reddit: None,
-            enable_x: None,
-            enable_bluesky: None,
-            no_market: None,
-            limit: None,
-        })
+        let out = run_scan(
+            ScanArgs {
+                tickers: vec![],
+                enable_reddit: None,
+                enable_x: None,
+                enable_bluesky: None,
+                no_market: None,
+                limit: None,
+            },
+            &MockMarketSource,
+        )
         .await;
         assert!(out.entries.is_empty());
     }
@@ -437,15 +448,18 @@ mod tests {
 
     #[tokio::test]
     async fn run_compare_partitions_valid_and_invalid() {
-        let out = run_compare(CompareArgs {
-            tickers: vec!["AAPL".into(), "$$$".into()],
-            rank_by: RankBy::Crowding,
-            enable_reddit: None,
-            enable_x: None,
-            enable_bluesky: None,
-            no_market: None,
-            limit: None,
-        })
+        let out = run_compare(
+            CompareArgs {
+                tickers: vec!["AAPL".into(), "$$$".into()],
+                rank_by: RankBy::Crowding,
+                enable_reddit: None,
+                enable_x: None,
+                enable_bluesky: None,
+                no_market: None,
+                limit: None,
+            },
+            &MockMarketSource,
+        )
         .await;
         assert_eq!(out.ranked.len(), 1);
         assert_eq!(out.errors.len(), 1);

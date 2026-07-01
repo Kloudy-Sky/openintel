@@ -6,7 +6,7 @@ Security-first CLI that fuses social-media chatter with market action into a **s
 
 ## Quickstart
 
-Run it immediately — no install, uses built-in mock data:
+Run it immediately — no install; market data comes from Yahoo Finance, social data stays mocked:
 
 ```bash
 cargo run -- analyze AAPL
@@ -19,7 +19,7 @@ cargo install --path .
 openintel analyze AAPL
 ```
 
-> **Mock data today.** The numbers are illustrative until real data adapters land — a real market source is the next milestone.
+> **Market data is live (Yahoo Finance, keyless); social sources are still mock.** `analyze` fetches real price/volume over the network — offline runs degrade to a social-only report. Real social adapters are the next milestone.
 
 ## Usage
 
@@ -92,8 +92,8 @@ in your account.** Understand exactly what you're authorizing:
   setup. Connecting also grants the agent broad **read** access to your accounts — a privacy
   surface.
 - **Scope / status:** Robinhood's Agentic Trading is a **beta, US-only, equities-only**
-  product. OpenIntel itself is early software (mocked data sources today); the intelligence
-  layer is meant to be iterated on.
+  product. OpenIntel itself is early software (live market data via Yahoo; social sources
+  still mocked); the intelligence layer is meant to be iterated on.
 
 By design, **OpenIntel never executes trades, touches a broker, or holds credentials** —
 execution happens only through the broker's own MCP, gated by the broker's controls and your
@@ -112,7 +112,7 @@ approval. That boundary *is* the safety model; keep it.
 Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clock live at the edge.
 
 - `domain/` — entities, value objects, the pure `SpeculationEngine`, and port traits.
-- `adapters/` — `LexiconAnalyzer` + mock data sources.
+- `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), and mock social sources.
 - `config/` — env-only secrets (`secrecy`) and runtime settings.
 - `cli/` — clap args, orchestration, rendering.
 
@@ -125,9 +125,9 @@ Secrets come only from environment variables (`OPENINTEL_REDDIT_TOKEN`, `OPENINT
 2. Add a `SourceKind` variant in `src/domain/values/source_kind.rs`.
 3. Add one arm to `build_sources` in `src/cli/run.rs`.
 
-**Add a market source** (e.g. Yahoo Finance):
+**Add a market source** (e.g. a keyed provider):
 1. New struct in `src/adapters/market/`, `impl MarketDataSource`.
-2. Select it in `cli::run`.
+2. Construct it at the composition roots — `main.rs` (analyze branch) and `mcp::server::serve()` — and it flows in through the injected `&dyn MarketDataSource`. No engine or application change.
 
 **Swap the analyzer** (lexicon → LLM/ML):
 1. New struct in `src/adapters/analyzer/`, `impl PostAnalyzer`. No engine change.

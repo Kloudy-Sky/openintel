@@ -3,11 +3,9 @@
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 
-use crate::domain::entities::social_post::{PostText, SocialPost};
+use crate::domain::entities::social_post::{PostText, SocialPost, MAX_POST_LEN};
 use crate::domain::error::DomainError;
 use crate::domain::values::source_kind::SourceKind;
-
-const MAX_TEXT_CHARS: usize = 10_000;
 
 #[derive(Debug, Deserialize)]
 struct Listing {
@@ -58,6 +56,10 @@ pub(crate) fn parse_posts(
     let listing: Listing =
         serde_json::from_str(body).map_err(|e| fail(format!("malformed response: {e}")))?;
 
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
     let mut posts = Vec::new();
     for child in listing.data.children {
         let d = child.data;
@@ -72,7 +74,7 @@ pub(crate) fn parse_posts(
         } else {
             format!("{title}\n{selftext}")
         };
-        let truncated: String = combined.chars().take(MAX_TEXT_CHARS).collect();
+        let truncated: String = combined.chars().take(MAX_POST_LEN).collect();
         let text = match PostText::parse(&truncated) {
             Ok(t) => t,
             Err(_) => continue,
@@ -181,5 +183,26 @@ mod tests {
     #[test]
     fn malformed_json_is_source_failure() {
         assert!(parse_posts("not json", 50, at()).is_err());
+    }
+
+    #[test]
+    fn limit_zero_returns_empty() {
+        assert!(parse_posts(HAPPY, 0, at()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn post_with_empty_title_and_selftext_is_skipped() {
+        let body = r#"{"kind":"Listing","data":{"children":[
+            {"kind":"t3","data":{"name":"t3_e","author":"a","title":"","selftext":"","score":1,"created_utc":1.0}}
+        ]}}"#;
+        assert!(parse_posts(body, 50, at()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn post_with_empty_string_id_is_skipped() {
+        let body = r#"{"kind":"Listing","data":{"children":[
+            {"kind":"t3","data":{"name":"","author":"a","title":"AAPL","score":1,"created_utc":1.0}}
+        ]}}"#;
+        assert!(parse_posts(body, 50, at()).unwrap().is_empty());
     }
 }

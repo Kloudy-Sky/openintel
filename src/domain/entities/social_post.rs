@@ -4,7 +4,7 @@ use serde::Serialize;
 use crate::domain::error::DomainError;
 use crate::domain::values::source_kind::SourceKind;
 
-const MAX_POST_LEN: usize = 10_000;
+pub(crate) const MAX_POST_LEN: usize = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]

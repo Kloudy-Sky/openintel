@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo};
@@ -5,18 +7,25 @@ use rmcp::transport::io::stdio;
 use rmcp::{tool, tool_handler, tool_router, ErrorData, ServerHandler, ServiceExt};
 
 use crate::adapters::market::yahoo::YahooMarketSource;
+use crate::adapters::sources::mock_bluesky::MockBlueskySource;
+use crate::adapters::sources::mock_x::MockXSource;
+use crate::adapters::sources::reddit::RedditSource;
+use crate::config::secrets::Credentials;
+use crate::domain::ports::social_data_source::SocialDataSource;
 use crate::mcp::tools;
 
 #[derive(Clone)]
 pub struct OpenIntelServer {
     tool_router: ToolRouter<OpenIntelServer>,
+    social: Arc<Vec<Box<dyn SocialDataSource>>>,
     market: YahooMarketSource,
 }
 
 impl OpenIntelServer {
-    pub fn new(market: YahooMarketSource) -> Self {
+    pub fn new(social: Vec<Box<dyn SocialDataSource>>, market: YahooMarketSource) -> Self {
         Self {
             tool_router: Self::tool_router(),
+            social: Arc::new(social),
             market,
         }
     }
@@ -28,8 +37,9 @@ impl OpenIntelServer {
         description = "List the social and market data sources OpenIntel can analyze. Read-only metadata."
     )]
     async fn list_sources(&self) -> Result<CallToolResult, ErrorData> {
-        let json = serde_json::to_string_pretty(&tools::run_list_sources(&self.market))
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json =
+            serde_json::to_string_pretty(&tools::run_list_sources(&self.social, &self.market))
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
@@ -42,7 +52,7 @@ impl OpenIntelServer {
         &self,
         Parameters(args): Parameters<tools::AnalyzeArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        let out = tools::run_analyze(args, &self.market)
+        let out = tools::run_analyze(args, &self.social, &self.market)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let json = serde_json::to_string_pretty(&out)
@@ -59,7 +69,7 @@ impl OpenIntelServer {
         &self,
         Parameters(args): Parameters<tools::ScanArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        let out = tools::run_scan(args, &self.market).await;
+        let out = tools::run_scan(args, &self.social, &self.market).await;
         let json = serde_json::to_string_pretty(&out)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
@@ -74,7 +84,7 @@ impl OpenIntelServer {
         &self,
         Parameters(args): Parameters<tools::CompareArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        let out = tools::run_compare(args, &self.market).await;
+        let out = tools::run_compare(args, &self.social, &self.market).await;
         let json = serde_json::to_string_pretty(&out)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
@@ -102,8 +112,22 @@ impl ServerHandler for OpenIntelServer {
 
 /// Run the MCP server over stdio (blocks until the client disconnects).
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
+    let credentials = Credentials::from_env();
+    let mut social: Vec<Box<dyn SocialDataSource>> = Vec::new();
+    if let (Some(id), Some(secret)) = (
+        credentials.reddit_client_id,
+        credentials.reddit_client_secret,
+    ) {
+        match RedditSource::new(id, secret) {
+            Ok(src) => social.push(Box::new(src)),
+            Err(e) => eprintln!("warning: reddit disabled: {e}"),
+        }
+    }
+    social.push(Box::new(MockXSource));
+    social.push(Box::new(MockBlueskySource));
+
     let market = YahooMarketSource::new()?;
-    let service = OpenIntelServer::new(market).serve(stdio()).await?;
+    let service = OpenIntelServer::new(social, market).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }

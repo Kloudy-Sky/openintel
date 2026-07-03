@@ -127,7 +127,7 @@ approval. That boundary *is* the safety model; keep it.
 Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clock live at the edge.
 
 - `domain/` — entities, value objects, the pure `SpeculationEngine`, and port traits.
-- `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), and mock social sources.
+- `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), the `RedditSource` (real via OAuth when configured), and mock X/Bluesky sources.
 - `config/` — env-only secrets (`secrecy`) and runtime settings.
 - `cli/` — clap args, orchestration, rendering.
 

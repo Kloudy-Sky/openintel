@@ -18,7 +18,7 @@ impl CachedToken {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TokenResponse {
     #[serde(default)]
     access_token: Option<String>,

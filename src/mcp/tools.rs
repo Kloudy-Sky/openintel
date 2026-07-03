@@ -16,6 +16,9 @@ pub struct SourcesOutput {
     pub market: Vec<String>,
 }
 
+/// Report the actually-wired data sources so an agent can see whether an
+/// optional source (e.g. Reddit, which needs OAuth credentials) is live —
+/// `social` reflects the injected list, not the full `SourceKind::ALL` set.
 pub fn run_list_sources(
     social_sources: &[Box<dyn SocialDataSource>],
     market_source: &dyn MarketDataSource,

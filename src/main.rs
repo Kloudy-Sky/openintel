@@ -3,13 +3,9 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use openintel::adapters::market::yahoo::YahooMarketSource;
-use openintel::adapters::sources::mock_bluesky::MockBlueskySource;
-use openintel::adapters::sources::mock_x::MockXSource;
-use openintel::adapters::sources::reddit::RedditSource;
 use openintel::cli::args::{to_app_config, Cli, Command};
 use openintel::cli::run::analyze;
 use openintel::config::secrets::Credentials;
-use openintel::domain::ports::social_data_source::SocialDataSource;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -21,18 +17,7 @@ async fn main() -> ExitCode {
         Command::Analyze(args) => {
             let config = to_app_config(&args);
 
-            let mut social: Vec<Box<dyn SocialDataSource>> = Vec::new();
-            if let (Some(id), Some(secret)) = (
-                credentials.reddit_client_id,
-                credentials.reddit_client_secret,
-            ) {
-                match RedditSource::new(id, secret) {
-                    Ok(src) => social.push(Box::new(src)),
-                    Err(e) => eprintln!("warning: reddit disabled: {e}"),
-                }
-            }
-            social.push(Box::new(MockXSource));
-            social.push(Box::new(MockBlueskySource));
+            let social = openintel::adapters::sources::build_social_sources(&credentials);
 
             let outcome = if config.market_enabled {
                 let market = match YahooMarketSource::new() {

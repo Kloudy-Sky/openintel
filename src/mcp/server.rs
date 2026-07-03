@@ -7,9 +7,6 @@ use rmcp::transport::io::stdio;
 use rmcp::{tool, tool_handler, tool_router, ErrorData, ServerHandler, ServiceExt};
 
 use crate::adapters::market::yahoo::YahooMarketSource;
-use crate::adapters::sources::mock_bluesky::MockBlueskySource;
-use crate::adapters::sources::mock_x::MockXSource;
-use crate::adapters::sources::reddit::RedditSource;
 use crate::config::secrets::Credentials;
 use crate::domain::ports::social_data_source::SocialDataSource;
 use crate::mcp::tools;
@@ -113,18 +110,7 @@ impl ServerHandler for OpenIntelServer {
 /// Run the MCP server over stdio (blocks until the client disconnects).
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let credentials = Credentials::from_env();
-    let mut social: Vec<Box<dyn SocialDataSource>> = Vec::new();
-    if let (Some(id), Some(secret)) = (
-        credentials.reddit_client_id,
-        credentials.reddit_client_secret,
-    ) {
-        match RedditSource::new(id, secret) {
-            Ok(src) => social.push(Box::new(src)),
-            Err(e) => eprintln!("warning: reddit disabled: {e}"),
-        }
-    }
-    social.push(Box::new(MockXSource));
-    social.push(Box::new(MockBlueskySource));
+    let social = crate::adapters::sources::build_social_sources(&credentials);
 
     let market = YahooMarketSource::new()?;
     let service = OpenIntelServer::new(social, market).serve(stdio()).await?;

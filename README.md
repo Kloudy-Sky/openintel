@@ -19,7 +19,7 @@ cargo install --path .
 openintel analyze AAPL
 ```
 
-> **Market data is live (Yahoo Finance, keyless); social sources are still mock.** `analyze` fetches real price/volume over the network — offline runs degrade to a social-only report. Real social adapters are the next milestone.
+> **Market data is live (Yahoo Finance, keyless). Reddit is live when configured (OAuth — see below); X and Bluesky are still mock.** `analyze` fetches over the network — offline or unconfigured sources degrade gracefully with a note.
 
 ## Usage
 
@@ -40,6 +40,21 @@ openintel analyze AAPL --no-market --format json
 | `--no-market` | Skip the market snapshot (social-only report) |
 | `--limit <N>` | Posts per source (default 50) |
 | `--format table\|json` | Output format (default table) |
+
+## Enable the Reddit source (optional)
+
+Reddit requires OAuth (there is no keyless access). One-time setup:
+
+1. Create a **script** app at <https://www.reddit.com/prefs/apps> → note the **client id** (under the app name) and **secret**.
+2. Export them before running:
+
+```bash
+export OPENINTEL_REDDIT_CLIENT_ID=your_client_id
+export OPENINTEL_REDDIT_CLIENT_SECRET=your_secret
+openintel analyze AAPL --enable-reddit
+```
+
+Without these, `--enable-reddit` yields a `reddit enabled but not configured` note and the other sources still run. Credentials are read only from the environment, wrapped in `SecretString` (never logged or written to disk), and sent only to Reddit over TLS.
 
 ## Use with an AI agent (MCP)
 
@@ -116,14 +131,14 @@ Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clo
 - `config/` — env-only secrets (`secrecy`) and runtime settings.
 - `cli/` — clap args, orchestration, rendering.
 
-Secrets come only from environment variables (`OPENINTEL_REDDIT_TOKEN`, `OPENINTEL_X_BEARER`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`), wrapped in `SecretString` — never logged or written to disk.
+Secrets come only from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_X_BEARER`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`), wrapped in `SecretString` — never logged or written to disk.
 
 ## Extending
 
-**Add a social source** (e.g. real Reddit):
+**Add a social source** (e.g. real Bluesky):
 1. New struct in `src/adapters/sources/`, `impl SocialDataSource`.
-2. Add a `SourceKind` variant in `src/domain/values/source_kind.rs`.
-3. Add one arm to `build_sources` in `src/cli/run.rs`.
+2. Add a `SourceKind` variant in `src/domain/values/source_kind.rs` if new.
+3. Construct it at the composition roots — `main.rs` (analyze branch) and `mcp::server::serve()` — and push it onto the injected social list. No engine or application change.
 
 **Add a market source** (e.g. a keyed provider):
 1. New struct in `src/adapters/market/`, `impl MarketDataSource`.

@@ -2,9 +2,6 @@ use chrono::Utc;
 use futures::future::join_all;
 
 use crate::adapters::analyzer::lexicon::LexiconAnalyzer;
-use crate::adapters::sources::mock_bluesky::MockBlueskySource;
-use crate::adapters::sources::mock_reddit::MockRedditSource;
-use crate::adapters::sources::mock_x::MockXSource;
 use crate::application::request::AnalysisRequest;
 use crate::domain::engine::speculation_engine::SpeculationEngine;
 use crate::domain::entities::market_snapshot::MarketSnapshot;
@@ -15,36 +12,31 @@ use crate::domain::error::DomainError;
 use crate::domain::ports::market_data_source::MarketDataSource;
 use crate::domain::ports::post_analyzer::PostAnalyzer;
 use crate::domain::ports::social_data_source::SocialDataSource;
-use crate::domain::values::source_kind::SourceKind;
-
-fn build_sources(req: &AnalysisRequest) -> Vec<Box<dyn SocialDataSource>> {
-    req.enabled_sources
-        .iter()
-        .map(|kind| -> Box<dyn SocialDataSource> {
-            match kind {
-                SourceKind::Reddit => Box::new(MockRedditSource),
-                SourceKind::X => Box::new(MockXSource),
-                SourceKind::Bluesky => Box::new(MockBlueskySource),
-            }
-        })
-        .collect()
-}
 
 pub async fn analyze(
     req: &AnalysisRequest,
+    social_sources: &[Box<dyn SocialDataSource>],
     market_source: Option<&dyn MarketDataSource>,
 ) -> Result<SpeculationReport, DomainError> {
     let ticker = Ticker::parse(&req.ticker)?;
-    let sources = build_sources(req);
 
-    let fetches = sources.iter().map(|source| {
-        let ticker = ticker.clone();
-        async move { (source.kind(), source.fetch(&ticker, req.limit).await) }
-    });
+    let mut notes: Vec<String> = Vec::new();
+    for kind in &req.enabled_sources {
+        if !social_sources.iter().any(|s| s.kind() == *kind) {
+            notes.push(format!("{} enabled but not configured", kind.as_str()));
+        }
+    }
+
+    let fetches = social_sources
+        .iter()
+        .filter(|s| req.enabled_sources.contains(&s.kind()))
+        .map(|source| {
+            let ticker = ticker.clone();
+            async move { (source.kind(), source.fetch(&ticker, req.limit).await) }
+        });
     let results = join_all(fetches).await;
 
     let mut posts: Vec<SocialPost> = Vec::new();
-    let mut notes: Vec<String> = Vec::new();
     for (kind, result) in results {
         match result {
             Ok(mut fetched) => posts.append(&mut fetched),
@@ -84,6 +76,10 @@ pub async fn analyze(
 mod tests {
     use super::*;
     use crate::adapters::market::mock_market::MockMarketSource;
+    use crate::adapters::sources::mock_bluesky::MockBlueskySource;
+    use crate::adapters::sources::mock_reddit::MockRedditSource;
+    use crate::adapters::sources::mock_x::MockXSource;
+    use crate::domain::values::source_kind::SourceKind;
 
     fn req(ticker: &str, market: bool) -> AnalysisRequest {
         AnalysisRequest {
@@ -95,10 +91,18 @@ mod tests {
         }
     }
 
+    fn mock_social() -> Vec<Box<dyn SocialDataSource>> {
+        vec![
+            Box::new(MockRedditSource),
+            Box::new(MockXSource),
+            Box::new(MockBlueskySource),
+        ]
+    }
+
     #[tokio::test]
     async fn analyzes_default_request_confirming_bullish() {
         use crate::domain::values::speculation::Alignment;
-        let report = analyze(&req("AAPL", true), Some(&MockMarketSource))
+        let report = analyze(&req("AAPL", true), &mock_social(), Some(&MockMarketSource))
             .await
             .unwrap();
         assert_eq!(report.social.total_mentions, 10);
@@ -108,16 +112,34 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_ticker_errors() {
-        assert!(analyze(&req("$$$", true), Some(&MockMarketSource))
-            .await
-            .is_err());
+        assert!(
+            analyze(&req("$$$", true), &mock_social(), Some(&MockMarketSource))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn social_only_when_no_source_provided() {
         use crate::domain::values::speculation::Alignment;
-        let report = analyze(&req("AAPL", false), None).await.unwrap();
+        let report = analyze(&req("AAPL", false), &mock_social(), None)
+            .await
+            .unwrap();
         assert!(report.market.is_none());
         assert_eq!(report.fusion.alignment, Alignment::Quiet);
+    }
+
+    #[tokio::test]
+    async fn enabled_source_absent_is_noted() {
+        // reddit enabled but not wired -> note + other sources still counted (x=3, bluesky=3)
+        let social: Vec<Box<dyn SocialDataSource>> =
+            vec![Box::new(MockXSource), Box::new(MockBlueskySource)];
+        let report = analyze(&req("AAPL", false), &social, None).await.unwrap();
+        assert_eq!(report.social.total_mentions, 6);
+        assert!(report
+            .fusion
+            .notes
+            .iter()
+            .any(|n| n.contains("reddit enabled but not configured")));
     }
 }

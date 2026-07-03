@@ -3,9 +3,11 @@ use crate::config::settings::{AppConfig, OutputFormat};
 use crate::domain::entities::speculation_report::SpeculationReport;
 use crate::domain::error::DomainError;
 use crate::domain::ports::market_data_source::MarketDataSource;
+use crate::domain::ports::social_data_source::SocialDataSource;
 
 pub async fn analyze(
     config: &AppConfig,
+    social_sources: &[Box<dyn SocialDataSource>],
     market_source: Option<&dyn MarketDataSource>,
 ) -> Result<(SpeculationReport, String), DomainError> {
     let req = AnalysisRequest {
@@ -15,7 +17,7 @@ pub async fn analyze(
         limit: config.limit,
         engine: config.engine.clone(),
     };
-    let report = application::analyze(&req, market_source).await?;
+    let report = application::analyze(&req, social_sources, market_source).await?;
     let rendered = render(&report, config.format);
     Ok((report, rendered))
 }
@@ -119,6 +121,9 @@ fn render_table(report: &SpeculationReport) -> String {
 mod tests {
     use super::*;
     use crate::adapters::market::mock_market::MockMarketSource;
+    use crate::adapters::sources::mock_bluesky::MockBlueskySource;
+    use crate::adapters::sources::mock_reddit::MockRedditSource;
+    use crate::adapters::sources::mock_x::MockXSource;
     use crate::config::settings::{AppConfig, OutputFormat};
     use crate::domain::values::speculation::Alignment;
 
@@ -126,12 +131,23 @@ mod tests {
         AppConfig::new("AAPL".into(), false, false, false, no_market, 50, format)
     }
 
+    fn mock_social() -> Vec<Box<dyn SocialDataSource>> {
+        vec![
+            Box::new(MockRedditSource),
+            Box::new(MockXSource),
+            Box::new(MockBlueskySource),
+        ]
+    }
+
     #[tokio::test]
     async fn full_run_confirms_bullish_with_market() {
-        let (report, rendered) =
-            analyze(&config(false, OutputFormat::Json), Some(&MockMarketSource))
-                .await
-                .unwrap();
+        let (report, rendered) = analyze(
+            &config(false, OutputFormat::Json),
+            &mock_social(),
+            Some(&MockMarketSource),
+        )
+        .await
+        .unwrap();
         assert!(report.market.is_some());
         assert_eq!(report.fusion.alignment, Alignment::ConfirmingBullish);
         assert!(rendered.contains("Not financial advice"));
@@ -140,7 +156,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_market_run_is_quiet() {
-        let (report, _) = analyze(&config(true, OutputFormat::Table), None)
+        let (report, _) = analyze(&config(true, OutputFormat::Table), &mock_social(), None)
             .await
             .unwrap();
         assert!(report.market.is_none());
@@ -149,9 +165,13 @@ mod tests {
 
     #[tokio::test]
     async fn table_output_has_sections_and_disclaimer() {
-        let (_, rendered) = analyze(&config(false, OutputFormat::Table), Some(&MockMarketSource))
-            .await
-            .unwrap();
+        let (_, rendered) = analyze(
+            &config(false, OutputFormat::Table),
+            &mock_social(),
+            Some(&MockMarketSource),
+        )
+        .await
+        .unwrap();
         assert!(rendered.contains("SOCIAL"));
         assert!(rendered.contains("MARKET"));
         assert!(rendered.contains("FUSION"));
@@ -169,6 +189,8 @@ mod tests {
             50,
             OutputFormat::Table,
         );
-        assert!(analyze(&cfg, Some(&MockMarketSource)).await.is_err());
+        assert!(analyze(&cfg, &mock_social(), Some(&MockMarketSource))
+            .await
+            .is_err());
     }
 }

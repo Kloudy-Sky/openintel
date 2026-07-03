@@ -6,6 +6,7 @@ use crate::domain::engine::config::EngineConfig;
 use crate::domain::entities::speculation_report::SpeculationReport;
 use crate::domain::error::DomainError;
 use crate::domain::ports::market_data_source::MarketDataSource;
+use crate::domain::ports::social_data_source::SocialDataSource;
 use crate::domain::values::source_kind::SourceKind;
 use crate::domain::values::speculation::Alignment;
 
@@ -15,12 +16,17 @@ pub struct SourcesOutput {
     pub market: Vec<String>,
 }
 
-/// Derived from `SourceKind::ALL` (one source of truth) + the market adapter's name.
-pub fn run_list_sources(market_source: &dyn MarketDataSource) -> SourcesOutput {
+/// Report the actually-wired data sources so an agent can see whether an
+/// optional source (e.g. Reddit, which needs OAuth credentials) is live —
+/// `social` reflects the injected list, not the full `SourceKind::ALL` set.
+pub fn run_list_sources(
+    social_sources: &[Box<dyn SocialDataSource>],
+    market_source: &dyn MarketDataSource,
+) -> SourcesOutput {
     SourcesOutput {
-        social: SourceKind::ALL
+        social: social_sources
             .iter()
-            .map(|s| s.as_str().to_string())
+            .map(|s| s.kind().as_str().to_string())
             .collect(),
         market: vec![market_source.name().to_string()],
     }
@@ -92,6 +98,7 @@ pub(crate) fn summarize(report: &SpeculationReport) -> String {
 
 pub async fn run_analyze(
     args: AnalyzeArgs,
+    social_sources: &[Box<dyn SocialDataSource>],
     market_source: &dyn MarketDataSource,
 ) -> Result<AnalyzeOutput, DomainError> {
     let req = request_from(
@@ -102,7 +109,7 @@ pub async fn run_analyze(
         args.no_market,
         args.limit,
     );
-    let report = application::analyze(&req, Some(market_source)).await?;
+    let report = application::analyze(&req, social_sources, Some(market_source)).await?;
     Ok(AnalyzeOutput {
         summary: summarize(&report),
         report,
@@ -138,7 +145,11 @@ pub struct ScanOutput {
     pub disclaimer: &'static str,
 }
 
-pub async fn run_scan(args: ScanArgs, market_source: &dyn MarketDataSource) -> ScanOutput {
+pub async fn run_scan(
+    args: ScanArgs,
+    social_sources: &[Box<dyn SocialDataSource>],
+    market_source: &dyn MarketDataSource,
+) -> ScanOutput {
     let ScanArgs {
         tickers,
         enable_reddit,
@@ -156,7 +167,7 @@ pub async fn run_scan(args: ScanArgs, market_source: &dyn MarketDataSource) -> S
             no_market,
             limit,
         );
-        match application::analyze(&req, Some(market_source)).await {
+        match application::analyze(&req, social_sources, Some(market_source)).await {
             Ok(report) => ScanEntry {
                 ticker: t,
                 report: Some(report),
@@ -249,7 +260,11 @@ pub(crate) fn sort_ranked(ranked: &mut [RankedEntry], rank_by: RankBy) {
     });
 }
 
-pub async fn run_compare(args: CompareArgs, market_source: &dyn MarketDataSource) -> CompareOutput {
+pub async fn run_compare(
+    args: CompareArgs,
+    social_sources: &[Box<dyn SocialDataSource>],
+    market_source: &dyn MarketDataSource,
+) -> CompareOutput {
     let CompareArgs {
         tickers,
         rank_by,
@@ -268,7 +283,10 @@ pub async fn run_compare(args: CompareArgs, market_source: &dyn MarketDataSource
             no_market,
             limit,
         );
-        (t, application::analyze(&req, Some(market_source)).await)
+        (
+            t,
+            application::analyze(&req, social_sources, Some(market_source)).await,
+        )
     });
     let results = futures::future::join_all(futures).await;
 
@@ -304,10 +322,21 @@ pub async fn run_compare(args: CompareArgs, market_source: &dyn MarketDataSource
 mod tests {
     use super::*;
     use crate::adapters::market::mock_market::MockMarketSource;
+    use crate::adapters::sources::mock_bluesky::MockBlueskySource;
+    use crate::adapters::sources::mock_reddit::MockRedditSource;
+    use crate::adapters::sources::mock_x::MockXSource;
+
+    fn mock_social() -> Vec<Box<dyn SocialDataSource>> {
+        vec![
+            Box::new(MockRedditSource),
+            Box::new(MockXSource),
+            Box::new(MockBlueskySource),
+        ]
+    }
 
     #[test]
     fn list_sources_reports_all_adapters() {
-        let out = run_list_sources(&MockMarketSource);
+        let out = run_list_sources(&mock_social(), &MockMarketSource);
         assert_eq!(out.social, vec!["reddit", "x", "bluesky"]);
         assert_eq!(out.market, vec!["mock-market"]);
     }
@@ -323,6 +352,7 @@ mod tests {
                 no_market: None,
                 limit: None,
             },
+            &mock_social(),
             &MockMarketSource,
         )
         .await
@@ -342,7 +372,9 @@ mod tests {
             no_market: None,
             limit: None,
         };
-        assert!(run_analyze(args, &MockMarketSource).await.is_err());
+        assert!(run_analyze(args, &mock_social(), &MockMarketSource)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -356,6 +388,7 @@ mod tests {
                 no_market: None,
                 limit: None,
             },
+            &mock_social(),
             &MockMarketSource,
         )
         .await;
@@ -376,6 +409,7 @@ mod tests {
                 no_market: None,
                 limit: None,
             },
+            &mock_social(),
             &MockMarketSource,
         )
         .await;
@@ -458,6 +492,7 @@ mod tests {
                 no_market: None,
                 limit: None,
             },
+            &mock_social(),
             &MockMarketSource,
         )
         .await;

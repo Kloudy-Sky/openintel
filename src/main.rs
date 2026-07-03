@@ -10,12 +10,15 @@ use openintel::config::secrets::Credentials;
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
-    // Loaded for future keyed adapters; Yahoo (the current market source) needs no key.
-    let _credentials = Credentials::from_env();
+    // Reddit client credentials (if set) enable the real Reddit source; other sources need none.
+    let credentials = Credentials::from_env();
 
     match cli.command {
         Command::Analyze(args) => {
             let config = to_app_config(&args);
+
+            let social = openintel::adapters::sources::build_social_sources(&credentials);
+
             let outcome = if config.market_enabled {
                 let market = match YahooMarketSource::new() {
                     Ok(m) => m,
@@ -24,9 +27,9 @@ async fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 };
-                analyze(&config, Some(&market)).await
+                analyze(&config, &social, Some(&market)).await
             } else {
-                analyze(&config, None).await
+                analyze(&config, &social, None).await
             };
             match outcome {
                 Ok((_report, rendered)) => {

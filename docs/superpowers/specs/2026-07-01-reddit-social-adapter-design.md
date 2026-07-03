@@ -71,10 +71,10 @@ future opt-in, see below.)*
 
 If the Reddit creds are unset, the composition root does not wire the Reddit
 source. Enabling `--enable-reddit` (or the MCP `enable_reddit`) without creds
-yields the note `"reddit: not configured (set OPENINTEL_REDDIT_CLIENT_ID and
-OPENINTEL_REDDIT_CLIENT_SECRET)"`; the market snapshot and other social sources
-still run. (This reuses the application layer's existing per-source note +
-continue behavior.)
+yields the generic per-source note `"reddit enabled but not configured"` (the
+env-var setup detail lives in the README); the market snapshot and other social
+sources still run. (This reuses the application layer's existing per-source note
++ continue behavior.)
 
 ## Adapter structure (fetch/parse split, mirroring Yahoo)
 
@@ -155,7 +155,7 @@ All failures → `DomainError::SourceFailure { name: "reddit", message }`:
 
 - token request non-2xx / transport / timeout → `"token request failed: …"`
 - 401 on token or search → `"unauthorized — check client id/secret"`
-- 429 → `"rate limited"` (include `X-Ratelimit-Reset` when present)
+- 429 → `"rate limited (HTTP 429)"` (surfacing `X-Ratelimit-Reset` is a tracked follow-up)
 - search non-2xx / malformed JSON → `SourceFailure`
 - **No `unwrap`/`expect` on network data.**
 

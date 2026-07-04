@@ -6,13 +6,39 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege default for all jobs (both only read the repo).
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --all-targets
       - run: cargo test
       - run: cargo clippy -- -D warnings
       - run: cargo fmt -- --check
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit, not just the tip
+          persist-credentials: false # don't leave GITHUB_TOKEN in .git/config for gitleaks to scan
+      - name: gitleaks
+        env:
+          # gitleaks CLI, run directly (no org license, unlike gitleaks-action).
+          # Pin the version AND verify the tarball's SHA256 so a swapped/tampered
+          # release can't inject a binary — the hash is trusted from the repo, not the download.
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSfL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --source . --redact --no-banner

@@ -20,6 +20,9 @@ pub enum Command {
 
     /// Run as an MCP server over stdio (for AI agents).
     Mcp,
+
+    /// Guided setup + live check for a data source (env-only; never stores credentials)
+    Setup(SetupArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -52,6 +55,18 @@ pub enum FormatArg {
     Json,
 }
 
+#[derive(clap::Args, Debug)]
+pub struct SetupArgs {
+    /// Which source to set up
+    #[arg(value_enum)]
+    pub source: SetupSource,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetupSource {
+    Reddit,
+}
+
 pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {
     let format = match args.format {
         FormatArg::Table => OutputFormat::Table,
@@ -69,7 +84,6 @@ pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {
 }
 
 #[cfg(test)]
-#[allow(irrefutable_let_patterns)]
 mod tests {
     use super::*;
     use clap::Parser;
@@ -96,5 +110,19 @@ mod tests {
         assert_eq!(cfg.enabled_sources.len(), 3);
         assert!(cfg.market_enabled);
         assert_eq!(cfg.format, crate::config::settings::OutputFormat::Table);
+    }
+
+    #[test]
+    fn parses_setup_reddit() {
+        let cli = Cli::try_parse_from(["openintel", "setup", "reddit"]).unwrap();
+        let Command::Setup(args) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.source, SetupSource::Reddit);
+    }
+
+    #[test]
+    fn rejects_unknown_setup_source() {
+        assert!(Cli::try_parse_from(["openintel", "setup", "bogus"]).is_err());
     }
 }

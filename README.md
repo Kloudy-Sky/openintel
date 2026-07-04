@@ -46,13 +46,16 @@ openintel analyze AAPL --no-market --format json
 Reddit requires OAuth (there is no keyless access). One-time setup:
 
 1. Create a **script** app at <https://www.reddit.com/prefs/apps> → note the **client id** (under the app name) and **secret**.
-2. Export them before running:
+2. Export them, verify, then run:
 
 ```bash
 export OPENINTEL_REDDIT_CLIENT_ID=your_client_id
 export OPENINTEL_REDDIT_CLIENT_SECRET=your_secret
+openintel setup reddit                     # ✅ live-checks your credentials
 openintel analyze AAPL --enable-reddit
 ```
+
+Not sure where to start? Run `openintel setup reddit` with neither variable set for a guided walkthrough.
 
 Without these, `--enable-reddit` yields a `reddit enabled but not configured` note and the other sources still run. Credentials are read only from the environment, wrapped in `SecretString` (never logged or written to disk), and sent only to Reddit over TLS.
 

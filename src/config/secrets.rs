@@ -22,7 +22,9 @@ impl Credentials {
 }
 
 fn secret_from(value: Option<String>) -> Option<SecretString> {
-    value.map(|v| SecretString::new(v.into_boxed_str()))
+    value
+        .filter(|v| !v.is_empty())
+        .map(|v| SecretString::new(v.into_boxed_str()))
 }
 
 #[cfg(test)]
@@ -35,6 +37,7 @@ mod tests {
         let some = secret_from(Some("super-token".to_string())).unwrap();
         assert_eq!(some.expose_secret(), "super-token");
         assert!(secret_from(None).is_none());
+        assert!(secret_from(Some(String::new())).is_none());
     }
 
     #[test]

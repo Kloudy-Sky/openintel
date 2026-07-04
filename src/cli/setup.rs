@@ -123,7 +123,8 @@ your credentials to disk."
 fn partial_text(missing: &str) -> String {
     format!(
         "⚠  Reddit is half-configured: {missing} is not set.\n   \
-         Set it (see `openintel setup reddit` with neither set for the full guide), then re-run."
+         Set it, then re-run. (Run `openintel setup reddit` with neither variable\n   \
+         set to see the full setup guide.)"
     )
 }
 

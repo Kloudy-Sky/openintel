@@ -29,7 +29,7 @@ Builds `RedditSource::new(id, secret)` and runs one probe:
 request **and** a search). No new adapter code.
 
 - **`Ok(posts)`** → success. Exit `0`.
-  ```
+  ```text
   Checking your Reddit credentials…
   ✅ Reddit is configured and working (pulled a live test result).
      Real Reddit sentiment is active. Try:  openintel analyze GME --enable-reddit
@@ -48,16 +48,17 @@ request **and** a search). No new adapter code.
 
 ### 2. Exactly one set → **partial** (misconfig)
 Exit `1`. Name the missing one:
-```
+```text
 ⚠  Reddit is half-configured: OPENINTEL_REDDIT_CLIENT_SECRET is not set.
-   Set it (see `openintel setup reddit` with neither set for the full guide), then re-run.
+   Set it, then re-run. (Run `openintel setup reddit` with neither variable
+   set to see the full setup guide.)
 ```
 (Symmetric for a missing client id.)
 
 ### 3. Neither set → **guide** (first run)
 Exit `1` (signals "not ready yet"), print the full walkthrough to stdout:
 
-```
+```text
 Reddit needs a free OAuth app — there's no keyless access. ~2 minutes:
 
   1. Sign in to Reddit, then open:  https://www.reddit.com/prefs/apps

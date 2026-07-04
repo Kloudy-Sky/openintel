@@ -251,7 +251,8 @@ your credentials to disk."
 fn partial_text(missing: &str) -> String {
     format!(
         "⚠  Reddit is half-configured: {missing} is not set.\n   \
-         Set it (see `openintel setup reddit` with neither set for the full guide), then re-run."
+         Set it, then re-run. (Run `openintel setup reddit` with neither variable\n   \
+         set to see the full setup guide.)"
     )
 }
 
@@ -399,7 +400,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 In `README.md`, section "Enable the Reddit source (optional)", replace:
 
-```markdown
+~~~markdown
 1. Create a **script** app at <https://www.reddit.com/prefs/apps> → note the **client id** (under the app name) and **secret**.
 2. Export them before running:
 
@@ -408,11 +409,11 @@ export OPENINTEL_REDDIT_CLIENT_ID=your_client_id
 export OPENINTEL_REDDIT_CLIENT_SECRET=your_secret
 openintel analyze AAPL --enable-reddit
 ```
-```
+~~~
 
 with:
 
-```markdown
+~~~markdown
 1. Create a **script** app at <https://www.reddit.com/prefs/apps> → note the **client id** (under the app name) and **secret**.
 2. Export them, verify, then run:
 
@@ -424,7 +425,7 @@ openintel analyze AAPL --enable-reddit
 ```
 
 Not sure where to start? Run `openintel setup reddit` with neither variable set for a guided walkthrough.
-```
+~~~
 
 (Keep the surrounding lines — the intro sentence and the "Without these…" paragraph — unchanged.)
 

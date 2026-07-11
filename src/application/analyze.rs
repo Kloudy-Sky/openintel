@@ -76,9 +76,7 @@ pub async fn analyze(
 mod tests {
     use super::*;
     use crate::adapters::market::mock_market::MockMarketSource;
-    use crate::adapters::sources::mock_bluesky::MockBlueskySource;
-    use crate::adapters::sources::mock_reddit::MockRedditSource;
-    use crate::adapters::sources::mock_x::MockXSource;
+    use crate::adapters::sources::test_fixtures::fixture_social;
     use crate::domain::values::source_kind::SourceKind;
 
     fn req(ticker: &str, market: bool) -> AnalysisRequest {
@@ -91,20 +89,16 @@ mod tests {
         }
     }
 
-    fn mock_social() -> Vec<Box<dyn SocialDataSource>> {
-        vec![
-            Box::new(MockRedditSource),
-            Box::new(MockXSource),
-            Box::new(MockBlueskySource),
-        ]
-    }
-
     #[tokio::test]
     async fn analyzes_default_request_confirming_bullish() {
         use crate::domain::values::speculation::Alignment;
-        let report = analyze(&req("AAPL", true), &mock_social(), Some(&MockMarketSource))
-            .await
-            .unwrap();
+        let report = analyze(
+            &req("AAPL", true),
+            &fixture_social(),
+            Some(&MockMarketSource),
+        )
+        .await
+        .unwrap();
         assert_eq!(report.social.total_mentions, 10);
         assert_eq!(report.fusion.alignment, Alignment::ConfirmingBullish);
         assert!(report.market.is_some());
@@ -112,17 +106,19 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_ticker_errors() {
-        assert!(
-            analyze(&req("$$$", true), &mock_social(), Some(&MockMarketSource))
-                .await
-                .is_err()
-        );
+        assert!(analyze(
+            &req("$$$", true),
+            &fixture_social(),
+            Some(&MockMarketSource)
+        )
+        .await
+        .is_err());
     }
 
     #[tokio::test]
     async fn social_only_when_no_source_provided() {
         use crate::domain::values::speculation::Alignment;
-        let report = analyze(&req("AAPL", false), &mock_social(), None)
+        let report = analyze(&req("AAPL", false), &fixture_social(), None)
             .await
             .unwrap();
         assert!(report.market.is_none());
@@ -131,9 +127,10 @@ mod tests {
 
     #[tokio::test]
     async fn enabled_source_absent_is_noted() {
-        // reddit enabled but not wired -> note + other sources still counted (x=3, bluesky=3)
-        let social: Vec<Box<dyn SocialDataSource>> =
-            vec![Box::new(MockXSource), Box::new(MockBlueskySource)];
+        // reddit enabled but not wired -> note + the bluesky fixture still counted (6 posts)
+        let social: Vec<Box<dyn SocialDataSource>> = vec![Box::new(
+            crate::adapters::sources::test_fixtures::bluesky_fixture(),
+        )];
         let report = analyze(&req("AAPL", false), &social, None).await.unwrap();
         assert_eq!(report.social.total_mentions, 6);
         assert!(report
@@ -141,5 +138,16 @@ mod tests {
             .notes
             .iter()
             .any(|n| n.contains("reddit enabled but not configured")));
+    }
+
+    #[tokio::test]
+    async fn zero_sources_and_no_market_is_no_data() {
+        // The spec's explicit edge decision: nothing configured + --no-market
+        // -> DomainError::NoData (mocks used to mask this path).
+        let social: Vec<Box<dyn SocialDataSource>> = vec![];
+        let err = analyze(&req("AAPL", false), &social, None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NoData));
     }
 }

@@ -21,7 +21,6 @@ impl AppConfig {
     pub fn new(
         ticker: String,
         reddit: bool,
-        x: bool,
         bluesky: bool,
         no_market: bool,
         limit: usize,
@@ -30,9 +29,6 @@ impl AppConfig {
         let mut enabled_sources = Vec::new();
         if reddit {
             enabled_sources.push(SourceKind::Reddit);
-        }
-        if x {
-            enabled_sources.push(SourceKind::X);
         }
         if bluesky {
             enabled_sources.push(SourceKind::Bluesky);
@@ -58,33 +54,17 @@ mod tests {
 
     #[test]
     fn no_flags_enables_all_sources_and_market() {
-        let c = AppConfig::new(
-            "AAPL".into(),
-            false,
-            false,
-            false,
-            false,
-            50,
-            OutputFormat::Table,
-        );
+        let c = AppConfig::new("AAPL".into(), false, false, false, 50, OutputFormat::Table);
         assert_eq!(
             c.enabled_sources,
-            vec![SourceKind::Reddit, SourceKind::X, SourceKind::Bluesky]
+            vec![SourceKind::Reddit, SourceKind::Bluesky]
         );
         assert!(c.market_enabled);
     }
 
     #[test]
     fn single_flag_narrows_sources() {
-        let c = AppConfig::new(
-            "AAPL".into(),
-            true,
-            false,
-            false,
-            true,
-            50,
-            OutputFormat::Json,
-        );
+        let c = AppConfig::new("AAPL".into(), true, false, true, 50, OutputFormat::Json);
         assert_eq!(c.enabled_sources, vec![SourceKind::Reddit]);
         assert!(!c.market_enabled);
     }

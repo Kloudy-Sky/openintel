@@ -6,7 +6,7 @@ Security-first CLI that fuses social-media chatter with market action into a **s
 
 ## Quickstart
 
-Run it immediately — no install; market data comes from Yahoo Finance, social data stays mocked:
+Run it immediately — no install; market data comes from Yahoo Finance; Reddit and Bluesky sentiment go live once configured (see below):
 
 ```bash
 cargo run -- analyze AAPL
@@ -19,7 +19,7 @@ cargo install --path .
 openintel analyze AAPL
 ```
 
-> **Market data is live (Yahoo Finance, keyless). Reddit is live when configured (OAuth — see below); X and Bluesky are still mock.** `analyze` fetches over the network — offline or unconfigured sources degrade gracefully with a note.
+> **Market data is live (Yahoo Finance, keyless). Reddit and Bluesky are live when configured (see below). There is no X source (paid API).** `analyze` fetches over the network — offline or unconfigured sources degrade gracefully with a note.
 
 ## Usage
 
@@ -28,7 +28,7 @@ openintel analyze AAPL
 openintel analyze AAPL
 
 # Narrow to specific sources
-openintel analyze AAPL --enable-reddit --enable-x
+openintel analyze AAPL --enable-reddit --enable-bluesky
 
 # Social only, JSON output
 openintel analyze AAPL --no-market --format json
@@ -36,7 +36,7 @@ openintel analyze AAPL --no-market --format json
 
 | Flag | Meaning |
 |---|---|
-| `--enable-reddit/--enable-x/--enable-bluesky` | Restrict to these sources (none given → all enabled) |
+| `--enable-reddit/--enable-bluesky` | Restrict to these sources (none given → all enabled) |
 | `--no-market` | Skip the market snapshot (social-only report) |
 | `--limit <N>` | Posts per source (default 50) |
 | `--format table\|json` | Output format (default table) |
@@ -58,6 +58,22 @@ openintel analyze AAPL --enable-reddit
 Not sure where to start? Run `openintel setup reddit` with neither variable set for a guided walkthrough.
 
 Without these, `--enable-reddit` yields a `reddit enabled but not configured` note and the other sources still run. Credentials are read only from the environment, wrapped in `SecretString` (never logged or written to disk), and sent only to Reddit over TLS.
+
+## Enable the Bluesky source (optional)
+
+Bluesky search requires auth — a free app password (any Bluesky account, no fees). One-time setup:
+
+1. Sign in at <https://bsky.app> → Settings → Privacy and Security → **App Passwords** → add one named `openintel` (the value is shown once).
+2. Export handle + app password, verify, then run:
+
+```bash
+export OPENINTEL_BLUESKY_HANDLE=yourname.bsky.social
+export OPENINTEL_BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+openintel setup bluesky                    # ✅ live-checks your credentials
+openintel analyze AAPL --enable-bluesky
+```
+
+Not sure where to start? Run `openintel setup bluesky` with neither variable set for a guided walkthrough.
 
 ## Use with an AI agent (MCP)
 
@@ -110,8 +126,7 @@ in your account.** Understand exactly what you're authorizing:
   setup. Connecting also grants the agent broad **read** access to your accounts — a privacy
   surface.
 - **Scope / status:** Robinhood's Agentic Trading is a **beta, US-only, equities-only**
-  product. OpenIntel itself is early software (live market data via Yahoo; social sources
-  still mocked); the intelligence layer is meant to be iterated on.
+  product. OpenIntel itself is early software (live market data via Yahoo; Reddit and Bluesky sentiment live when configured); the intelligence layer is meant to be iterated on.
 
 By design, **OpenIntel never executes trades, touches a broker, or holds credentials** —
 execution happens only through the broker's own MCP, gated by the broker's controls and your
@@ -130,11 +145,11 @@ approval. That boundary *is* the safety model; keep it.
 Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clock live at the edge.
 
 - `domain/` — entities, value objects, the pure `SpeculationEngine`, and port traits.
-- `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), the `RedditSource` (real via OAuth when configured), and mock X/Bluesky sources.
+- `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), the `RedditSource` and `BlueskySource` (real, credential-gated — no mock sources).
 - `config/` — env-only secrets (`secrecy`) and runtime settings.
 - `cli/` — clap args, orchestration, rendering.
 
-Secrets come only from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_X_BEARER`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`), wrapped in `SecretString` — never logged or written to disk.
+Secrets come only from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_BLUESKY_HANDLE`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`), wrapped in `SecretString` — never logged or written to disk.
 
 ## Extending
 

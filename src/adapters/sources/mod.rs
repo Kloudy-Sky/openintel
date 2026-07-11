@@ -1,16 +1,16 @@
-pub mod mock_bluesky;
-pub mod mock_reddit;
-pub mod mock_x;
+pub mod bluesky;
 pub mod reddit;
+
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 
 use crate::config::secrets::Credentials;
 use crate::domain::ports::social_data_source::SocialDataSource;
 
 /// Assemble the social data sources from credentials: the real `RedditSource`
-/// when both OAuth credentials are set, plus the mock X and Bluesky sources.
-/// A partial config (only one of the two creds) or a `RedditSource::new`
-/// failure logs a warning to stderr and omits Reddit. Shared by both
-/// composition roots (`main.rs` and `mcp::server::serve`).
+/// and `BlueskySource` when both their respective credentials are set. A partial
+/// config or constructor failure logs a warning to stderr and omits the source.
+/// Shared by both composition roots (`main.rs` and `mcp::server::serve`).
 pub fn build_social_sources(credentials: &Credentials) -> Vec<Box<dyn SocialDataSource>> {
     let mut social: Vec<Box<dyn SocialDataSource>> = Vec::new();
     match (
@@ -26,8 +26,19 @@ pub fn build_social_sources(credentials: &Credentials) -> Vec<Box<dyn SocialData
         ),
         (None, None) => {}
     }
-    social.push(Box::new(mock_x::MockXSource));
-    social.push(Box::new(mock_bluesky::MockBlueskySource));
+    match (
+        credentials.bluesky_handle.clone(),
+        credentials.bluesky_app_password.clone(),
+    ) {
+        (Some(handle), Some(password)) => match bluesky::BlueskySource::new(handle, password) {
+            Ok(src) => social.push(Box::new(src)),
+            Err(e) => eprintln!("warning: bluesky disabled: {e}"),
+        },
+        (Some(_), None) | (None, Some(_)) => eprintln!(
+            "warning: bluesky disabled: set BOTH OPENINTEL_BLUESKY_HANDLE and OPENINTEL_BLUESKY_APP_PASSWORD"
+        ),
+        (None, None) => {}
+    }
     social
 }
 
@@ -37,43 +48,64 @@ mod tests {
     use crate::domain::values::source_kind::SourceKind;
     use secrecy::SecretString;
 
-    fn creds(reddit: bool) -> Credentials {
+    fn creds(reddit: bool, bluesky: bool) -> Credentials {
         let s = |v: &str| Some(SecretString::new(v.to_string().into_boxed_str()));
         Credentials {
             reddit_client_id: if reddit { s("id") } else { None },
             reddit_client_secret: if reddit { s("secret") } else { None },
-            x_bearer: None,
-            bluesky_app_password: None,
+            bluesky_handle: if bluesky {
+                Some("me.bsky.social".into())
+            } else {
+                None
+            },
+            bluesky_app_password: if bluesky { s("pw") } else { None },
             market_api_key: None,
         }
     }
 
     #[test]
-    fn omits_reddit_without_creds() {
-        let kinds: Vec<_> = build_social_sources(&creds(false))
-            .iter()
-            .map(|s| s.kind())
-            .collect();
-        assert_eq!(kinds, vec![SourceKind::X, SourceKind::Bluesky]);
+    fn no_creds_wires_no_sources() {
+        assert!(build_social_sources(&creds(false, false)).is_empty());
     }
 
     #[test]
     fn includes_reddit_with_creds() {
-        let kinds: Vec<_> = build_social_sources(&creds(true))
+        let kinds: Vec<_> = build_social_sources(&creds(true, false))
             .iter()
             .map(|s| s.kind())
             .collect();
-        assert_eq!(
-            kinds,
-            vec![SourceKind::Reddit, SourceKind::X, SourceKind::Bluesky]
-        );
+        assert_eq!(kinds, vec![SourceKind::Reddit]);
     }
 
     #[test]
     fn partial_creds_omits_reddit() {
-        let mut c = creds(true);
+        let mut c = creds(true, false);
         c.reddit_client_secret = None; // only the client id is set
-        let kinds: Vec<_> = build_social_sources(&c).iter().map(|s| s.kind()).collect();
-        assert_eq!(kinds, vec![SourceKind::X, SourceKind::Bluesky]);
+        assert!(build_social_sources(&c).is_empty());
+    }
+
+    #[test]
+    fn includes_bluesky_with_creds() {
+        let kinds: Vec<_> = build_social_sources(&creds(false, true))
+            .iter()
+            .map(|s| s.kind())
+            .collect();
+        assert_eq!(kinds, vec![SourceKind::Bluesky]);
+    }
+
+    #[test]
+    fn includes_both_with_all_creds() {
+        let kinds: Vec<_> = build_social_sources(&creds(true, true))
+            .iter()
+            .map(|s| s.kind())
+            .collect();
+        assert_eq!(kinds, vec![SourceKind::Reddit, SourceKind::Bluesky]);
+    }
+
+    #[test]
+    fn partial_bluesky_creds_omits_bluesky() {
+        let mut c = creds(false, true);
+        c.bluesky_app_password = None; // only the handle is set
+        assert!(build_social_sources(&c).is_empty());
     }
 }

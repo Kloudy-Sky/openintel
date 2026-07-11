@@ -33,8 +33,6 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub enable_reddit: bool,
     #[arg(long)]
-    pub enable_x: bool,
-    #[arg(long)]
     pub enable_bluesky: bool,
 
     /// Skip the market snapshot (social-only report)
@@ -65,6 +63,7 @@ pub struct SetupArgs {
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupSource {
     Reddit,
+    Bluesky,
 }
 
 pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {
@@ -75,7 +74,6 @@ pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {
     AppConfig::new(
         args.ticker.clone(),
         args.enable_reddit,
-        args.enable_x,
         args.enable_bluesky,
         args.no_market,
         args.limit,
@@ -107,9 +105,14 @@ mod tests {
             unreachable!()
         };
         let cfg = to_app_config(&args);
-        assert_eq!(cfg.enabled_sources.len(), 3);
+        assert_eq!(cfg.enabled_sources.len(), 2);
         assert!(cfg.market_enabled);
         assert_eq!(cfg.format, crate::config::settings::OutputFormat::Table);
+    }
+
+    #[test]
+    fn enable_x_flag_no_longer_exists() {
+        assert!(Cli::try_parse_from(["openintel", "analyze", "AAPL", "--enable-x"]).is_err());
     }
 
     #[test]
@@ -119,6 +122,15 @@ mod tests {
             panic!("expected setup command");
         };
         assert_eq!(args.source, SetupSource::Reddit);
+    }
+
+    #[test]
+    fn parses_setup_bluesky() {
+        let cli = Cli::try_parse_from(["openintel", "setup", "bluesky"]).unwrap();
+        let Command::Setup(args) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.source, SetupSource::Bluesky);
     }
 
     #[test]

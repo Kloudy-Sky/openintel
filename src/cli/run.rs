@@ -121,29 +121,19 @@ fn render_table(report: &SpeculationReport) -> String {
 mod tests {
     use super::*;
     use crate::adapters::market::mock_market::MockMarketSource;
-    use crate::adapters::sources::mock_bluesky::MockBlueskySource;
-    use crate::adapters::sources::mock_reddit::MockRedditSource;
-    use crate::adapters::sources::mock_x::MockXSource;
+    use crate::adapters::sources::test_fixtures::fixture_social;
     use crate::config::settings::{AppConfig, OutputFormat};
     use crate::domain::values::speculation::Alignment;
 
     fn config(no_market: bool, format: OutputFormat) -> AppConfig {
-        AppConfig::new("AAPL".into(), false, false, false, no_market, 50, format)
-    }
-
-    fn mock_social() -> Vec<Box<dyn SocialDataSource>> {
-        vec![
-            Box::new(MockRedditSource),
-            Box::new(MockXSource),
-            Box::new(MockBlueskySource),
-        ]
+        AppConfig::new("AAPL".into(), false, false, no_market, 50, format)
     }
 
     #[tokio::test]
     async fn full_run_confirms_bullish_with_market() {
         let (report, rendered) = analyze(
             &config(false, OutputFormat::Json),
-            &mock_social(),
+            &fixture_social(),
             Some(&MockMarketSource),
         )
         .await
@@ -156,7 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_market_run_is_quiet() {
-        let (report, _) = analyze(&config(true, OutputFormat::Table), &mock_social(), None)
+        let (report, _) = analyze(&config(true, OutputFormat::Table), &fixture_social(), None)
             .await
             .unwrap();
         assert!(report.market.is_none());
@@ -167,7 +157,7 @@ mod tests {
     async fn table_output_has_sections_and_disclaimer() {
         let (_, rendered) = analyze(
             &config(false, OutputFormat::Table),
-            &mock_social(),
+            &fixture_social(),
             Some(&MockMarketSource),
         )
         .await
@@ -180,16 +170,8 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_ticker_errors() {
-        let cfg = AppConfig::new(
-            "$$$".into(),
-            false,
-            false,
-            false,
-            false,
-            50,
-            OutputFormat::Table,
-        );
-        assert!(analyze(&cfg, &mock_social(), Some(&MockMarketSource))
+        let cfg = AppConfig::new("$$$".into(), false, false, false, 50, OutputFormat::Table);
+        assert!(analyze(&cfg, &fixture_social(), Some(&MockMarketSource))
             .await
             .is_err());
     }

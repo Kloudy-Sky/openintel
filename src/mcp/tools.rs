@@ -38,6 +38,7 @@ pub struct AnalyzeArgs {
     pub ticker: String,
     /// Enable the Reddit source (if no source flags are set, all are enabled).
     pub enable_reddit: Option<bool>,
+    /// Enable the Bluesky source (if no source flags are set, all are enabled).
     pub enable_bluesky: Option<bool>,
     /// Skip the market snapshot (social-only report).
     pub no_market: Option<bool>,
@@ -115,7 +116,9 @@ pub async fn run_analyze(
 pub struct ScanArgs {
     /// Ticker symbols to analyze concurrently.
     pub tickers: Vec<String>,
+    /// Enable the Reddit source (if no source flags are set, all are enabled).
     pub enable_reddit: Option<bool>,
+    /// Enable the Bluesky source (if no source flags are set, all are enabled).
     pub enable_bluesky: Option<bool>,
     /// Skip the market snapshot (social-only report).
     pub no_market: Option<bool>,
@@ -189,7 +192,9 @@ pub struct CompareArgs {
     pub tickers: Vec<String>,
     #[serde(default)]
     pub rank_by: RankBy,
+    /// Enable the Reddit source (if no source flags are set, all are enabled).
     pub enable_reddit: Option<bool>,
+    /// Enable the Bluesky source (if no source flags are set, all are enabled).
     pub enable_bluesky: Option<bool>,
     pub no_market: Option<bool>,
     pub limit: Option<usize>,

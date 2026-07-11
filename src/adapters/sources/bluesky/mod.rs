@@ -28,10 +28,7 @@ pub struct BlueskySource {
 
 impl BlueskySource {
     pub fn new(handle: String, app_password: SecretString) -> Result<Self, DomainError> {
-        let user_agent = format!(
-            "rust:openintel:v{} (by /u/openintel)",
-            env!("CARGO_PKG_VERSION")
-        );
+        let user_agent = format!("rust:openintel:v{}", env!("CARGO_PKG_VERSION"));
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(TIMEOUT_SECS))
             .user_agent(&user_agent)
@@ -86,6 +83,10 @@ impl SocialDataSource for BlueskySource {
     }
 
     async fn fetch(&self, ticker: &Ticker, limit: usize) -> Result<Vec<SocialPost>, DomainError> {
+        if limit == 0 {
+            // searchPosts rejects limit=0 (lexicon minimum is 1); skip the round trip.
+            return Ok(Vec::new());
+        }
         let bearer = self.ensure_token().await?;
         let fetched_at = Utc::now();
         let limit_str = limit.min(100).to_string();
@@ -170,5 +171,12 @@ mod tests {
             assert!(!p.id.is_empty());
             assert!(!p.text.as_str().is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn fetch_limit_zero_is_empty_without_network() {
+        let src = BlueskySource::new("someone.bsky.social".into(), secret("pw")).unwrap();
+        let posts = src.fetch(&Ticker::parse("AAPL").unwrap(), 0).await.unwrap();
+        assert!(posts.is_empty()); // would error if it hit the network with fake creds
     }
 }

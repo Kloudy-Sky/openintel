@@ -43,7 +43,7 @@ mod tests {
         Credentials {
             reddit_client_id: if reddit { s("id") } else { None },
             reddit_client_secret: if reddit { s("secret") } else { None },
-            x_bearer: None,
+            bluesky_handle: None,
             bluesky_app_password: None,
             market_api_key: None,
         }

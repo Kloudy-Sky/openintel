@@ -63,6 +63,7 @@ pub struct SetupArgs {
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupSource {
     Reddit,
+    Bluesky,
 }
 
 pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {
@@ -121,6 +122,15 @@ mod tests {
             panic!("expected setup command");
         };
         assert_eq!(args.source, SetupSource::Reddit);
+    }
+
+    #[test]
+    fn parses_setup_bluesky() {
+        let cli = Cli::try_parse_from(["openintel", "setup", "bluesky"]).unwrap();
+        let Command::Setup(args) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.source, SetupSource::Bluesky);
     }
 
     #[test]

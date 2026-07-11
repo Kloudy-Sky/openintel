@@ -139,4 +139,15 @@ mod tests {
             .iter()
             .any(|n| n.contains("reddit enabled but not configured")));
     }
+
+    #[tokio::test]
+    async fn zero_sources_and_no_market_is_no_data() {
+        // The spec's explicit edge decision: nothing configured + --no-market
+        // -> DomainError::NoData (mocks used to mask this path).
+        let social: Vec<Box<dyn SocialDataSource>> = vec![];
+        let err = analyze(&req("AAPL", false), &social, None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NoData));
+    }
 }

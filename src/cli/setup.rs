@@ -221,6 +221,7 @@ async fn setup_bluesky(credentials: &Credentials) -> ExitCode {
 }
 
 /// One live round trip through the full Bluesky path: createSession plus a search.
+/// Returns how many posts the test query yielded.
 async fn probe_bluesky(handle: String, password: SecretString) -> Result<usize, DomainError> {
     let source = BlueskySource::new(handle, password)?;
     let ticker = Ticker::parse("AAPL")?;

@@ -1,16 +1,15 @@
 pub mod bluesky;
-pub mod mock_bluesky;
-pub mod mock_reddit;
-pub mod mock_x;
 pub mod reddit;
+
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 
 use crate::config::secrets::Credentials;
 use crate::domain::ports::social_data_source::SocialDataSource;
 
 /// Assemble the social data sources from credentials: the real `RedditSource`
-/// when both OAuth credentials are set, plus the mock X and Bluesky sources.
-/// A partial config (only one of the two creds) or a `RedditSource::new`
-/// failure logs a warning to stderr and omits Reddit. Shared by both
+/// when both OAuth credentials are set. A partial config or constructor
+/// failure logs a warning to stderr and omits the source. Shared by both
 /// composition roots (`main.rs` and `mcp::server::serve`).
 pub fn build_social_sources(credentials: &Credentials) -> Vec<Box<dyn SocialDataSource>> {
     let mut social: Vec<Box<dyn SocialDataSource>> = Vec::new();
@@ -27,8 +26,6 @@ pub fn build_social_sources(credentials: &Credentials) -> Vec<Box<dyn SocialData
         ),
         (None, None) => {}
     }
-    social.push(Box::new(mock_x::MockXSource));
-    social.push(Box::new(mock_bluesky::MockBlueskySource));
     social
 }
 
@@ -50,12 +47,8 @@ mod tests {
     }
 
     #[test]
-    fn omits_reddit_without_creds() {
-        let kinds: Vec<_> = build_social_sources(&creds(false))
-            .iter()
-            .map(|s| s.kind())
-            .collect();
-        assert_eq!(kinds, vec![SourceKind::X, SourceKind::Bluesky]);
+    fn no_creds_wires_no_sources() {
+        assert!(build_social_sources(&creds(false)).is_empty());
     }
 
     #[test]
@@ -64,17 +57,13 @@ mod tests {
             .iter()
             .map(|s| s.kind())
             .collect();
-        assert_eq!(
-            kinds,
-            vec![SourceKind::Reddit, SourceKind::X, SourceKind::Bluesky]
-        );
+        assert_eq!(kinds, vec![SourceKind::Reddit]);
     }
 
     #[test]
     fn partial_creds_omits_reddit() {
         let mut c = creds(true);
         c.reddit_client_secret = None; // only the client id is set
-        let kinds: Vec<_> = build_social_sources(&c).iter().map(|s| s.kind()).collect();
-        assert_eq!(kinds, vec![SourceKind::X, SourceKind::Bluesky]);
+        assert!(build_social_sources(&c).is_empty());
     }
 }

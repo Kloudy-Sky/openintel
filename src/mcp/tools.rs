@@ -38,7 +38,6 @@ pub struct AnalyzeArgs {
     pub ticker: String,
     /// Enable the Reddit source (if no source flags are set, all are enabled).
     pub enable_reddit: Option<bool>,
-    pub enable_x: Option<bool>,
     pub enable_bluesky: Option<bool>,
     /// Skip the market snapshot (social-only report).
     pub no_market: Option<bool>,
@@ -57,7 +56,6 @@ pub struct AnalyzeOutput {
 pub(crate) fn request_from(
     ticker: String,
     enable_reddit: Option<bool>,
-    enable_x: Option<bool>,
     enable_bluesky: Option<bool>,
     no_market: Option<bool>,
     limit: Option<usize>,
@@ -65,9 +63,6 @@ pub(crate) fn request_from(
     let mut enabled = Vec::new();
     if enable_reddit.unwrap_or(false) {
         enabled.push(SourceKind::Reddit);
-    }
-    if enable_x.unwrap_or(false) {
-        enabled.push(SourceKind::X);
     }
     if enable_bluesky.unwrap_or(false) {
         enabled.push(SourceKind::Bluesky);
@@ -104,7 +99,6 @@ pub async fn run_analyze(
     let req = request_from(
         args.ticker,
         args.enable_reddit,
-        args.enable_x,
         args.enable_bluesky,
         args.no_market,
         args.limit,
@@ -122,7 +116,6 @@ pub struct ScanArgs {
     /// Ticker symbols to analyze concurrently.
     pub tickers: Vec<String>,
     pub enable_reddit: Option<bool>,
-    pub enable_x: Option<bool>,
     pub enable_bluesky: Option<bool>,
     /// Skip the market snapshot (social-only report).
     pub no_market: Option<bool>,
@@ -153,20 +146,12 @@ pub async fn run_scan(
     let ScanArgs {
         tickers,
         enable_reddit,
-        enable_x,
         enable_bluesky,
         no_market,
         limit,
     } = args;
     let futures = tickers.into_iter().map(|t| async move {
-        let req = request_from(
-            t.clone(),
-            enable_reddit,
-            enable_x,
-            enable_bluesky,
-            no_market,
-            limit,
-        );
+        let req = request_from(t.clone(), enable_reddit, enable_bluesky, no_market, limit);
         match application::analyze(&req, social_sources, Some(market_source)).await {
             Ok(report) => ScanEntry {
                 ticker: t,
@@ -205,7 +190,6 @@ pub struct CompareArgs {
     #[serde(default)]
     pub rank_by: RankBy,
     pub enable_reddit: Option<bool>,
-    pub enable_x: Option<bool>,
     pub enable_bluesky: Option<bool>,
     pub no_market: Option<bool>,
     pub limit: Option<usize>,
@@ -269,20 +253,12 @@ pub async fn run_compare(
         tickers,
         rank_by,
         enable_reddit,
-        enable_x,
         enable_bluesky,
         no_market,
         limit,
     } = args;
     let futures = tickers.into_iter().map(|t| async move {
-        let req = request_from(
-            t.clone(),
-            enable_reddit,
-            enable_x,
-            enable_bluesky,
-            no_market,
-            limit,
-        );
+        let req = request_from(t.clone(), enable_reddit, enable_bluesky, no_market, limit);
         (
             t,
             application::analyze(&req, social_sources, Some(market_source)).await,
@@ -322,22 +298,12 @@ pub async fn run_compare(
 mod tests {
     use super::*;
     use crate::adapters::market::mock_market::MockMarketSource;
-    use crate::adapters::sources::mock_bluesky::MockBlueskySource;
-    use crate::adapters::sources::mock_reddit::MockRedditSource;
-    use crate::adapters::sources::mock_x::MockXSource;
-
-    fn mock_social() -> Vec<Box<dyn SocialDataSource>> {
-        vec![
-            Box::new(MockRedditSource),
-            Box::new(MockXSource),
-            Box::new(MockBlueskySource),
-        ]
-    }
+    use crate::adapters::sources::test_fixtures::fixture_social;
 
     #[test]
     fn list_sources_reports_all_adapters() {
-        let out = run_list_sources(&mock_social(), &MockMarketSource);
-        assert_eq!(out.social, vec!["reddit", "x", "bluesky"]);
+        let out = run_list_sources(&fixture_social(), &MockMarketSource);
+        assert_eq!(out.social, vec!["reddit", "bluesky"]);
         assert_eq!(out.market, vec!["mock-market"]);
     }
 
@@ -347,12 +313,11 @@ mod tests {
             AnalyzeArgs {
                 ticker: "AAPL".into(),
                 enable_reddit: None,
-                enable_x: None,
                 enable_bluesky: None,
                 no_market: None,
                 limit: None,
             },
-            &mock_social(),
+            &fixture_social(),
             &MockMarketSource,
         )
         .await
@@ -367,12 +332,11 @@ mod tests {
         let args = AnalyzeArgs {
             ticker: "$$$".into(),
             enable_reddit: None,
-            enable_x: None,
             enable_bluesky: None,
             no_market: None,
             limit: None,
         };
-        assert!(run_analyze(args, &mock_social(), &MockMarketSource)
+        assert!(run_analyze(args, &fixture_social(), &MockMarketSource)
             .await
             .is_err());
     }
@@ -383,12 +347,11 @@ mod tests {
             ScanArgs {
                 tickers: vec!["AAPL".into(), "$$$".into()],
                 enable_reddit: None,
-                enable_x: None,
                 enable_bluesky: None,
                 no_market: None,
                 limit: None,
             },
-            &mock_social(),
+            &fixture_social(),
             &MockMarketSource,
         )
         .await;
@@ -404,12 +367,11 @@ mod tests {
             ScanArgs {
                 tickers: vec![],
                 enable_reddit: None,
-                enable_x: None,
                 enable_bluesky: None,
                 no_market: None,
                 limit: None,
             },
-            &mock_social(),
+            &fixture_social(),
             &MockMarketSource,
         )
         .await;
@@ -487,12 +449,11 @@ mod tests {
                 tickers: vec!["AAPL".into(), "$$$".into()],
                 rank_by: RankBy::Crowding,
                 enable_reddit: None,
-                enable_x: None,
                 enable_bluesky: None,
                 no_market: None,
                 limit: None,
             },
-            &mock_social(),
+            &fixture_social(),
             &MockMarketSource,
         )
         .await;

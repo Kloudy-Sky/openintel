@@ -12,7 +12,8 @@ isn't wired. Three deliverables in one coherent change:
 1. A real **Bluesky adapter** authenticated with a free app password
    (`com.atproto.server.createSession` → `app.bsky.feed.searchPosts`).
 2. **No mocks in production wiring** — a no-creds run degrades to a
-   market-only report with a "no social sources configured" note.
+   market-only report with per-source "`enabled but not configured`" notes
+   (the existing mechanism).
 3. **X excised** — flag, `SourceKind::X`, `x_bearer` credential, and the mock
    modules are deleted. openintel supports exactly what's real: Reddit +
    Bluesky. (X's API is paid-only; re-adding it later is a clean, additive PR.)
@@ -37,7 +38,11 @@ Mirrors the Reddit adapter's structure exactly (auth / response / mod).
 
 - `POST https://bsky.social/xrpc/com.atproto.server.createSession` with JSON
   body `{"identifier": <handle>, "password": <app password>}` (field names per
-  the atproto lexicon).
+  the atproto lexicon). **Build the body manually**: serialize with
+  `serde_json::to_string` on a small `Serialize` struct and send via
+  `.body(...)` with an explicit `Content-Type: application/json` header —
+  reqwest's `.json()` is gated behind the un-enabled `json` feature (same
+  0.13.4 constraint that forced Reddit's manual form body).
 - Response: `{ "accessJwt": …, "refreshJwt": …, "handle": …, "did": … }`.
   Only `accessJwt` is used (v1 re-creates the session rather than using
   `refreshJwt` — sessions are needed at most once per ~expiry window, far
@@ -119,7 +124,14 @@ bluesky  ← OPENINTEL_BLUESKY_HANDLE + _APP_PASSWORD set
 Partial Bluesky creds (one of the two set) → `eprintln!` warning naming both
 vars, source omitted — the same pattern Reddit has. Zero sources configured is
 legal: `analyze` already degrades gracefully (market-only report, per-source
-"not configured" notes when flags request an unconfigured source).
+"`<source> enabled but not configured`" notes).
+
+**Explicit edge decision:** zero sources **plus** `--no-market` (or MCP
+`no_market: true`) now yields `DomainError::NoData` ("no data: no posts and
+no market snapshot available") and exit 1 — previously the mocks masked this
+by always supplying posts. This is correct UX (the user disabled market and
+has no social configured; there is genuinely nothing to analyze), the message
+already says exactly that, and it gets a dedicated test asserting the error.
 
 ## X excision (mechanical sweep)
 
@@ -127,14 +139,19 @@ legal: `analyze` already degrades gracefully (market-only report, per-source
   the param. No flags → all (now two) sources enabled, unchanged semantics.
 - `src/config/settings.rs`: `AppConfig::new` drops `enable_x`.
 - `src/domain/values/source_kind.rs`: remove `X` variant + its serde/tests.
-- `src/mcp/tools.rs`: `list_sources` / source parsing lose `"x"`.
-- Delete `src/adapters/sources/mock_x.rs` and `mock_bluesky.rs`. Test sites
-  that used them (`src/application/analyze.rs`, `src/cli/run.rs`,
-  `src/mcp/tools.rs` unit tests; `tests/analyze_flow.rs`) define **local test
-  doubles** (a small `struct TestSource { kind, posts }` implementing
-  `SocialDataSource` — `#[cfg(test)]` in lib modules, plain local type in the
-  integration test, which can implement the pub trait itself). No fake
-  sources remain in the library's public API.
+- `src/mcp/tools.rs`: remove the `enable_x: Option<bool>` input field, the
+  `SourceKind::X` push (~line 70), and update the
+  `list_sources_reports_all_adapters` test (asserts `["reddit","x","bluesky"]`
+  today). There is no string→SourceKind parser to touch.
+- Delete **all three** mock modules — `src/adapters/sources/mock_x.rs`,
+  `mock_bluesky.rs`, and `mock_reddit.rs` (one principle: a mock exists only
+  while no real adapter does; Reddit and Bluesky are both real now, X is
+  gone). Test sites that used them (`src/application/analyze.rs`,
+  `src/cli/run.rs`, `src/mcp/tools.rs` unit tests; `tests/analyze_flow.rs`)
+  define **local test doubles** (a small `struct TestSource { kind, posts }`
+  implementing `SocialDataSource` — `#[cfg(test)]` in lib modules, plain
+  local type in the integration test, which can implement the pub trait
+  itself). No fake sources remain in the library's public API.
 
 ## `openintel setup bluesky`
 
@@ -150,9 +167,12 @@ legal: `analyze` already degrades gracefully (market-only report, per-source
   - **Verify** (both set): `BlueskySource::new` + `fetch(AAPL, 1)` — exercises
     createSession **and** search. ✅ exit 0 / ❌ exit 1 with hints keyed on
     the same `"unauthorized"` / `"rate limited"` substrings.
-- `setup.rs` refactors its Reddit-specific helpers just enough to share the
-  mode-selection `plan()` and the ✅/⚠/❌ framing; guide/hint copy stays
-  per-source (no premature abstraction beyond that).
+- `setup.rs` refactor, pinned precisely: rename `Mode::{MissingId,
+  MissingSecret}` → `Mode::{MissingFirst, MissingSecond}` with a doc comment
+  ("first/second = the source's (identifier-like, secret-like) credential
+  pair") so `plan()` stays source-agnostic; parameterize `verify_ok_text`
+  with the try-command string (it hardcodes `--enable-reddit` today);
+  guide/partial/hint copy stays per-source (no abstraction beyond that).
 
 ## Error handling
 
@@ -171,6 +191,8 @@ non-fatal notes. No panics on network data; no `unwrap` outside tests.
 - Wiring: `build_social_sources` gating for bluesky (both/partial/none) —
   extends the existing credentials-gating tests; assert mocks are gone (no
   sources when nothing configured).
+- Edge: zero sources + no market → `DomainError::NoData` (the newly exposed
+  path from the wiring section's explicit edge decision).
 - Setup: `plan()` reuse, Bluesky guide/partial/verify render helpers (URL,
   both export lines, "never stores"), hint mapping.
 - Args: `setup bluesky` parses; `--enable-x` now errors (clap unknown flag —
@@ -178,14 +200,22 @@ non-fatal notes. No panics on network data; no `unwrap` outside tests.
 - One `#[ignore]`d live test (`bluesky_live_search`) mirroring Reddit's.
 - Setup verify validated manually with real creds.
 
-## Docs
+## Docs (exact breakage list — a stale README ships broken commands)
 
-- README: Quickstart caveat becomes "Reddit and Bluesky are live when
-  configured; there is no X source (paid API)". New "Enable the Bluesky
-  source" section mirroring Reddit's (app-password steps + `openintel setup
-  bluesky`). Env-var list updated (add `OPENINTEL_BLUESKY_HANDLE`, drop
-  `OPENINTEL_X_BEARER`). Architecture bullet updated.
-- `.env.example`: add `OPENINTEL_BLUESKY_HANDLE`, drop `OPENINTEL_X_BEARER`.
+- `README.md:31` — example `openintel analyze AAPL --enable-reddit --enable-x`
+  becomes a clap error; replace `--enable-x` with `--enable-bluesky`.
+- `README.md:39` — flags table: drop `--enable-x`.
+- `README.md:9, 22, 114, 133` — every "social stays mocked" / "X and Bluesky
+  are still mock" / "mock X/Bluesky sources" claim becomes false; rewrite to
+  "Reddit and Bluesky are live when configured; there is no X source (paid
+  API)".
+- `README.md:137` — env list: add `OPENINTEL_BLUESKY_HANDLE`, drop
+  `OPENINTEL_X_BEARER`.
+- New "Enable the Bluesky source" section mirroring Reddit's (app-password
+  steps + `openintel setup bluesky`).
+- `.env.example`: add `OPENINTEL_BLUESKY_HANDLE`; drop `OPENINTEL_X_BEARER`;
+  rewrite the now-false "Not yet wired to real adapters (mock today)" section
+  header covering the Bluesky vars.
 
 ## Non-goals (YAGNI)
 
@@ -211,7 +241,9 @@ non-fatal notes. No panics on network data; no `unwrap` outside tests.
 - `src/mcp/tools.rs`, `src/cli/run.rs`, `src/application/analyze.rs` (test doubles, −"x")
 - `tests/analyze_flow.rs` (local test double)
 - `README.md`, `.env.example`
-- `Cargo.toml` (+`base64`)
+- `Cargo.toml` (+`base64 = "0.22"` — already in Cargo.lock transitively at
+  0.22.1, so no new resolution)
 
 **Delete**
-- `src/adapters/sources/mock_x.rs`, `src/adapters/sources/mock_bluesky.rs`
+- `src/adapters/sources/mock_x.rs`, `src/adapters/sources/mock_bluesky.rs`,
+  `src/adapters/sources/mock_reddit.rs`

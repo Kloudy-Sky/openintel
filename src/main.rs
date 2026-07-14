@@ -6,12 +6,14 @@ use openintel::adapters::market::yahoo::YahooMarketSource;
 use openintel::cli::args::{to_app_config, Cli, Command};
 use openintel::cli::run::analyze;
 use openintel::config::secrets::Credentials;
+use openintel::config::store::KeychainStore;
 
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
-    // Reddit client credentials (if set) enable the real Reddit source; other sources need none.
-    let credentials = Credentials::from_env();
+    // Credentials resolve env-first, then the OS keychain (written by `openintel setup`).
+    let store = KeychainStore::new();
+    let credentials = Credentials::load(&store);
 
     match cli.command {
         Command::Analyze(args) => {

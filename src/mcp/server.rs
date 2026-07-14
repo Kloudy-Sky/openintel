@@ -109,7 +109,8 @@ impl ServerHandler for OpenIntelServer {
 
 /// Run the MCP server over stdio (blocks until the client disconnects).
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
-    let credentials = Credentials::from_env();
+    let store = crate::config::store::KeychainStore::new();
+    let credentials = Credentials::load(&store);
     let social = crate::adapters::sources::build_social_sources(&credentials);
 
     let market = YahooMarketSource::new()?;

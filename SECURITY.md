@@ -18,8 +18,7 @@ agent never sees them.
 
 - Use a gitignored `.env` (already in `.gitignore`) or export the variables in
   your shell. Do **not** `git add -f` a `.env`.
-- Never hardcode a secret in source — the env-only design exists so you never
-  have to, and code review should reject any hardcoded key.
+- Never hardcode a secret in source — `openintel setup` and the env-only override path exist so you never have to, and code review should reject any hardcoded key.
 - Prefer a gitignored `.env` + `direnv` over exporting inline (which lands in
   shell history).
 

@@ -146,7 +146,7 @@ Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clo
 
 - `domain/` — entities, value objects, the pure `SpeculationEngine`, and port traits.
 - `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), the `RedditSource` and `BlueskySource` (real, credential-gated — no mock sources).
-- `config/` — env-only secrets (`secrecy`) and runtime settings.
+- `config/` — secrets resolution (env + OS keychain, via `secrecy`) and runtime settings.
 - `cli/` — clap args, orchestration, rendering.
 
 Secrets come from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_BLUESKY_HANDLE`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`) or the OS keychain (written only by `openintel setup` after a live verify; env always wins), wrapped in `SecretString` — plaintext never touches disk, never logged.

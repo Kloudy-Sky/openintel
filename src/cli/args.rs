@@ -21,7 +21,7 @@ pub enum Command {
     /// Run as an MCP server over stdio (for AI agents).
     Mcp,
 
-    /// Guided setup + live check for a data source (env-only; never stores credentials)
+    /// Guided setup + live verify for a data source (saves to the OS keychain; env vars override)
     Setup(SetupArgs),
 }
 

@@ -384,6 +384,9 @@ where
         match probe(first.clone(), secret.clone()).await {
             Ok(count) => {
                 let first_secret = SecretString::new(first.into_boxed_str());
+                // Write order matters: identifier first, secret last — if the
+                // second write fails, only the (public) identifier can be
+                // orphaned, never the secret, and the next setup overwrites it.
                 let saved = store
                     .set(spec.first_key, &first_secret)
                     .and_then(|()| store.set(spec.second_key, &secret));
@@ -784,6 +787,22 @@ mod tests {
         let store = InMemoryStore::new();
         let mut input = Cursor::new("my-id\n");
         let mut io = scripted(&mut input, &empty_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_f, _s| {
+            std::future::ready(Ok(1usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Failure)
+        ));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn interactive_persistent_blank_visible_input_fails_cleanly() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("\n\n\n\n"); // blank lines, no EOF within the bound
+        let mut io = scripted(&mut input, &ok_secret);
         let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_f, _s| {
             std::future::ready(Ok(1usize))
         })

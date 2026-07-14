@@ -421,9 +421,13 @@ where
     InteractiveOutcome::Done(Outcome::Failure)
 }
 
+/// Empty-input re-asks are bounded so a broken/EOF'd stream (or an empty
+/// string forever, e.g. rpassword at EOF) can't spin the loop unbounded.
+const MAX_EMPTY_REASKS: usize = 3;
+
 /// Visible prompt (identifier-like values). Re-asks on empty input.
 fn prompt_nonempty_visible(io: &mut SetupIo<'_>, label: &str) -> std::io::Result<String> {
-    loop {
+    for _ in 0..MAX_EMPTY_REASKS {
         let ans = read_visible(io, &format!("{label}: "))?;
         let trimmed = ans.trim();
         if !trimmed.is_empty() {
@@ -431,25 +435,38 @@ fn prompt_nonempty_visible(io: &mut SetupIo<'_>, label: &str) -> std::io::Result
         }
         println!("Please enter a value.");
     }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "no input provided",
+    ))
 }
 
 /// Hidden prompt (secret-like values). Re-asks on empty input.
 fn prompt_nonempty_secret(io: &mut SetupIo<'_>, label: &str) -> std::io::Result<SecretString> {
     use secrecy::ExposeSecret as _;
-    loop {
+    for _ in 0..MAX_EMPTY_REASKS {
         let secret = (io.read_secret)(&format!("{label} (input hidden): "))?;
         if !secret.expose_secret().trim().is_empty() {
             return Ok(secret);
         }
         println!("Please enter a value.");
     }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "no input provided",
+    ))
 }
 
 fn read_visible(io: &mut SetupIo<'_>, prompt: &str) -> std::io::Result<String> {
     print!("{prompt}");
     std::io::stdout().flush()?;
     let mut line = String::new();
-    io.input.read_line(&mut line)?;
+    if io.input.read_line(&mut line)? == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "input closed",
+        ));
+    }
     Ok(line)
 }
 
@@ -727,6 +744,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn interactive_replace_blank_enter_defaults_to_decline() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(
+            &mut io,
+            &store,
+            &REDDIT_SPEC,
+            Some("the OS keychain"),
+            |_f, _s| std::future::ready(Ok(1)),
+        )
+        .await;
+        assert!(matches!(outcome, InteractiveOutcome::VerifyExisting));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn interactive_eof_at_prompt_fails_cleanly() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new(""); // immediate EOF
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_f, _s| {
+            std::future::ready(Ok(1usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Failure)
+        ));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn interactive_persistent_empty_secret_fails_cleanly() {
+        fn empty_secret(_prompt: &str) -> std::io::Result<SecretString> {
+            Ok(SecretString::new("".to_string().into_boxed_str()))
+        }
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("my-id\n");
+        let mut io = scripted(&mut input, &empty_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_f, _s| {
+            std::future::ready(Ok(1usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Failure)
+        ));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[tokio::test]
     async fn interactive_save_failure_is_exit_one_with_fallback() {
         let store = InMemoryStore::failing();
         let mut input = Cursor::new("my-id\n");
@@ -739,6 +808,12 @@ mod tests {
             outcome,
             InteractiveOutcome::Done(Outcome::Failure)
         ));
+    }
+
+    #[test]
+    fn forget_reports_failure_when_store_is_broken() {
+        let store = InMemoryStore::failing();
+        assert_eq!(forget_outcome(&REDDIT_SPEC, &store), Outcome::Failure);
     }
 
     #[test]

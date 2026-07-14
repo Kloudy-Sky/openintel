@@ -2,19 +2,23 @@
 
 ## Credentials & secrets
 
-openintel reads all credentials **only from environment variables** (see
-[`.env.example`](.env.example)). It never reads them from a committed file and
-never writes them to disk. Secrets are wrapped in `secrecy::SecretString`
-(redacted in debug output, zeroized on drop) and are never logged. When
-openintel runs as an MCP server, the credentials stay in its process
-environment — the connected AI agent never sees them.
+openintel reads credentials from **environment variables** (see
+[`.env.example`](.env.example)) or from your **OS keychain** (macOS Keychain /
+Windows Credential Manager / Linux secret-service). The keychain is written
+only by `openintel setup <source>` — after a successful live verification —
+and env vars always take precedence. Plaintext credentials never touch disk:
+interactive setup reads secrets with hidden input (nothing lands in shell
+history or scrollback) directly into `secrecy::SecretString` (redacted in
+debug output, zeroized on drop), and they are never logged. Remove stored
+credentials anytime with `openintel setup <source> --forget`. When openintel
+runs as an MCP server, credentials stay in its process — the connected AI
+agent never sees them.
 
 **Never commit real credentials:**
 
 - Use a gitignored `.env` (already in `.gitignore`) or export the variables in
   your shell. Do **not** `git add -f` a `.env`.
-- Never hardcode a secret in source — the env-only design exists so you never
-  have to, and code review should reject any hardcoded key.
+- Never hardcode a secret in source — `openintel setup` and the env-only override path exist so you never have to, and code review should reject any hardcoded key.
 - Prefer a gitignored `.env` + `direnv` over exporting inline (which lands in
   shell history).
 

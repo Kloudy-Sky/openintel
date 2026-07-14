@@ -21,7 +21,7 @@ pub enum Command {
     /// Run as an MCP server over stdio (for AI agents).
     Mcp,
 
-    /// Guided setup + live check for a data source (env-only; never stores credentials)
+    /// Guided setup + live verify for a data source (saves to the OS keychain; env vars override)
     Setup(SetupArgs),
 }
 
@@ -58,6 +58,10 @@ pub struct SetupArgs {
     /// Which source to set up
     #[arg(value_enum)]
     pub source: SetupSource,
+
+    /// Remove this source's saved credentials from the OS keychain
+    #[arg(long)]
+    pub forget: bool,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,5 +140,14 @@ mod tests {
     #[test]
     fn rejects_unknown_setup_source() {
         assert!(Cli::try_parse_from(["openintel", "setup", "bogus"]).is_err());
+    }
+
+    #[test]
+    fn parses_setup_forget_flag() {
+        let cli = Cli::try_parse_from(["openintel", "setup", "reddit", "--forget"]).unwrap();
+        let Command::Setup(args) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert!(args.forget);
     }
 }

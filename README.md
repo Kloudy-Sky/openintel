@@ -43,37 +43,37 @@ openintel analyze AAPL --no-market --format json
 
 ## Enable the Reddit source (optional)
 
-Reddit requires OAuth (there is no keyless access). One-time setup:
+Run `openintel setup reddit` — it walks you through creating a free script app, verifies your credentials live, and saves them to your OS keychain. Rotate by re-running it; remove with `openintel setup reddit --forget`.
 
-1. Create a **script** app at <https://www.reddit.com/prefs/apps> → note the **client id** (under the app name) and **secret**.
-2. Export them, verify, then run:
+<details>
+<summary>CI / power users: environment variables instead</summary>
+
+Env vars always override the keychain. Create a **script** app at <https://www.reddit.com/prefs/apps>, then:
 
 ```bash
 export OPENINTEL_REDDIT_CLIENT_ID=your_client_id
 export OPENINTEL_REDDIT_CLIENT_SECRET=your_secret
-openintel setup reddit                     # ✅ live-checks your credentials
-openintel analyze AAPL --enable-reddit
+openintel setup reddit   # non-interactive when piped; verifies from env
 ```
 
-Not sure where to start? Run `openintel setup reddit` with neither variable set for a guided walkthrough.
-
-Without these, `--enable-reddit` yields a `reddit enabled but not configured` note and the other sources still run. Credentials are read only from the environment, wrapped in `SecretString` (never logged or written to disk), and sent only to Reddit over TLS.
+</details>
 
 ## Enable the Bluesky source (optional)
 
-Bluesky search requires auth — a free app password (any Bluesky account, no fees). One-time setup:
+Run `openintel setup bluesky` — it walks you through creating a free app password, verifies your credentials live, and saves them to your OS keychain. Rotate by re-running it; remove with `openintel setup bluesky --forget`.
 
-1. Sign in at <https://bsky.app> → Settings → Privacy and Security → **App Passwords** → add one named `openintel` (the value is shown once).
-2. Export handle + app password, verify, then run:
+<details>
+<summary>CI / power users: environment variables instead</summary>
+
+Env vars always override the keychain. Get your handle and create an app password at <https://bsky.app/settings/app-passwords>, then:
 
 ```bash
 export OPENINTEL_BLUESKY_HANDLE=yourname.bsky.social
 export OPENINTEL_BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-openintel setup bluesky                    # ✅ live-checks your credentials
-openintel analyze AAPL --enable-bluesky
+openintel setup bluesky   # non-interactive when piped; verifies from env
 ```
 
-Not sure where to start? Run `openintel setup bluesky` with neither variable set for a guided walkthrough.
+</details>
 
 ## Use with an AI agent (MCP)
 
@@ -149,7 +149,7 @@ Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clo
 - `config/` — env-only secrets (`secrecy`) and runtime settings.
 - `cli/` — clap args, orchestration, rendering.
 
-Secrets come only from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_BLUESKY_HANDLE`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`), wrapped in `SecretString` — never logged or written to disk.
+Secrets come from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_BLUESKY_HANDLE`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`) or the OS keychain (written only by `openintel setup` after a live verify; env always wins), wrapped in `SecretString` — plaintext never touches disk, never logged.
 
 ## Extending
 

@@ -51,6 +51,8 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Command::Setup(args) => openintel::cli::setup::run(args.source, &credentials).await,
+        Command::Setup(args) => {
+            openintel::cli::setup::run(args.source, &credentials, &store, args.forget).await
+        }
     }
 }

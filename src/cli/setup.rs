@@ -1,10 +1,12 @@
-//! `openintel setup <source>` — guided, env-only credential setup + live verify.
+//! `openintel setup <source>` — guided credential setup + live verify.
 //!
-//! Never stores or writes credentials (see SECURITY.md): it only reads
-//! `Credentials::from_env()` and tells the user what to do next. This is the
-//! one CLI-leaf module that prints to stdout directly — it IS the user-facing
-//! output, and it never runs under the MCP stdio server.
+//! Interactive (TTY): condensed guide -> prompts (secret input hidden) ->
+//! live verify -> save to the OS keychain (only after ✅; env vars always
+//! override). Non-TTY keeps the classic guide/partial/verify behavior.
+//! This is the one CLI-leaf module that prints to stdout directly — it IS
+//! the user-facing output, and it never runs under the MCP stdio server.
 
+use std::io::{BufRead, IsTerminal, Write};
 use std::process::ExitCode;
 
 use secrecy::SecretString;
@@ -13,18 +15,10 @@ use crate::adapters::sources::bluesky::BlueskySource;
 use crate::adapters::sources::reddit::RedditSource;
 use crate::cli::args::SetupSource;
 use crate::config::secrets::Credentials;
+use crate::config::store::CredentialStore;
 use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
 use crate::domain::ports::social_data_source::SocialDataSource;
-
-/// Entry point for `openintel setup <source>`. Exit code 0 only when the
-/// source is fully configured and a live probe succeeds.
-pub async fn run(source: SetupSource, credentials: &Credentials) -> ExitCode {
-    match source {
-        SetupSource::Reddit => setup_reddit(credentials).await,
-        SetupSource::Bluesky => setup_bluesky(credentials).await,
-    }
-}
 
 /// Which of the three setup modes applies, given which env vars are set.
 /// First/second = the source's (identifier-like, secret-like) credential pair
@@ -172,6 +166,292 @@ const BLUESKY_UNAUTHORIZED_HINT: &str =
     "Your handle or app password looks wrong. Check the handle\n   \
          (e.g. yourname.bsky.social) and generate a fresh app password at\n   \
          https://bsky.app/settings/app-passwords (the value is shown only once).";
+
+/// Everything the shared interactive loop needs to know about one source.
+struct SourceSpec {
+    label: &'static str,
+    first_key: &'static str,
+    second_key: &'static str,
+    first_prompt: &'static str,
+    second_prompt: &'static str,
+    condensed_guide: &'static str,
+    unauthorized_hint: &'static str,
+    try_cmd: &'static str,
+}
+
+const REDDIT_SPEC: SourceSpec = SourceSpec {
+    label: "Reddit",
+    first_key: "OPENINTEL_REDDIT_CLIENT_ID",
+    second_key: "OPENINTEL_REDDIT_CLIENT_SECRET",
+    first_prompt: "Client id",
+    second_prompt: "Client secret",
+    condensed_guide: "\
+Reddit needs a free OAuth app — there's no keyless access. ~2 minutes:
+
+  1. Sign in to Reddit, then open:  https://www.reddit.com/prefs/apps
+  2. Scroll to the bottom and click \"create another app…\"
+     (or \"are you a developer? create an app…\").
+  3. Fill in the form:
+       • name           openintel        (anything is fine)
+       • type           select \"script\"  ← this matters
+       • redirect uri   http://localhost:8080   (unused, but required)
+     Click \"create app\".
+  4. On the app that appears:
+       • CLIENT ID  — the short string just under the app name
+                      (below \"personal use script\")
+       • SECRET     — the value labelled \"secret\"
+  5. Enter them below — they'll be verified live and saved to your OS
+     keychain (plaintext never touches disk).
+",
+    unauthorized_hint: REDDIT_UNAUTHORIZED_HINT,
+    try_cmd: "openintel analyze GME --enable-reddit",
+};
+
+const BLUESKY_SPEC: SourceSpec = SourceSpec {
+    label: "Bluesky",
+    first_key: "OPENINTEL_BLUESKY_HANDLE",
+    second_key: "OPENINTEL_BLUESKY_APP_PASSWORD",
+    first_prompt: "Handle (e.g. yourname.bsky.social)",
+    second_prompt: "App password",
+    condensed_guide: "\
+Bluesky needs a free app password — search requires auth. ~2 minutes:
+
+  1. Create a free account at https://bsky.app if you don't have one.
+  2. Sign in, then open:  https://bsky.app/settings/app-passwords
+     (Settings → Privacy and Security → App Passwords).
+  3. Click \"Add App Password\", name it  openintel , and copy the generated
+     password — it is shown only once (format: xxxx-xxxx-xxxx-xxxx).
+  4. Enter your handle and the app password below — they'll be verified live
+     and saved to your OS keychain (plaintext never touches disk).
+",
+    unauthorized_hint: BLUESKY_UNAUTHORIZED_HINT,
+    try_cmd: "openintel analyze GME --enable-bluesky",
+};
+
+/// Entry point for `openintel setup <source>`. Exit code 0 only when the
+/// source is verified working (or `--forget` succeeded).
+pub async fn run(
+    source: SetupSource,
+    credentials: &Credentials,
+    store: &dyn CredentialStore,
+    forget: bool,
+) -> ExitCode {
+    let spec = match source {
+        SetupSource::Reddit => &REDDIT_SPEC,
+        SetupSource::Bluesky => &BLUESKY_SPEC,
+    };
+
+    if forget {
+        return forget_source(spec, store);
+    }
+
+    if !std::io::stdin().is_terminal() {
+        // Piped / CI: the classic guide/partial/verify behavior, unchanged.
+        return match source {
+            SetupSource::Reddit => setup_reddit(credentials).await,
+            SetupSource::Bluesky => setup_bluesky(credentials).await,
+        };
+    }
+
+    let configured = match source {
+        SetupSource::Reddit => {
+            credentials.reddit_client_id.is_some() && credentials.reddit_client_secret.is_some()
+        }
+        SetupSource::Bluesky => {
+            credentials.bluesky_handle.is_some() && credentials.bluesky_app_password.is_some()
+        }
+    };
+    let already = configured.then(|| provenance(spec.first_key));
+
+    let mut stdin = std::io::stdin().lock();
+    let read_secret = |prompt: &str| {
+        rpassword::prompt_password(prompt).map(|s| SecretString::new(s.into_boxed_str()))
+    };
+    let mut io = SetupIo {
+        input: &mut stdin,
+        read_secret: &read_secret,
+    };
+
+    let outcome = match source {
+        SetupSource::Reddit => {
+            run_interactive(&mut io, store, spec, already, |first, secret| {
+                probe_reddit(SecretString::new(first.into_boxed_str()), secret)
+            })
+            .await
+        }
+        SetupSource::Bluesky => run_interactive(&mut io, store, spec, already, probe_bluesky).await,
+    };
+
+    match outcome {
+        InteractiveOutcome::Done(Outcome::Success) => ExitCode::SUCCESS,
+        InteractiveOutcome::Done(Outcome::Failure) => ExitCode::FAILURE,
+        InteractiveOutcome::VerifyExisting => match source {
+            SetupSource::Reddit => setup_reddit(credentials).await,
+            SetupSource::Bluesky => setup_bluesky(credentials).await,
+        },
+    }
+}
+
+/// Where the already-configured credentials came from, for the replace-ask.
+fn provenance(first_key: &str) -> &'static str {
+    if std::env::var(first_key)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
+        "the environment"
+    } else {
+        "the OS keychain"
+    }
+}
+
+fn forget_source(spec: &SourceSpec, store: &dyn CredentialStore) -> ExitCode {
+    match forget_outcome(spec, store) {
+        Outcome::Success => ExitCode::SUCCESS,
+        Outcome::Failure => ExitCode::FAILURE,
+    }
+}
+
+fn forget_outcome(spec: &SourceSpec, store: &dyn CredentialStore) -> Outcome {
+    for key in [spec.first_key, spec.second_key] {
+        if let Err(e) = store.delete(key) {
+            println!("❌ could not remove {key} from the OS keychain: {e}");
+            return Outcome::Failure;
+        }
+    }
+    println!(
+        "Removed {} credentials from the OS keychain. (Env vars, if set, still apply.)",
+        spec.label
+    );
+    Outcome::Success
+}
+
+/// Injected I/O so the interactive loop is unit-testable without a TTY.
+struct SetupIo<'a> {
+    input: &'a mut dyn BufRead,
+    read_secret: &'a dyn Fn(&str) -> std::io::Result<SecretString>,
+}
+
+/// `std::process::ExitCode` has no `PartialEq`, so the loop reports this
+/// testable outcome and `run()` maps it to an exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    Success,
+    Failure,
+}
+
+enum InteractiveOutcome {
+    Done(Outcome),
+    /// User declined to replace existing creds -> caller runs the classic verify.
+    VerifyExisting,
+}
+
+const MAX_ATTEMPTS: usize = 3;
+
+async fn run_interactive<F, Fut>(
+    io: &mut SetupIo<'_>,
+    store: &dyn CredentialStore,
+    spec: &SourceSpec,
+    already_configured_from: Option<&'static str>,
+    probe: F,
+) -> InteractiveOutcome
+where
+    F: Fn(String, SecretString) -> Fut,
+    Fut: std::future::Future<Output = Result<usize, DomainError>>,
+{
+    if let Some(source_of_truth) = already_configured_from {
+        println!(
+            "{} is already configured (from {source_of_truth}).",
+            spec.label
+        );
+        match read_visible(io, "Replace it? [y/N]: ") {
+            Ok(ans) if matches!(ans.trim().to_lowercase().as_str(), "y" | "yes") => {}
+            Ok(_) => return InteractiveOutcome::VerifyExisting,
+            Err(_) => return InteractiveOutcome::Done(Outcome::Failure),
+        }
+    }
+
+    println!("{}", spec.condensed_guide);
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        let Ok(first) = prompt_nonempty_visible(io, spec.first_prompt) else {
+            return InteractiveOutcome::Done(Outcome::Failure);
+        };
+        let Ok(secret) = prompt_nonempty_secret(io, spec.second_prompt) else {
+            return InteractiveOutcome::Done(Outcome::Failure);
+        };
+
+        println!("Checking your {} credentials…", spec.label);
+        match probe(first.clone(), secret.clone()).await {
+            Ok(count) => {
+                let first_secret = SecretString::new(first.into_boxed_str());
+                let saved = store
+                    .set(spec.first_key, &first_secret)
+                    .and_then(|()| store.set(spec.second_key, &secret));
+                return InteractiveOutcome::Done(match saved {
+                    Ok(()) => {
+                        println!("{}", verify_ok_text(spec.label, count, spec.try_cmd));
+                        println!(
+                            "   Saved to your OS keychain — you're set. (Env vars still override.)"
+                        );
+                        Outcome::Success
+                    }
+                    Err(e) => {
+                        println!("{}", verify_ok_text(spec.label, count, spec.try_cmd));
+                        println!(
+                            "⚠  Verified, but saving to the OS keychain failed: {e}\n   \
+                             Fall back to environment variables (with your real values):\n\n   \
+                             export {}=paste_your_value\n   export {}=paste_your_value",
+                            spec.first_key, spec.second_key
+                        );
+                        Outcome::Failure
+                    }
+                });
+            }
+            Err(e) => {
+                println!("{}", verify_err_text(&e, spec.unauthorized_hint));
+                if attempt < MAX_ATTEMPTS {
+                    println!("Let's try again ({} of {MAX_ATTEMPTS}).", attempt + 1);
+                }
+            }
+        }
+    }
+    println!(
+        "Still not verified after {MAX_ATTEMPTS} attempts — double-check the values and re-run `openintel setup`."
+    );
+    InteractiveOutcome::Done(Outcome::Failure)
+}
+
+/// Visible prompt (identifier-like values). Re-asks on empty input.
+fn prompt_nonempty_visible(io: &mut SetupIo<'_>, label: &str) -> std::io::Result<String> {
+    loop {
+        let ans = read_visible(io, &format!("{label}: "))?;
+        let trimmed = ans.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+        println!("Please enter a value.");
+    }
+}
+
+/// Hidden prompt (secret-like values). Re-asks on empty input.
+fn prompt_nonempty_secret(io: &mut SetupIo<'_>, label: &str) -> std::io::Result<SecretString> {
+    use secrecy::ExposeSecret as _;
+    loop {
+        let secret = (io.read_secret)(&format!("{label} (input hidden): "))?;
+        if !secret.expose_secret().trim().is_empty() {
+            return Ok(secret);
+        }
+        println!("Please enter a value.");
+    }
+}
+
+fn read_visible(io: &mut SetupIo<'_>, prompt: &str) -> std::io::Result<String> {
+    print!("{prompt}");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    io.input.read_line(&mut line)?;
+    Ok(line)
+}
 
 async fn setup_bluesky(credentials: &Credentials) -> ExitCode {
     match plan(
@@ -342,5 +622,143 @@ mod tests {
         let text = verify_err_text(&unauthorized, BLUESKY_UNAUTHORIZED_HINT);
         assert!(text.contains("app-passwords"));
         assert!(!text.contains("prefs/apps"));
+    }
+
+    use crate::config::store::InMemoryStore;
+    use secrecy::ExposeSecret;
+    use std::io::Cursor;
+
+    fn scripted<'a>(
+        input: &'a mut Cursor<&'static str>,
+        secrets: &'a dyn Fn(&str) -> std::io::Result<SecretString>,
+    ) -> SetupIo<'a> {
+        SetupIo {
+            input,
+            read_secret: secrets,
+        }
+    }
+
+    fn ok_secret(_prompt: &str) -> std::io::Result<SecretString> {
+        Ok(SecretString::new("s3cret".to_string().into_boxed_str()))
+    }
+
+    #[tokio::test]
+    async fn interactive_happy_path_saves_both_keys() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("my-id\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_first, _secret| {
+            std::future::ready(Ok(2usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Success)
+        ));
+        let map = store.map.borrow();
+        assert_eq!(
+            map.get("OPENINTEL_REDDIT_CLIENT_ID")
+                .unwrap()
+                .expose_secret(),
+            "my-id"
+        );
+        assert_eq!(
+            map.get("OPENINTEL_REDDIT_CLIENT_SECRET")
+                .unwrap()
+                .expose_secret(),
+            "s3cret"
+        );
+    }
+
+    #[tokio::test]
+    async fn interactive_three_failures_exits_one_and_saves_nothing() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("id1\nid2\nid3\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_f, _s| {
+            std::future::ready(Err(DomainError::SourceFailure {
+                name: "reddit".into(),
+                message: "unauthorized — check client id/secret".into(),
+            }))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Failure)
+        ));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn interactive_empty_input_reasks_then_succeeds() {
+        let store = InMemoryStore::new();
+        // First visible answer empty -> re-ask -> then a real id.
+        let mut input = Cursor::new("\nreal-id\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |first, _s| {
+            std::future::ready(if first == "real-id" {
+                Ok(0)
+            } else {
+                Err(DomainError::NoData)
+            })
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Success)
+        ));
+    }
+
+    #[tokio::test]
+    async fn interactive_replace_declined_verifies_existing() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("n\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(
+            &mut io,
+            &store,
+            &REDDIT_SPEC,
+            Some("the OS keychain"),
+            |_f, _s| std::future::ready(Ok(1)),
+        )
+        .await;
+        assert!(matches!(outcome, InteractiveOutcome::VerifyExisting));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn interactive_save_failure_is_exit_one_with_fallback() {
+        let store = InMemoryStore::failing();
+        let mut input = Cursor::new("my-id\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &REDDIT_SPEC, None, |_f, _s| {
+            std::future::ready(Ok(1usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Failure)
+        ));
+    }
+
+    #[test]
+    fn forget_is_idempotent_and_removes_keys() {
+        let store = InMemoryStore::new()
+            .seed("OPENINTEL_REDDIT_CLIENT_ID", "x")
+            .seed("OPENINTEL_REDDIT_CLIENT_SECRET", "y");
+        assert_eq!(forget_outcome(&REDDIT_SPEC, &store), Outcome::Success);
+        assert!(store.map.borrow().is_empty());
+        // Second run: nothing left to delete, still success.
+        assert_eq!(forget_outcome(&REDDIT_SPEC, &store), Outcome::Success);
+    }
+
+    #[test]
+    fn condensed_guides_have_no_export_lines() {
+        for spec in [&REDDIT_SPEC, &BLUESKY_SPEC] {
+            assert!(!spec.condensed_guide.contains("export "));
+            assert!(spec.condensed_guide.contains("keychain"));
+        }
+        assert!(REDDIT_SPEC.condensed_guide.contains("prefs/apps"));
+        assert!(BLUESKY_SPEC.condensed_guide.contains("app-passwords"));
     }
 }

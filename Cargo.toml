@@ -27,3 +27,4 @@ rmcp = { version = "2", features = ["transport-io"] }
 schemars = "1"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 base64 = "0.22"
+keyring = "4"

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use chrono::{Duration, SecondsFormat, TimeZone, Utc};
 use secrecy::{ExposeSecret, SecretString};
 
-use crate::domain::entities::pulse::PulsePost;
+use crate::domain::entities::pulse::PulseFetch;
 use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
 use crate::domain::ports::influencer_feed::InfluencerFeed;
@@ -63,9 +63,13 @@ impl InfluencerFeed for XPulseSource {
         accounts: &[String],
         hours_back: u32,
         limit: usize,
-    ) -> Result<Vec<PulsePost>, DomainError> {
+    ) -> Result<PulseFetch, DomainError> {
         if limit == 0 {
-            return Ok(Vec::new());
+            // No request made, nothing billed.
+            return Ok(PulseFetch {
+                posts: Vec::new(),
+                posts_returned: 0,
+            });
         }
         let fetched_at = Utc::now();
         let start_time = (fetched_at - Duration::hours(i64::from(hours_back)))
@@ -158,11 +162,11 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let posts = src
+        let fetch = src
             .pulse(&Ticker::parse("AAPL").unwrap(), &accounts, 168, 10)
             .await
             .unwrap(); // cashtag-operator contingency check: a 400 here means switch build_query to bare keyword
-        for p in &posts {
+        for p in &fetch.posts {
             assert!(!p.id.is_empty());
             assert!(!p.text.as_str().is_empty());
         }

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use crate::domain::entities::pulse::PulsePost;
+use crate::domain::entities::pulse::{PulseFetch, PulsePost};
 use crate::domain::entities::social_post::PostText;
 use crate::domain::error::DomainError;
 
@@ -68,12 +68,18 @@ pub(crate) fn parse_posts(
     body: &str,
     limit: usize,
     fetched_at: DateTime<Utc>,
-) -> Result<Vec<PulsePost>, DomainError> {
+) -> Result<PulseFetch, DomainError> {
     let resp: SearchResponse =
         serde_json::from_str(body).map_err(|e| fail(format!("malformed response: {e}")))?;
+    // What X actually returned (= what it bills), counted before client-side
+    // truncation/skips below.
+    let posts_returned = resp.data.len() as u32;
 
     if limit == 0 {
-        return Ok(Vec::new());
+        return Ok(PulseFetch {
+            posts: Vec::new(),
+            posts_returned,
+        });
     }
 
     // author_id -> username join table from `includes.users`.
@@ -121,7 +127,10 @@ pub(crate) fn parse_posts(
             break;
         }
     }
-    Ok(posts)
+    Ok(PulseFetch {
+        posts,
+        posts_returned,
+    })
 }
 
 #[cfg(test)]
@@ -148,17 +157,18 @@ mod tests {
 
     #[test]
     fn happy_joins_authors_and_sums_engagement() {
-        let posts = parse_posts(HAPPY, 50, at()).unwrap();
-        assert_eq!(posts.len(), 2);
-        assert_eq!(posts[0].author, "realDonaldTrump");
-        assert_eq!(posts[0].engagement, 150);
+        let fetch = parse_posts(HAPPY, 50, at()).unwrap();
+        assert_eq!(fetch.posts.len(), 2);
+        assert_eq!(fetch.posts_returned, 2);
+        assert_eq!(fetch.posts[0].author, "realDonaldTrump");
+        assert_eq!(fetch.posts[0].engagement, 150);
         assert_eq!(
-            posts[0].created_at,
+            fetch.posts[0].created_at,
             Utc.with_ymd_and_hms(2026, 7, 16, 9, 0, 0).unwrap()
         );
-        assert_eq!(posts[1].author, "jensenhuang");
-        assert_eq!(posts[1].engagement, 0); // no public_metrics
-        assert_eq!(posts[1].created_at, at()); // no created_at -> fetched_at
+        assert_eq!(fetch.posts[1].author, "jensenhuang");
+        assert_eq!(fetch.posts[1].engagement, 0); // no public_metrics
+        assert_eq!(fetch.posts[1].created_at, at()); // no created_at -> fetched_at
     }
 
     #[test]
@@ -168,21 +178,30 @@ mod tests {
             {"id":"2","text":"   "},
             {"text":"no id"}
         ]}"#;
-        let posts = parse_posts(body, 50, at()).unwrap();
-        assert_eq!(posts.len(), 1);
-        assert_eq!(posts[0].author, "[unknown]");
+        let fetch = parse_posts(body, 50, at()).unwrap();
+        assert_eq!(fetch.posts.len(), 1);
+        assert_eq!(fetch.posts_returned, 3); // billed for all 3 X returned, even the 2 we skipped
+        assert_eq!(fetch.posts[0].author, "[unknown]");
     }
 
     #[test]
     fn limit_truncates_and_zero_is_empty() {
-        assert_eq!(parse_posts(HAPPY, 1, at()).unwrap().len(), 1);
-        assert!(parse_posts(HAPPY, 0, at()).unwrap().is_empty());
+        let truncated = parse_posts(HAPPY, 1, at()).unwrap();
+        assert_eq!(truncated.posts.len(), 1);
+        assert_eq!(truncated.posts_returned, 2); // billed for both, kept only 1
+
+        let zero = parse_posts(HAPPY, 0, at()).unwrap();
+        assert!(zero.posts.is_empty());
+        assert_eq!(zero.posts_returned, 2); // envelope still counted before the limit==0 short-circuit
     }
 
     #[test]
     fn empty_data_and_malformed() {
-        assert!(parse_posts(r#"{"data":[]}"#, 50, at()).unwrap().is_empty());
-        assert!(parse_posts(r#"{}"#, 50, at()).unwrap().is_empty()); // data defaults
+        assert!(parse_posts(r#"{"data":[]}"#, 50, at())
+            .unwrap()
+            .posts
+            .is_empty());
+        assert!(parse_posts(r#"{}"#, 50, at()).unwrap().posts.is_empty()); // data defaults
         assert!(parse_posts("nope", 50, at()).is_err());
     }
 }

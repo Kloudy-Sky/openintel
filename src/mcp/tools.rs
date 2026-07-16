@@ -524,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_pulse_summarizes_and_costs() {
-        use crate::domain::entities::pulse::PulsePost;
+        use crate::domain::entities::pulse::{PulseFetch, PulsePost};
         use crate::domain::entities::social_post::PostText;
         use crate::domain::entities::ticker::Ticker;
         use crate::domain::ports::influencer_feed::InfluencerFeed;
@@ -539,14 +539,17 @@ mod tests {
                 _a: &[String],
                 _h: u32,
                 _l: usize,
-            ) -> Result<Vec<PulsePost>, DomainError> {
-                Ok(vec![PulsePost {
-                    id: "1".into(),
-                    author: "jensenhuang".into(),
-                    text: PostText::parse("shipping").unwrap(),
-                    created_at: chrono::Utc::now(),
-                    engagement: 5,
-                }])
+            ) -> Result<PulseFetch, DomainError> {
+                Ok(PulseFetch {
+                    posts: vec![PulsePost {
+                        id: "1".into(),
+                        author: "jensenhuang".into(),
+                        text: PostText::parse("shipping").unwrap(),
+                        created_at: chrono::Utc::now(),
+                        engagement: 5,
+                    }],
+                    posts_returned: 1,
+                })
             }
         }
 

@@ -16,6 +16,15 @@ pub struct PulsePost {
     pub engagement: u32,
 }
 
+/// What one feed call yielded: the kept posts plus how many the upstream API
+/// actually returned (= what a pay-per-read API bills), which can exceed
+/// `posts.len()` due to client-side truncation and skips.
+#[derive(Debug, Clone)]
+pub struct PulseFetch {
+    pub posts: Vec<PulsePost>,
+    pub posts_returned: u32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PulseReport {
     pub ticker: String,

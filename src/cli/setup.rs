@@ -153,6 +153,9 @@ fn verify_err_text(err: &DomainError, unauthorized_hint: &str) -> String {
         unauthorized_hint
     } else if msg.contains("rate limited") {
         "You're being rate-limited right now — wait a minute and re-run."
+    } else if msg.contains("forbidden") {
+        "Your token authenticated but access was refused — most often exhausted\n   \
+         API credits. Check Billing → Credits in the X developer console."
     } else {
         "Check your internet connection and try again."
     };
@@ -454,11 +457,11 @@ where
                 // Write order matters: identifier first, secret last — if the
                 // second write fails, only the (public) identifier can be
                 // orphaned, never the secret, and the next setup overwrites it.
-                let saved = if spec.second_key.is_some() {
+                let saved = if let Some(second_key) = spec.second_key {
                     let first_secret = SecretString::new(first.into_boxed_str());
                     store
                         .set(spec.first_key, &first_secret)
-                        .and_then(|()| store.set(spec.second_key.expect("pair source"), &secret))
+                        .and_then(|()| store.set(second_key, &secret))
                 } else {
                     store.set(spec.first_key, &secret)
                 };
@@ -635,8 +638,8 @@ async fn probe_x(bearer: SecretString) -> Result<usize, DomainError> {
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let posts = feed.pulse(&ticker, &accounts, 24, 10).await?;
-    Ok(posts.len())
+    let fetch = feed.pulse(&ticker, &accounts, 24, 10).await?;
+    Ok(fetch.posts.len()) // display count for the "pulled N posts" message, not billing count
 }
 
 async fn setup_x(credentials: &Credentials) -> ExitCode {
@@ -727,6 +730,16 @@ mod tests {
         let text = verify_err_text(&other, REDDIT_UNAUTHORIZED_HINT);
         assert!(text.contains("connection refused")); // raw error preserved
         assert!(text.contains("Check your internet connection"));
+    }
+
+    #[test]
+    fn verify_err_text_maps_forbidden_to_credits_hint() {
+        let forbidden = DomainError::SourceFailure {
+            name: "x".into(),
+            message: "forbidden — check API access and credit balance".into(),
+        };
+        let text = verify_err_text(&forbidden, X_UNAUTHORIZED_HINT);
+        assert!(text.contains("credits"));
     }
 
     #[test]

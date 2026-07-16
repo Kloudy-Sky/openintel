@@ -71,6 +71,7 @@ pub struct SetupArgs {
 pub enum SetupSource {
     Reddit,
     Bluesky,
+    X,
 }
 
 #[derive(clap::Args, Debug)]
@@ -159,6 +160,15 @@ mod tests {
             panic!("expected setup command");
         };
         assert_eq!(args.source, SetupSource::Bluesky);
+    }
+
+    #[test]
+    fn parses_setup_x() {
+        let cli = Cli::try_parse_from(["openintel", "setup", "x"]).unwrap();
+        let Command::Setup(args) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.source, SetupSource::X);
     }
 
     #[test]

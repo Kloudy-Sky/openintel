@@ -1,5 +1,6 @@
 pub mod bluesky;
 pub mod reddit;
+pub mod x;
 
 #[cfg(test)]
 pub(crate) mod test_fixtures;
@@ -60,6 +61,7 @@ mod tests {
             },
             bluesky_app_password: if bluesky { s("pw") } else { None },
             market_api_key: None,
+            x_bearer: None,
         }
     }
 

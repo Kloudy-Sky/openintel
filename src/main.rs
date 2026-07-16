@@ -54,5 +54,19 @@ async fn main() -> ExitCode {
         Command::Setup(args) => {
             openintel::cli::setup::run(args.source, &credentials, &store, args.forget).await
         }
+        Command::Pulse(args) => match openintel::cli::pulse::run(&args, &credentials).await {
+            Ok(rendered) => {
+                println!("{rendered}");
+                ExitCode::SUCCESS
+            }
+            Err(e) if e.to_string().contains("not configured") => {
+                println!("{}", openintel::cli::pulse::not_configured_text());
+                ExitCode::FAILURE
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }

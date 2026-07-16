@@ -19,7 +19,7 @@ cargo install --path .
 openintel analyze AAPL
 ```
 
-> **Market data is live (Yahoo Finance, keyless). Reddit and Bluesky are live when configured (see below). There is no X source (paid API).** `analyze` fetches over the network — offline or unconfigured sources degrade gracefully with a note.
+> **Market data is live (Yahoo Finance, keyless). Reddit and Bluesky are live when configured (see below) — and see *X Pulse* below for paid catalyst tracking.** `analyze` fetches over the network — offline or unconfigured sources degrade gracefully with a note.
 
 ## Usage
 
@@ -74,6 +74,22 @@ openintel setup bluesky   # non-interactive when piped; verifies from env
 ```
 
 </details>
+
+## X Pulse (optional — paid X API)
+
+Catalyst posts from specific high-impact X accounts (a POTUS tariff post, a CEO
+announcement) — surfaced as **events to reason about**, never averaged into
+sentiment. X's API is pay-per-use (~$0.005 per post read, deduped over 24h), so
+the pulse is strictly opt-in: nothing calls X unless you run it.
+
+```bash
+openintel setup x                                      # guided token setup (verify reads ≈ $0.05)
+openintel pulse NVDA --accounts jensenhuang,elonmusk   # ≤ 20 reads ≈ $0.10 max
+```
+
+No `--accounts` → a small macro default list (POTUS, White House, Musk, the Fed).
+Via MCP, the `x_pulse` tool asks the agent to research which accounts matter for
+your ticker and confirm the cost with you before spending.
 
 ## Use with an AI agent (MCP)
 

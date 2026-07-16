@@ -10,6 +10,8 @@ pub struct Credentials {
     pub bluesky_handle: Option<String>,
     pub bluesky_app_password: Option<SecretString>,
     pub market_api_key: Option<SecretString>,
+    /// X API bearer token (paid pay-per-use API — pulse only, never analyze).
+    pub x_bearer: Option<SecretString>,
 }
 
 impl Credentials {
@@ -20,6 +22,7 @@ impl Credentials {
             bluesky_handle: plain_from(std::env::var("OPENINTEL_BLUESKY_HANDLE").ok()),
             bluesky_app_password: secret_from(std::env::var("OPENINTEL_BLUESKY_APP_PASSWORD").ok()),
             market_api_key: secret_from(std::env::var("OPENINTEL_MARKET_API_KEY").ok()),
+            x_bearer: secret_from(std::env::var("OPENINTEL_X_BEARER").ok()),
         }
     }
 
@@ -42,6 +45,9 @@ impl Credentials {
         c.bluesky_app_password = c
             .bluesky_app_password
             .or_else(|| store_get(store, "OPENINTEL_BLUESKY_APP_PASSWORD"));
+        c.x_bearer = c
+            .x_bearer
+            .or_else(|| store_get(store, "OPENINTEL_X_BEARER"));
         c
     }
 }
@@ -96,6 +102,7 @@ mod tests {
             bluesky_handle: Some("public.bsky.social".into()),
             bluesky_app_password: secret_from(Some("leak-me-too".to_string())),
             market_api_key: None,
+            x_bearer: None,
         };
         assert!(!format!("{creds:?}").contains("leak-me"));
         assert!(!format!("{creds:?}").contains("leak-me-too"));

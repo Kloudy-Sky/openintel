@@ -13,11 +13,13 @@ use secrecy::SecretString;
 
 use crate::adapters::sources::bluesky::BlueskySource;
 use crate::adapters::sources::reddit::RedditSource;
+use crate::adapters::sources::x::XPulseSource;
 use crate::cli::args::SetupSource;
 use crate::config::secrets::Credentials;
 use crate::config::store::CredentialStore;
 use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
+use crate::domain::ports::influencer_feed::InfluencerFeed;
 use crate::domain::ports::social_data_source::SocialDataSource;
 
 /// Which of the three setup modes applies, given which env vars are set.
@@ -151,6 +153,9 @@ fn verify_err_text(err: &DomainError, unauthorized_hint: &str) -> String {
         unauthorized_hint
     } else if msg.contains("rate limited") {
         "You're being rate-limited right now — wait a minute and re-run."
+    } else if msg.contains("forbidden") {
+        "Your token authenticated but access was refused — most often exhausted\n   \
+         API credits. Check Billing → Credits in the X developer console."
     } else {
         "Check your internet connection and try again."
     };
@@ -171,20 +176,24 @@ const BLUESKY_UNAUTHORIZED_HINT: &str =
 struct SourceSpec {
     label: &'static str,
     first_key: &'static str,
-    second_key: &'static str,
+    second_key: Option<&'static str>,
     first_prompt: &'static str,
-    second_prompt: &'static str,
+    second_prompt: Option<&'static str>,
     condensed_guide: &'static str,
     unauthorized_hint: &'static str,
     try_cmd: &'static str,
+    /// Shown (and requires y/blank to proceed) right before the live probe —
+    /// for paid sources where verification itself costs money.
+    pre_probe_confirm: Option<&'static str>,
 }
 
 const REDDIT_SPEC: SourceSpec = SourceSpec {
     label: "Reddit",
     first_key: "OPENINTEL_REDDIT_CLIENT_ID",
-    second_key: "OPENINTEL_REDDIT_CLIENT_SECRET",
+    second_key: Some("OPENINTEL_REDDIT_CLIENT_SECRET"),
     first_prompt: "Client id",
-    second_prompt: "Client secret",
+    second_prompt: Some("Client secret"),
+    pre_probe_confirm: None,
     condensed_guide: "\
 Reddit needs a free OAuth app — there's no keyless access. ~2 minutes:
 
@@ -210,9 +219,10 @@ Reddit needs a free OAuth app — there's no keyless access. ~2 minutes:
 const BLUESKY_SPEC: SourceSpec = SourceSpec {
     label: "Bluesky",
     first_key: "OPENINTEL_BLUESKY_HANDLE",
-    second_key: "OPENINTEL_BLUESKY_APP_PASSWORD",
+    second_key: Some("OPENINTEL_BLUESKY_APP_PASSWORD"),
     first_prompt: "Handle (e.g. yourname.bsky.social)",
-    second_prompt: "App password",
+    second_prompt: Some("App password"),
+    pre_probe_confirm: None,
     condensed_guide: "\
 Bluesky needs a free app password — search requires auth. ~2 minutes:
 
@@ -228,6 +238,34 @@ Bluesky needs a free app password — search requires auth. ~2 minutes:
     try_cmd: "openintel analyze GME --enable-bluesky",
 };
 
+const X_UNAUTHORIZED_HINT: &str =
+    "Your bearer token looks wrong or lacks access. In the X developer console\n   \
+     (https://developer.x.com → Projects & Apps → your app → Keys and Tokens),\n   \
+     regenerate the Bearer Token, and make sure API credits are loaded.";
+
+const X_SPEC: SourceSpec = SourceSpec {
+    label: "X",
+    first_key: "OPENINTEL_X_BEARER",
+    second_key: None,
+    first_prompt: "Bearer token",
+    second_prompt: None,
+    condensed_guide: "\
+X Pulse needs an X API bearer token — the API is PAID (pay-per-use,
+about $0.005 per post read; you buy credits up front). ~3 minutes:
+
+  1. Sign in at https://developer.x.com and open the developer console.
+  2. Projects & Apps → your app (create one if needed) → Keys and Tokens.
+  3. Under \"Bearer Token\", generate/reveal it and copy it.
+  4. Make sure your account has API credits loaded (Billing → Credits).
+  5. Enter the token below — verification reads up to 10 posts (≈ $0.05).
+",
+    unauthorized_hint: X_UNAUTHORIZED_HINT,
+    try_cmd: "openintel pulse NVDA --accounts jensenhuang",
+    pre_probe_confirm: Some(
+        "Verifying will read up to 10 posts from X (≈ $0.05). Proceed? [Y/n]: ",
+    ),
+};
+
 /// Entry point for `openintel setup <source>`. Exit code 0 only when the
 /// source is verified working (or `--forget` succeeded).
 pub async fn run(
@@ -239,6 +277,7 @@ pub async fn run(
     let spec = match source {
         SetupSource::Reddit => &REDDIT_SPEC,
         SetupSource::Bluesky => &BLUESKY_SPEC,
+        SetupSource::X => &X_SPEC,
     };
 
     if forget {
@@ -250,6 +289,7 @@ pub async fn run(
         return match source {
             SetupSource::Reddit => setup_reddit(credentials).await,
             SetupSource::Bluesky => setup_bluesky(credentials).await,
+            SetupSource::X => setup_x(credentials).await,
         };
     }
 
@@ -260,6 +300,7 @@ pub async fn run(
         SetupSource::Bluesky => {
             credentials.bluesky_handle.is_some() && credentials.bluesky_app_password.is_some()
         }
+        SetupSource::X => credentials.x_bearer.is_some(),
     };
     let already = configured.then(|| provenance(spec.first_key));
 
@@ -280,6 +321,12 @@ pub async fn run(
             .await
         }
         SetupSource::Bluesky => run_interactive(&mut io, store, spec, already, probe_bluesky).await,
+        SetupSource::X => {
+            run_interactive(&mut io, store, spec, already, |_first, secret| {
+                probe_x(secret)
+            })
+            .await
+        }
     };
 
     match outcome {
@@ -288,6 +335,7 @@ pub async fn run(
         InteractiveOutcome::VerifyExisting => match source {
             SetupSource::Reddit => setup_reddit(credentials).await,
             SetupSource::Bluesky => setup_bluesky(credentials).await,
+            SetupSource::X => setup_x(credentials).await,
         },
     }
 }
@@ -312,7 +360,10 @@ fn forget_source(spec: &SourceSpec, store: &dyn CredentialStore) -> ExitCode {
 }
 
 fn forget_outcome(spec: &SourceSpec, store: &dyn CredentialStore) -> Outcome {
-    for key in [spec.first_key, spec.second_key] {
+    for key in [Some(spec.first_key), spec.second_key]
+        .into_iter()
+        .flatten()
+    {
         if let Err(e) = store.delete(key) {
             println!("❌ could not remove {key} from the OS keychain: {e}");
             return Outcome::Failure;
@@ -373,23 +424,47 @@ where
     println!("{}", spec.condensed_guide);
 
     for attempt in 1..=MAX_ATTEMPTS {
-        let Ok(first) = prompt_nonempty_visible(io, spec.first_prompt) else {
-            return InteractiveOutcome::Done(Outcome::Failure);
+        let (first, secret) = if let Some(second_prompt) = spec.second_prompt {
+            let Ok(first) = prompt_nonempty_visible(io, spec.first_prompt) else {
+                return InteractiveOutcome::Done(Outcome::Failure);
+            };
+            let Ok(secret) = prompt_nonempty_secret(io, second_prompt) else {
+                return InteractiveOutcome::Done(Outcome::Failure);
+            };
+            (first, secret)
+        } else {
+            // Single-credential source: read the one (secret) value hidden.
+            let Ok(secret) = prompt_nonempty_secret(io, spec.first_prompt) else {
+                return InteractiveOutcome::Done(Outcome::Failure);
+            };
+            (String::new(), secret)
         };
-        let Ok(secret) = prompt_nonempty_secret(io, spec.second_prompt) else {
-            return InteractiveOutcome::Done(Outcome::Failure);
-        };
+
+        if let Some(confirm) = spec.pre_probe_confirm {
+            match read_visible(io, confirm) {
+                Ok(ans) if matches!(ans.trim().to_lowercase().as_str(), "" | "y" | "yes") => {}
+                Ok(_) => {
+                    println!("Aborted — nothing was saved.");
+                    return InteractiveOutcome::Done(Outcome::Failure);
+                }
+                Err(_) => return InteractiveOutcome::Done(Outcome::Failure),
+            }
+        }
 
         println!("Checking your {} credentials…", spec.label);
         match probe(first.clone(), secret.clone()).await {
             Ok(count) => {
-                let first_secret = SecretString::new(first.into_boxed_str());
                 // Write order matters: identifier first, secret last — if the
                 // second write fails, only the (public) identifier can be
                 // orphaned, never the secret, and the next setup overwrites it.
-                let saved = store
-                    .set(spec.first_key, &first_secret)
-                    .and_then(|()| store.set(spec.second_key, &secret));
+                let saved = if let Some(second_key) = spec.second_key {
+                    let first_secret = SecretString::new(first.into_boxed_str());
+                    store
+                        .set(spec.first_key, &first_secret)
+                        .and_then(|()| store.set(second_key, &secret))
+                } else {
+                    store.set(spec.first_key, &secret)
+                };
                 return InteractiveOutcome::Done(match saved {
                     Ok(()) => {
                         println!("{}", verify_ok_text(spec.label, count, spec.try_cmd));
@@ -400,11 +475,16 @@ where
                     }
                     Err(e) => {
                         println!("{}", verify_ok_text(spec.label, count, spec.try_cmd));
+                        let export_lines = [Some(spec.first_key), spec.second_key]
+                            .into_iter()
+                            .flatten()
+                            .map(|key| format!("export {key}=paste_your_value"))
+                            .collect::<Vec<_>>()
+                            .join("\n   ");
                         println!(
                             "⚠  Verified, but saving to the OS keychain failed: {e}\n   \
                              Fall back to environment variables (with your real values):\n\n   \
-                             export {}=paste_your_value\n   export {}=paste_your_value",
-                            spec.first_key, spec.second_key
+                             {export_lines}"
                         );
                         Outcome::Failure
                     }
@@ -550,6 +630,43 @@ your credentials to disk."
         .to_string()
 }
 
+/// One paid round trip: search the default macro accounts for AAPL (max 10 reads ≈ $0.05).
+async fn probe_x(bearer: SecretString) -> Result<usize, DomainError> {
+    let feed = XPulseSource::new(bearer)?;
+    let ticker = Ticker::parse("AAPL")?;
+    let accounts: Vec<String> = crate::application::pulse::DEFAULT_PULSE_ACCOUNTS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let fetch = feed.pulse(&ticker, &accounts, 24, 10).await?;
+    Ok(fetch.posts.len()) // display count for the "pulled N posts" message, not billing count
+}
+
+async fn setup_x(credentials: &Credentials) -> ExitCode {
+    match credentials.x_bearer.clone() {
+        None => {
+            println!("{}", X_SPEC.condensed_guide);
+            println!(
+                "Set OPENINTEL_X_BEARER (or run `openintel setup x` in a terminal), then re-run."
+            );
+            ExitCode::FAILURE
+        }
+        Some(bearer) => {
+            println!("Checking your X credentials… (reads up to 10 posts ≈ $0.05)");
+            match probe_x(bearer).await {
+                Ok(count) => {
+                    println!("{}", verify_ok_text("X", count, X_SPEC.try_cmd));
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    println!("{}", verify_err_text(&e, X_UNAUTHORIZED_HINT));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +730,16 @@ mod tests {
         let text = verify_err_text(&other, REDDIT_UNAUTHORIZED_HINT);
         assert!(text.contains("connection refused")); // raw error preserved
         assert!(text.contains("Check your internet connection"));
+    }
+
+    #[test]
+    fn verify_err_text_maps_forbidden_to_credits_hint() {
+        let forbidden = DomainError::SourceFailure {
+            name: "x".into(),
+            message: "forbidden — check API access and credit balance".into(),
+        };
+        let text = verify_err_text(&forbidden, X_UNAUTHORIZED_HINT);
+        assert!(text.contains("credits"));
     }
 
     #[test]
@@ -854,5 +981,57 @@ mod tests {
         }
         assert!(REDDIT_SPEC.condensed_guide.contains("prefs/apps"));
         assert!(BLUESKY_SPEC.condensed_guide.contains("app-passwords"));
+    }
+
+    #[test]
+    fn x_guide_contains_cost_and_console_steps() {
+        assert!(X_SPEC.condensed_guide.contains("developer.x.com"));
+        assert!(X_SPEC.condensed_guide.contains("$0.005"));
+        assert!(X_SPEC.condensed_guide.contains("Bearer Token"));
+        assert!(X_SPEC.second_key.is_none());
+    }
+
+    #[tokio::test]
+    async fn single_cred_happy_path_saves_one_key() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("\n"); // cost-confirm: blank = Yes
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &X_SPEC, None, |_f, _s| {
+            std::future::ready(Ok(2usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Success)
+        ));
+        let map = store.map.borrow();
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get("OPENINTEL_X_BEARER").unwrap().expose_secret(),
+            "s3cret"
+        );
+    }
+
+    #[tokio::test]
+    async fn single_cred_cost_confirm_decline_saves_nothing() {
+        let store = InMemoryStore::new();
+        let mut input = Cursor::new("n\n");
+        let mut io = scripted(&mut input, &ok_secret);
+        let outcome = run_interactive(&mut io, &store, &X_SPEC, None, |_f, _s| {
+            std::future::ready(Ok(2usize))
+        })
+        .await;
+        assert!(matches!(
+            outcome,
+            InteractiveOutcome::Done(Outcome::Failure)
+        ));
+        assert!(store.map.borrow().is_empty());
+    }
+
+    #[test]
+    fn forget_x_removes_single_key() {
+        let store = InMemoryStore::new().seed("OPENINTEL_X_BEARER", "tok");
+        assert_eq!(forget_outcome(&X_SPEC, &store), Outcome::Success);
+        assert!(store.map.borrow().is_empty());
     }
 }

@@ -1,14 +1,17 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::application::{self, request::AnalysisRequest, DISCLAIMER};
+use crate::application::{self, pulse as pulse_app, request::AnalysisRequest, DISCLAIMER};
 use crate::domain::engine::config::EngineConfig;
+use crate::domain::entities::pulse::PulseReport;
 use crate::domain::entities::speculation_report::SpeculationReport;
 use crate::domain::error::DomainError;
+use crate::domain::ports::influencer_feed::InfluencerFeed;
 use crate::domain::ports::market_data_source::MarketDataSource;
 use crate::domain::ports::social_data_source::SocialDataSource;
 use crate::domain::values::source_kind::SourceKind;
 use crate::domain::values::speculation::Alignment;
+use chrono::Utc;
 
 #[derive(Debug, Serialize)]
 pub struct SourcesOutput {
@@ -299,6 +302,57 @@ pub async fn run_compare(
     }
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PulseToolArgs {
+    /// Ticker symbol, e.g. "NVDA".
+    pub ticker: String,
+    /// X handles to listen to (no @). Curate per ticker: CEO/founder, major
+    /// holders or activist funds, sector journalists, macro figures. Omit only
+    /// if the user asked for the default macro list.
+    pub accounts: Option<Vec<String>>,
+    /// Lookback window in hours (default 24, max 168).
+    pub hours_back: Option<u32>,
+    /// Max posts to read — each read costs ~$0.005 (default 20, max 100).
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PulseOutput {
+    pub summary: String,
+    pub report: PulseReport,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_pulse(
+    args: PulseToolArgs,
+    feed: &dyn InfluencerFeed,
+) -> Result<PulseOutput, DomainError> {
+    let accounts = args.accounts.unwrap_or_default();
+    let report = pulse_app::pulse(
+        &args.ticker,
+        &accounts,
+        args.hours_back.unwrap_or(24),
+        args.limit.unwrap_or(20),
+        feed,
+        Utc::now(),
+    )
+    .await?;
+    let summary = format!(
+        "{} — ⚡ {} high-impact post(s) in last {}h from {} account(s) · {} posts read ≈ ${:.2}",
+        report.ticker,
+        report.posts.len(),
+        report.hours_back,
+        report.accounts.len(),
+        report.posts_read,
+        report.estimated_cost_usd
+    );
+    Ok(PulseOutput {
+        summary,
+        report,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +520,52 @@ mod tests {
         assert_eq!(out.errors.len(), 1);
         assert_eq!(out.errors[0].ticker, "$$$");
         assert!(out.ranked[0].rank_metric.is_finite());
+    }
+
+    #[tokio::test]
+    async fn run_pulse_summarizes_and_costs() {
+        use crate::domain::entities::pulse::{PulseFetch, PulsePost};
+        use crate::domain::entities::social_post::PostText;
+        use crate::domain::entities::ticker::Ticker;
+        use crate::domain::ports::influencer_feed::InfluencerFeed;
+        use async_trait::async_trait;
+
+        struct OnePost;
+        #[async_trait]
+        impl InfluencerFeed for OnePost {
+            async fn pulse(
+                &self,
+                _t: &Ticker,
+                _a: &[String],
+                _h: u32,
+                _l: usize,
+            ) -> Result<PulseFetch, DomainError> {
+                Ok(PulseFetch {
+                    posts: vec![PulsePost {
+                        id: "1".into(),
+                        author: "jensenhuang".into(),
+                        text: PostText::parse("shipping").unwrap(),
+                        created_at: chrono::Utc::now(),
+                        engagement: 5,
+                    }],
+                    posts_returned: 1,
+                })
+            }
+        }
+
+        let out = run_pulse(
+            PulseToolArgs {
+                ticker: "NVDA".into(),
+                accounts: Some(vec!["@jensenhuang".into()]),
+                hours_back: None,
+                limit: None,
+            },
+            &OnePost,
+        )
+        .await
+        .unwrap();
+        assert!(out.summary.contains("⚡ 1 high-impact post(s)"));
+        assert_eq!(out.report.accounts, vec!["jensenhuang"]); // @-stripped
+        assert!(out.disclaimer.contains("Not financial advice"));
     }
 }

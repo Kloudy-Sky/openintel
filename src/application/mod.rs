@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod pulse;
 pub mod request;
 
 pub use analyze::analyze;

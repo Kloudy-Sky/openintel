@@ -23,6 +23,9 @@ pub enum Command {
 
     /// Guided setup + live verify for a data source (saves to the OS keychain; env vars override)
     Setup(SetupArgs),
+
+    /// Catalyst posts from specific high-impact X accounts (paid X API — opt-in)
+    Pulse(PulseArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -68,6 +71,28 @@ pub struct SetupArgs {
 pub enum SetupSource {
     Reddit,
     Bluesky,
+    X,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct PulseArgs {
+    /// Ticker symbol, e.g. NVDA
+    pub ticker: String,
+
+    /// X handles to listen to, comma-separated (no @). Default: the macro list.
+    #[arg(long, value_delimiter = ',')]
+    pub accounts: Vec<String>,
+
+    /// Lookback window in hours (1-168)
+    #[arg(long, default_value_t = 24)]
+    pub hours: u32,
+
+    /// Max posts to read — each read costs ~$0.005 (1-100)
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
 }
 
 pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {
@@ -138,6 +163,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_setup_x() {
+        let cli = Cli::try_parse_from(["openintel", "setup", "x"]).unwrap();
+        let Command::Setup(args) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.source, SetupSource::X);
+    }
+
+    #[test]
     fn rejects_unknown_setup_source() {
         assert!(Cli::try_parse_from(["openintel", "setup", "bogus"]).is_err());
     }
@@ -149,5 +183,36 @@ mod tests {
             panic!("expected setup command");
         };
         assert!(args.forget);
+    }
+
+    #[test]
+    fn parses_pulse_with_accounts() {
+        let cli = Cli::try_parse_from([
+            "openintel",
+            "pulse",
+            "NVDA",
+            "--accounts",
+            "jensenhuang,elonmusk",
+            "--hours",
+            "48",
+        ])
+        .unwrap();
+        let Command::Pulse(args) = cli.command else {
+            panic!("expected pulse command");
+        };
+        assert_eq!(args.ticker, "NVDA");
+        assert_eq!(args.accounts, vec!["jensenhuang", "elonmusk"]);
+        assert_eq!(args.hours, 48);
+        assert_eq!(args.limit, 20);
+    }
+
+    #[test]
+    fn pulse_defaults_have_empty_accounts() {
+        let cli = Cli::try_parse_from(["openintel", "pulse", "GME"]).unwrap();
+        let Command::Pulse(args) = cli.command else {
+            panic!("expected pulse command");
+        };
+        assert!(args.accounts.is_empty());
+        assert_eq!(args.hours, 24);
     }
 }

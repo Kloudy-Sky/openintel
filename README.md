@@ -95,6 +95,10 @@ No `--accounts` → a small macro default list (POTUS, White House, Musk, the Fe
 Via MCP, the `x_pulse` tool asks the agent to research which accounts matter for
 your ticker and confirm the cost with you before spending.
 
+## Risk framing (calculator, not advice)
+
+Turn a trade idea into exact numbers: `openintel risk NVDA --budget 200` returns an ATR(14)-based stop, the whole-share size that caps a stop-out at your budget, max loss, and 1R/2R/3R reference levels. Deterministic math over free Yahoo daily bars — it never recommends taking a trade. Also exposed to agents as the `risk_frame` MCP tool, whose contract requires presenting the numbers and getting your explicit approval before any execution step.
+
 ## Use with an AI agent (MCP)
 
 OpenIntel can run as a local **MCP server** so an AI agent can consult its analysis while
@@ -123,6 +127,7 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `scan_watchlist` | A list of symbols → reports, run concurrently |
 | `compare_tickers` | Rank a set by `crowding` / `speculation_index` / `net_sentiment` / `divergence` |
 | `list_sources` | Which data sources are available |
+| `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
 
 ### ⚠️ Risk & responsibility — read before connecting a broker
 

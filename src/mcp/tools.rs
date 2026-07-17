@@ -310,9 +310,10 @@ pub struct PulseToolArgs {
     /// holders or activist funds, sector journalists, macro figures. Omit only
     /// if the user asked for the default macro list.
     pub accounts: Option<Vec<String>>,
-    /// Lookback window in hours (default 24, max 168).
+    /// Lookback window in hours (default 24, max 167).
     pub hours_back: Option<u32>,
     /// Max posts to read — each read costs ~$0.005 (default 20, max 100).
+    /// X bills a minimum of 10 reads per call.
     pub limit: Option<usize>,
 }
 

@@ -332,11 +332,23 @@ pub async fn run(
     match outcome {
         InteractiveOutcome::Done(Outcome::Success) => ExitCode::SUCCESS,
         InteractiveOutcome::Done(Outcome::Failure) => ExitCode::FAILURE,
-        InteractiveOutcome::VerifyExisting => match source {
-            SetupSource::Reddit => setup_reddit(credentials).await,
-            SetupSource::Bluesky => setup_bluesky(credentials).await,
-            SetupSource::X => setup_x(credentials).await,
-        },
+        InteractiveOutcome::VerifyExisting => {
+            if let Some(confirm) = spec.pre_probe_confirm {
+                match read_visible(&mut io, confirm) {
+                    Ok(ans) if confirm_answer_proceeds(&ans) => {}
+                    Ok(_) => {
+                        println!("Aborted — nothing spent.");
+                        return ExitCode::FAILURE;
+                    }
+                    Err(_) => return ExitCode::FAILURE,
+                }
+            }
+            match source {
+                SetupSource::Reddit => setup_reddit(credentials).await,
+                SetupSource::Bluesky => setup_bluesky(credentials).await,
+                SetupSource::X => setup_x(credentials).await,
+            }
+        }
     }
 }
 
@@ -398,6 +410,11 @@ enum InteractiveOutcome {
 
 const MAX_ATTEMPTS: usize = 3;
 
+/// Shared decision for every "cost confirm" prompt (blank/y/yes -> proceed).
+fn confirm_answer_proceeds(ans: &str) -> bool {
+    matches!(ans.trim().to_lowercase().as_str(), "" | "y" | "yes")
+}
+
 async fn run_interactive<F, Fut>(
     io: &mut SetupIo<'_>,
     store: &dyn CredentialStore,
@@ -442,7 +459,7 @@ where
 
         if let Some(confirm) = spec.pre_probe_confirm {
             match read_visible(io, confirm) {
-                Ok(ans) if matches!(ans.trim().to_lowercase().as_str(), "" | "y" | "yes") => {}
+                Ok(ans) if confirm_answer_proceeds(&ans) => {}
                 Ok(_) => {
                     println!("Aborted — nothing was saved.");
                     return InteractiveOutcome::Done(Outcome::Failure);
@@ -1026,6 +1043,18 @@ mod tests {
             InteractiveOutcome::Done(Outcome::Failure)
         ));
         assert!(store.map.borrow().is_empty());
+    }
+
+    #[test]
+    fn confirm_answer_proceeds_accepts_blank_and_yes_variants() {
+        assert!(confirm_answer_proceeds(""));
+        assert!(confirm_answer_proceeds("y"));
+        assert!(confirm_answer_proceeds("Y"));
+        assert!(confirm_answer_proceeds("yes"));
+        assert!(confirm_answer_proceeds("YES"));
+        assert!(!confirm_answer_proceeds("n"));
+        assert!(!confirm_answer_proceeds("no"));
+        assert!(!confirm_answer_proceeds("x"));
     }
 
     #[test]

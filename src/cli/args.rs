@@ -83,11 +83,11 @@ pub struct PulseArgs {
     #[arg(long, value_delimiter = ',')]
     pub accounts: Vec<String>,
 
-    /// Lookback window in hours (1-168)
+    /// Lookback window in hours (1-167)
     #[arg(long, default_value_t = 24)]
     pub hours: u32,
 
-    /// Max posts to read — each read costs ~$0.005 (1-100)
+    /// Max posts to read — each costs ~$0.005; X bills a minimum of 10 reads per call (1-100)
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
 

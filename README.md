@@ -87,6 +87,8 @@ openintel setup x                                      # guided token setup (ver
 openintel pulse NVDA --accounts jensenhuang,elonmusk   # ≤ 20 reads ≈ $0.10 max
 ```
 
+Note: X's API bills a minimum of 10 post reads per call, so even `--limit 1` costs ≈ $0.05.
+
 No `--accounts` → a small macro default list (POTUS, White House, Musk, the Fed).
 Via MCP, the `x_pulse` tool asks the agent to research which accounts matter for
 your ticker and confirm the cost with you before spending.

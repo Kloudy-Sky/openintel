@@ -10,12 +10,15 @@ fn is_valid_handle(a: &str) -> bool {
     !a.is_empty() && a.len() <= 15 && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// Keyword charset: letters, digits, underscore, hyphen, dot, max 30 chars.
+/// Keyword charset: letters, digits, spaces, underscore, hyphen, dot, max 30
+/// chars, no double-quote (the adapter wraps every keyword in `"…"` to make
+/// it a literal phrase in X's query grammar — a keyword containing `"` could
+/// break out of that quoting).
 fn is_valid_keyword(k: &str) -> bool {
     !k.is_empty()
         && k.len() <= 30
         && k.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_' || c == '-' || c == '.')
 }
 
 /// X pay-per-use price per post read (docs.x.com pricing, 2026-02 launch).
@@ -63,10 +66,13 @@ pub fn normalize_accounts(raw: &[String]) -> Result<Vec<String>, DomainError> {
     Ok(cleaned)
 }
 
-/// Trim each keyword; drop empties. Empty raw input -> `Ok(vec![])` — keywords
-/// are optional, there's no default list. If raw was non-empty but every
-/// keyword was invalid, error rather than silently dropping the caller's
-/// intent to broaden the query.
+/// Trim each keyword; drop empties/invalid (see `is_valid_keyword` — spaces
+/// are allowed so multi-word names like "General Motors" survive; the
+/// adapter quotes every keyword as a literal phrase, so charset-safe
+/// characters like a leading `-` can't be interpreted as a query operator).
+/// Empty raw input -> `Ok(vec![])` — keywords are optional, there's no
+/// default list. If raw was non-empty but every keyword was invalid, error
+/// rather than silently dropping the caller's intent to broaden the query.
 pub fn normalize_keywords(raw: &[String]) -> Result<Vec<String>, DomainError> {
     if raw.is_empty() {
         return Ok(Vec::new());
@@ -79,7 +85,9 @@ pub fn normalize_keywords(raw: &[String]) -> Result<Vec<String>, DomainError> {
     if cleaned.is_empty() {
         return Err(DomainError::SourceFailure {
             name: "x".into(),
-            message: format!("no valid keywords in {raw:?} (letters, digits, _ . -, max 30 chars)"),
+            message: format!(
+                "no valid keywords in {raw:?} (letters, digits, spaces, _ . -, max 30 chars)"
+            ),
         });
     }
     Ok(cleaned)
@@ -228,7 +236,7 @@ mod tests {
     fn normalize_keywords_trims_and_drops_invalid() {
         let raw = vec![
             "  Tesla ".to_string(),
-            "robo taxi".to_string(), // space -> invalid
+            "say \"hi\"".to_string(), // quote char -> invalid
             "FSD".to_string(),
         ];
         assert_eq!(
@@ -239,8 +247,37 @@ mod tests {
     }
 
     #[test]
+    fn normalize_keywords_keeps_multi_word_names() {
+        // The motivating use case: multi-word company names must survive —
+        // the adapter quotes them as a literal phrase downstream.
+        let raw = vec!["  General Motors ".to_string()];
+        assert_eq!(
+            normalize_keywords(&raw).unwrap(),
+            vec!["General Motors".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_keywords_keeps_leading_dash() {
+        // A leading `-` is charset-safe now that the adapter quotes every
+        // keyword — it can no longer be interpreted as X's NOT operator.
+        let raw = vec!["-recall".to_string()];
+        assert_eq!(
+            normalize_keywords(&raw).unwrap(),
+            vec!["-recall".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_keywords_drops_tab_and_emoji() {
+        let raw = vec!["ta\tb".to_string(), "🚀rocket".to_string()];
+        let err = normalize_keywords(&raw).unwrap_err();
+        assert!(err.to_string().contains("no valid keywords"));
+    }
+
+    #[test]
     fn normalize_keywords_all_invalid_nonempty_errors() {
-        let raw = vec!["robo taxi".to_string(), "  ".to_string()];
+        let raw = vec!["say \"hi\"".to_string(), "  ".to_string()];
         let err = normalize_keywords(&raw).unwrap_err();
         assert!(matches!(err, DomainError::SourceFailure { ref name, .. } if name == "x"));
         assert!(err.to_string().contains("no valid keywords"));
@@ -303,7 +340,7 @@ mod tests {
         let err = pulse(
             "AAPL",
             &["a".into()],
-            &["robo taxi".into()],
+            &["say \"hi\"".into()],
             24,
             20,
             &feed,

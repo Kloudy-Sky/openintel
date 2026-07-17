@@ -18,7 +18,12 @@ const TIMEOUT_SECS: u64 = 10;
 /// High-impact accounts write company language ("Tesla", "Robotaxi"), not
 /// cashtags — live-verified: 0 posts in 7 days from hourly-posting accounts
 /// on a cashtag-only query. The symbol terms (`$TICKER`, `TICKER`) are always
-/// present; caller-supplied keywords broaden recall onto that language.
+/// present, bare (trusted — sourced from `Ticker`, not free text). Caller
+/// -supplied keywords broaden recall onto that language and are each wrapped
+/// in `"…"`: X's grammar treats a quoted string as a literal phrase, which
+/// neutralizes operator interpretation (a keyword starting with `-` can't be
+/// read as the NOT operator, `OR`/`from:` inside a keyword are just words)
+/// and, as a side effect, allows multi-word phrases like "General Motors".
 /// Contingency (spec): if pay-per-use rejects the `$` cashtag operator
 /// (HTTP 400 naming the operator in the live test), drop the `$` prefix here.
 pub(crate) fn build_query(ticker: &Ticker, accounts: &[String], keywords: &[String]) -> String {
@@ -28,7 +33,7 @@ pub(crate) fn build_query(ticker: &Ticker, accounts: &[String], keywords: &[Stri
         .collect::<Vec<_>>()
         .join(" OR ");
     let mut terms = vec![format!("${}", ticker.as_str()), ticker.as_str().to_string()];
-    terms.extend(keywords.iter().cloned());
+    terms.extend(keywords.iter().map(|k| format!("\"{k}\"")));
     let terms = terms.join(" OR ");
     format!("({terms}) ({from}) -is:retweet")
 }
@@ -160,13 +165,41 @@ mod tests {
     }
 
     #[test]
-    fn build_query_appends_keywords_after_symbol_terms() {
+    fn build_query_appends_quoted_keywords_after_symbol_terms() {
         let t = Ticker::parse("TSLA").unwrap();
         let accounts = vec!["elonmusk".to_string()];
         let keywords = vec!["Tesla".to_string(), "Robotaxi".to_string()];
         assert_eq!(
             build_query(&t, &accounts, &keywords),
-            "($TSLA OR TSLA OR Tesla OR Robotaxi) (from:elonmusk) -is:retweet"
+            "($TSLA OR TSLA OR \"Tesla\" OR \"Robotaxi\") (from:elonmusk) -is:retweet"
+        );
+    }
+
+    #[test]
+    fn build_query_quotes_leading_dash_keyword_so_it_cannot_act_as_not_operator() {
+        // Regression: a bare `-recall` inside the OR group is X's NOT
+        // operator and matches nearly everything, collapsing the ticker
+        // filter. Quoting makes it a literal phrase instead.
+        let t = Ticker::parse("TSLA").unwrap();
+        let accounts = vec!["elonmusk".to_string()];
+        let keywords = vec!["-recall".to_string()];
+        assert_eq!(
+            build_query(&t, &accounts, &keywords),
+            "($TSLA OR TSLA OR \"-recall\") (from:elonmusk) -is:retweet"
+        );
+    }
+
+    #[test]
+    fn build_query_supports_multi_word_keyword_phrases() {
+        // The motivating use case: "General Motors" is dropped by the
+        // charset check if bare (spaces are invalid unquoted operators) but
+        // survives as one quoted literal phrase.
+        let t = Ticker::parse("GM").unwrap();
+        let accounts = vec!["elonmusk".to_string()];
+        let keywords = vec!["General Motors".to_string()];
+        assert_eq!(
+            build_query(&t, &accounts, &keywords),
+            "($GM OR GM OR \"General Motors\") (from:elonmusk) -is:retweet"
         );
     }
 

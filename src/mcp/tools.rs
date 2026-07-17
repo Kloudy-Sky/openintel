@@ -312,7 +312,7 @@ pub struct PulseToolArgs {
     pub accounts: Option<Vec<String>>,
     /// Company-language search terms (e.g. ["Tesla","Robotaxi"] for TSLA) —
     /// high-impact accounts rarely write cashtags, so propose these alongside
-    /// accounts.
+    /// accounts. Multi-word phrases are fine (e.g. "General Motors").
     pub keywords: Option<Vec<String>>,
     /// Lookback window in hours (default 24, max 167).
     pub hours_back: Option<u32>,

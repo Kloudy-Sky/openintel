@@ -83,8 +83,9 @@ pub struct PulseArgs {
     #[arg(long, value_delimiter = ',')]
     pub accounts: Vec<String>,
 
-    /// Extra search terms in the accounts' own language, comma-separated
-    /// (e.g. tesla,robotaxi) — cashtags are rare in influencer posts
+    /// Extra search terms in the accounts' own language, comma-separated;
+    /// phrases allowed (e.g. tesla,robotaxi,General Motors) — cashtags are
+    /// rare in influencer posts
     #[arg(long, value_delimiter = ',')]
     pub keywords: Vec<String>,
 

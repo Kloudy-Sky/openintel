@@ -13,6 +13,8 @@ use crate::domain::ports::influencer_feed::InfluencerFeed;
 
 const SEARCH_URL: &str = "https://api.x.com/2/tweets/search/recent";
 const TIMEOUT_SECS: u64 = 10;
+/// X caps `search/recent` `query` at 512 chars on this tier.
+const MAX_QUERY_CHARS: usize = 512;
 
 /// Build the author-filtered search query.
 /// High-impact accounts write company language ("Tesla", "Robotaxi"), not
@@ -33,7 +35,14 @@ pub(crate) fn build_query(ticker: &Ticker, accounts: &[String], keywords: &[Stri
         .collect::<Vec<_>>()
         .join(" OR ");
     let mut terms = vec![format!("${}", ticker.as_str()), ticker.as_str().to_string()];
-    terms.extend(keywords.iter().map(|k| format!("\"{k}\"")));
+    terms.extend(keywords.iter().filter_map(|k| {
+        // Defense in depth: the application layer validates keywords, but this
+        // is a pub adapter — strip quote chars so a raw caller can't break the
+        // phrase grammar, and skip anything left empty.
+        let clean = k.replace('"', "");
+        let clean = clean.trim();
+        (!clean.is_empty()).then(|| format!("\"{clean}\""))
+    }));
     let terms = terms.join(" OR ");
     format!("({terms}) ({from}) -is:retweet")
 }
@@ -89,10 +98,18 @@ impl InfluencerFeed for XPulseSource {
             .to_rfc3339_opts(SecondsFormat::Secs, true);
         let max_results = limit.clamp(10, 100).to_string(); // API minimum is 10
 
+        let query = build_query(ticker, accounts, keywords);
+        if query.chars().count() > MAX_QUERY_CHARS {
+            return Err(fail(format!(
+                "query too long ({} chars, max {MAX_QUERY_CHARS}) — use fewer accounts/keywords",
+                query.chars().count()
+            )));
+        }
+
         // `.query()` is behind reqwest's un-enabled `query` feature; build manually.
         let mut url = reqwest::Url::parse(SEARCH_URL).map_err(|e| fail(format!("bad url: {e}")))?;
         url.query_pairs_mut()
-            .append_pair("query", &build_query(ticker, accounts, keywords))
+            .append_pair("query", &query)
             .append_pair("start_time", &start_time)
             .append_pair("max_results", &max_results)
             .append_pair("tweet.fields", "created_at,public_metrics")
@@ -204,8 +221,42 @@ mod tests {
     }
 
     #[test]
+    fn build_query_strips_embedded_quotes_and_skips_quote_only_keywords() {
+        // Defense in depth: application::pulse::normalize_keywords is trusted to
+        // reject `"`-bearing keywords, but XPulseSource is `pub` so an external
+        // caller could bypass it. build_query must not let a raw `"` break the
+        // phrase grammar.
+        let t = Ticker::parse("TSLA").unwrap();
+        let accounts = vec!["elonmusk".to_string()];
+        let keywords = vec!["ha\"ha".to_string(), "\"\"\"".to_string()];
+        assert_eq!(
+            build_query(&t, &accounts, &keywords),
+            "($TSLA OR TSLA OR \"haha\") (from:elonmusk) -is:retweet"
+        );
+    }
+
+    #[test]
     fn new_builds() {
         assert!(XPulseSource::new(secret("token")).is_ok());
+    }
+
+    #[tokio::test]
+    async fn pulse_rejects_oversized_query_before_any_network_io() {
+        // The 512-char check runs before the HTTP client is touched, so this
+        // is hermetic despite being a `#[tokio::test]` calling `.pulse()` —
+        // no request is ever sent.
+        let t = Ticker::parse("TSLA").unwrap();
+        let accounts = vec!["elonmusk".to_string()];
+        let keywords: Vec<String> = (0..60).map(|i| format!("keyword-number-{i}")).collect();
+        let src = XPulseSource::new(secret("token")).unwrap();
+        let err = src
+            .pulse(&t, &accounts, &keywords, 24, 10)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("query too long"),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]

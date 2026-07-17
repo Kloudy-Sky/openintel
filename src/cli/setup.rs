@@ -655,7 +655,7 @@ async fn probe_x(bearer: SecretString) -> Result<usize, DomainError> {
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let fetch = feed.pulse(&ticker, &accounts, 24, 10).await?;
+    let fetch = feed.pulse(&ticker, &accounts, &[], 24, 10).await?;
     Ok(fetch.posts.len()) // display count for the "pulled N posts" message, not billing count
 }
 

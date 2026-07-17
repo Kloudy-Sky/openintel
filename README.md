@@ -83,9 +83,11 @@ sentiment. X's API is pay-per-use (~$0.005 per post read, deduped over 24h), so
 the pulse is strictly opt-in: nothing calls X unless you run it.
 
 ```bash
-openintel setup x                                      # guided token setup (verify reads ≈ $0.05)
-openintel pulse NVDA --accounts jensenhuang,elonmusk   # ≤ 20 reads ≈ $0.10 max
+openintel setup x                                                       # guided token setup (verify reads ≈ $0.05)
+openintel pulse TSLA --accounts elonmusk --keywords tesla,robotaxi     # ≤ 20 reads ≈ $0.10 max
 ```
+
+Add `--keywords` with the company's own vocabulary — influencer posts say "Tesla", not "$TSLA".
 
 Note: X's API bills a minimum of 10 post reads per call, so even `--limit 1` costs ≈ $0.05.
 

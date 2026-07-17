@@ -310,6 +310,10 @@ pub struct PulseToolArgs {
     /// holders or activist funds, sector journalists, macro figures. Omit only
     /// if the user asked for the default macro list.
     pub accounts: Option<Vec<String>>,
+    /// Company-language search terms (e.g. ["Tesla","Robotaxi"] for TSLA) —
+    /// high-impact accounts rarely write cashtags, so propose these alongside
+    /// accounts.
+    pub keywords: Option<Vec<String>>,
     /// Lookback window in hours (default 24, max 167).
     pub hours_back: Option<u32>,
     /// Max posts to read — each read costs ~$0.005 (default 20, max 100).
@@ -329,9 +333,11 @@ pub async fn run_pulse(
     feed: &dyn InfluencerFeed,
 ) -> Result<PulseOutput, DomainError> {
     let accounts = args.accounts.unwrap_or_default();
+    let keywords = args.keywords.unwrap_or_default();
     let report = pulse_app::pulse(
         &args.ticker,
         &accounts,
+        &keywords,
         args.hours_back.unwrap_or(24),
         args.limit.unwrap_or(20),
         feed,
@@ -538,6 +544,7 @@ mod tests {
                 &self,
                 _t: &Ticker,
                 _a: &[String],
+                _k: &[String],
                 _h: u32,
                 _l: usize,
             ) -> Result<PulseFetch, DomainError> {
@@ -558,6 +565,7 @@ mod tests {
             PulseToolArgs {
                 ticker: "NVDA".into(),
                 accounts: Some(vec!["@jensenhuang".into()]),
+                keywords: None,
                 hours_back: None,
                 limit: None,
             },
@@ -568,5 +576,56 @@ mod tests {
         assert!(out.summary.contains("⚡ 1 high-impact post(s)"));
         assert_eq!(out.report.accounts, vec!["jensenhuang"]); // @-stripped
         assert!(out.disclaimer.contains("Not financial advice"));
+    }
+
+    #[tokio::test]
+    async fn run_pulse_threads_keywords_to_feed_and_report() {
+        use crate::domain::entities::pulse::{PulseFetch, PulsePost};
+        use crate::domain::entities::social_post::PostText;
+        use crate::domain::entities::ticker::Ticker;
+        use crate::domain::ports::influencer_feed::InfluencerFeed;
+        use async_trait::async_trait;
+
+        struct KeywordSpy;
+        #[async_trait]
+        impl InfluencerFeed for KeywordSpy {
+            async fn pulse(
+                &self,
+                _t: &Ticker,
+                _a: &[String],
+                keywords: &[String],
+                _h: u32,
+                _l: usize,
+            ) -> Result<PulseFetch, DomainError> {
+                assert_eq!(keywords, ["Tesla".to_string(), "Robotaxi".to_string()]);
+                Ok(PulseFetch {
+                    posts: vec![PulsePost {
+                        id: "1".into(),
+                        author: "elonmusk".into(),
+                        text: PostText::parse("robotaxi launch").unwrap(),
+                        created_at: chrono::Utc::now(),
+                        engagement: 5,
+                    }],
+                    posts_returned: 1,
+                })
+            }
+        }
+
+        let out = run_pulse(
+            PulseToolArgs {
+                ticker: "TSLA".into(),
+                accounts: Some(vec!["elonmusk".into()]),
+                keywords: Some(vec!["Tesla".into(), "Robotaxi".into()]),
+                hours_back: None,
+                limit: None,
+            },
+            &KeywordSpy,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            out.report.keywords,
+            vec!["Tesla".to_string(), "Robotaxi".to_string()]
+        );
     }
 }

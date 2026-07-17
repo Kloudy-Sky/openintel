@@ -10,6 +10,14 @@ fn is_valid_handle(a: &str) -> bool {
     !a.is_empty() && a.len() <= 15 && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Keyword charset: letters, digits, underscore, hyphen, dot, max 30 chars.
+fn is_valid_keyword(k: &str) -> bool {
+    !k.is_empty()
+        && k.len() <= 30
+        && k.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
 /// X pay-per-use price per post read (docs.x.com pricing, 2026-02 launch).
 pub const X_COST_PER_READ_USD: f64 = 0.005;
 
@@ -55,9 +63,32 @@ pub fn normalize_accounts(raw: &[String]) -> Result<Vec<String>, DomainError> {
     Ok(cleaned)
 }
 
+/// Trim each keyword; drop empties. Empty raw input -> `Ok(vec![])` — keywords
+/// are optional, there's no default list. If raw was non-empty but every
+/// keyword was invalid, error rather than silently dropping the caller's
+/// intent to broaden the query.
+pub fn normalize_keywords(raw: &[String]) -> Result<Vec<String>, DomainError> {
+    if raw.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cleaned: Vec<String> = raw
+        .iter()
+        .map(|k| k.trim().to_string())
+        .filter(|k| is_valid_keyword(k))
+        .collect();
+    if cleaned.is_empty() {
+        return Err(DomainError::SourceFailure {
+            name: "x".into(),
+            message: format!("no valid keywords in {raw:?} (letters, digits, _ . -, max 30 chars)"),
+        });
+    }
+    Ok(cleaned)
+}
+
 pub async fn pulse(
     ticker_raw: &str,
     accounts_raw: &[String],
+    keywords_raw: &[String],
     hours_back: u32,
     limit: usize,
     feed: &dyn InfluencerFeed,
@@ -65,14 +96,18 @@ pub async fn pulse(
 ) -> Result<PulseReport, DomainError> {
     let ticker = Ticker::parse(ticker_raw)?;
     let accounts = normalize_accounts(accounts_raw)?;
+    let keywords = normalize_keywords(keywords_raw)?;
     let hours_back = hours_back.clamp(1, MAX_HOURS_BACK);
     let limit = limit.clamp(1, MAX_PULSE_LIMIT);
-    let fetch = feed.pulse(&ticker, &accounts, hours_back, limit).await?;
+    let fetch = feed
+        .pulse(&ticker, &accounts, &keywords, hours_back, limit)
+        .await?;
     let posts = fetch.posts;
     let posts_read = fetch.posts_returned;
     Ok(PulseReport {
         ticker: ticker.as_str().to_string(),
         accounts,
+        keywords,
         hours_back,
         posts,
         posts_read,
@@ -93,8 +128,8 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 7, 16, 12, 0, 0).unwrap()
     }
 
-    /// (ticker, accounts, hours_back, limit) the fake was called with.
-    type SeenCall = (String, Vec<String>, u32, usize);
+    /// (ticker, accounts, keywords, hours_back, limit) the fake was called with.
+    type SeenCall = (String, Vec<String>, Vec<String>, u32, usize);
 
     /// Records what it was called with; returns `n` canned posts and
     /// `posts_returned` (defaults to `n` via `fake()`, overridable via
@@ -111,12 +146,14 @@ mod tests {
             &self,
             ticker: &Ticker,
             accounts: &[String],
+            keywords: &[String],
             hours_back: u32,
             limit: usize,
         ) -> Result<PulseFetch, DomainError> {
             *self.seen.lock().unwrap() = Some((
                 ticker.as_str().to_string(),
                 accounts.to_vec(),
+                keywords.to_vec(),
                 hours_back,
                 limit,
             ));
@@ -187,13 +224,38 @@ mod tests {
         assert!(err.to_string().contains("no valid X handles"));
     }
 
+    #[test]
+    fn normalize_keywords_trims_and_drops_invalid() {
+        let raw = vec![
+            "  Tesla ".to_string(),
+            "robo taxi".to_string(), // space -> invalid
+            "FSD".to_string(),
+        ];
+        assert_eq!(
+            normalize_keywords(&raw).unwrap(),
+            vec!["Tesla".to_string(), "FSD".to_string()]
+        );
+        assert_eq!(normalize_keywords(&[]).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn normalize_keywords_all_invalid_nonempty_errors() {
+        let raw = vec!["robo taxi".to_string(), "  ".to_string()];
+        let err = normalize_keywords(&raw).unwrap_err();
+        assert!(matches!(err, DomainError::SourceFailure { ref name, .. } if name == "x"));
+        assert!(err.to_string().contains("no valid keywords"));
+    }
+
     #[tokio::test]
     async fn pulse_clamps_and_computes_cost() {
         let feed = fake(3);
-        let report = pulse("nvda", &[], 500, 900, &feed, at()).await.unwrap();
-        let (ticker, accounts, hours, limit) = feed.seen.lock().unwrap().clone().unwrap();
+        let report = pulse("nvda", &[], &[], 500, 900, &feed, at())
+            .await
+            .unwrap();
+        let (ticker, accounts, keywords, hours, limit) = feed.seen.lock().unwrap().clone().unwrap();
         assert_eq!(ticker, "NVDA"); // Ticker::parse normalizes
         assert_eq!(accounts, DEFAULT_PULSE_ACCOUNTS.to_vec());
+        assert!(keywords.is_empty());
         assert_eq!(hours, 167);
         assert_eq!(limit, 100);
         assert_eq!(report.posts_read, 3);
@@ -206,7 +268,7 @@ mod tests {
         // Client-side truncation/skips kept 2 posts, but X returned (and
         // billed) 10 — e.g. the max_results floor of 10 with a low limit.
         let feed = fake_with_returned(2, 10);
-        let report = pulse("AAPL", &[], 24, 2, &feed, at()).await.unwrap();
+        let report = pulse("AAPL", &[], &[], 24, 2, &feed, at()).await.unwrap();
         assert_eq!(report.posts.len(), 2);
         assert_eq!(report.posts_read, 10);
         assert!((report.estimated_cost_usd - 0.05).abs() < 1e-9);
@@ -215,10 +277,10 @@ mod tests {
     #[tokio::test]
     async fn pulse_clamps_low_bounds_and_zero_posts_is_ok() {
         let feed = fake(0);
-        let report = pulse("AAPL", &["a".into()], 0, 0, &feed, at())
+        let report = pulse("AAPL", &["a".into()], &[], 0, 0, &feed, at())
             .await
             .unwrap();
-        let (_, _, hours, limit) = feed.seen.lock().unwrap().clone().unwrap();
+        let (_, _, _, hours, limit) = feed.seen.lock().unwrap().clone().unwrap();
         assert_eq!(hours, 1);
         assert_eq!(limit, 1);
         assert_eq!(report.posts_read, 0);
@@ -228,7 +290,7 @@ mod tests {
     #[tokio::test]
     async fn pulse_rejects_all_invalid_handles_without_falling_back_to_defaults() {
         let feed = fake(0);
-        let err = pulse("AAPL", &["bad handle".into()], 24, 20, &feed, at())
+        let err = pulse("AAPL", &["bad handle".into()], &[], 24, 20, &feed, at())
             .await
             .unwrap_err();
         assert!(err.to_string().contains("no valid X handles"));
@@ -236,8 +298,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pulse_rejects_all_invalid_keywords_without_falling_back() {
+        let feed = fake(0);
+        let err = pulse(
+            "AAPL",
+            &["a".into()],
+            &["robo taxi".into()],
+            24,
+            20,
+            &feed,
+            at(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("no valid keywords"));
+        assert!(feed.seen.lock().unwrap().is_none()); // never reached the paid call
+    }
+
+    #[tokio::test]
     async fn pulse_rejects_bad_ticker() {
         let feed = fake(0);
-        assert!(pulse("$$$", &[], 24, 20, &feed, at()).await.is_err());
+        assert!(pulse("$$$", &[], &[], 24, 20, &feed, at()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn pulse_threads_keywords_to_feed_and_report() {
+        let feed = fake(1);
+        let report = pulse(
+            "TSLA",
+            &["elonmusk".into()],
+            &["Tesla".into(), "Robotaxi".into()],
+            24,
+            20,
+            &feed,
+            at(),
+        )
+        .await
+        .unwrap();
+        let (_, _, keywords, _, _) = feed.seen.lock().unwrap().clone().unwrap();
+        assert_eq!(keywords, vec!["Tesla".to_string(), "Robotaxi".to_string()]);
+        assert_eq!(
+            report.keywords,
+            vec!["Tesla".to_string(), "Robotaxi".to_string()]
+        );
     }
 }

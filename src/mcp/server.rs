@@ -99,8 +99,11 @@ impl OpenIntelServer {
                        actually matter for this ticker — CEO/founder, major institutional holders \
                        or activist funds, respected sector journalists, and market-moving macro \
                        figures — then propose the account list and estimated max cost \
-                       (limit × $0.005) to the user and get their confirmation. Omit `accounts` \
-                       only if the user asks for the default macro list. Returned posts are \
+                       (limit × $0.005) to the user and get their confirmation. Also propose \
+                       company-language keywords (e.g. \"Tesla\" for TSLA) — these accounts \
+                       rarely write cashtags, so symbol-only matching misses their posts. \
+                       Omit `accounts` only if the user asks for the default macro list. \
+                       Returned posts are \
                        catalyst events — reason about them directly; do not treat them as a \
                        sentiment sample. Read-only — does not trade."
     )]

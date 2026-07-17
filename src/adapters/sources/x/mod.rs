@@ -15,15 +15,22 @@ const SEARCH_URL: &str = "https://api.x.com/2/tweets/search/recent";
 const TIMEOUT_SECS: u64 = 10;
 
 /// Build the author-filtered search query.
+/// High-impact accounts write company language ("Tesla", "Robotaxi"), not
+/// cashtags — live-verified: 0 posts in 7 days from hourly-posting accounts
+/// on a cashtag-only query. The symbol terms (`$TICKER`, `TICKER`) are always
+/// present; caller-supplied keywords broaden recall onto that language.
 /// Contingency (spec): if pay-per-use rejects the `$` cashtag operator
 /// (HTTP 400 naming the operator in the live test), drop the `$` prefix here.
-pub(crate) fn build_query(ticker: &Ticker, accounts: &[String]) -> String {
+pub(crate) fn build_query(ticker: &Ticker, accounts: &[String], keywords: &[String]) -> String {
     let from = accounts
         .iter()
         .map(|a| format!("from:{a}"))
         .collect::<Vec<_>>()
         .join(" OR ");
-    format!("${} ({from}) -is:retweet", ticker.as_str())
+    let mut terms = vec![format!("${}", ticker.as_str()), ticker.as_str().to_string()];
+    terms.extend(keywords.iter().cloned());
+    let terms = terms.join(" OR ");
+    format!("({terms}) ({from}) -is:retweet")
 }
 
 fn fail(message: impl Into<String>) -> DomainError {
@@ -61,6 +68,7 @@ impl InfluencerFeed for XPulseSource {
         &self,
         ticker: &Ticker,
         accounts: &[String],
+        keywords: &[String],
         hours_back: u32,
         limit: usize,
     ) -> Result<PulseFetch, DomainError> {
@@ -79,7 +87,7 @@ impl InfluencerFeed for XPulseSource {
         // `.query()` is behind reqwest's un-enabled `query` feature; build manually.
         let mut url = reqwest::Url::parse(SEARCH_URL).map_err(|e| fail(format!("bad url: {e}")))?;
         url.query_pairs_mut()
-            .append_pair("query", &build_query(ticker, accounts))
+            .append_pair("query", &build_query(ticker, accounts, keywords))
             .append_pair("start_time", &start_time)
             .append_pair("max_results", &max_results)
             .append_pair("tweet.fields", "created_at,public_metrics")
@@ -141,11 +149,25 @@ mod tests {
         let t = Ticker::parse("NVDA").unwrap();
         let accounts = vec!["jensenhuang".to_string(), "elonmusk".to_string()];
         assert_eq!(
-            build_query(&t, &accounts),
-            "$NVDA (from:jensenhuang OR from:elonmusk) -is:retweet"
+            build_query(&t, &accounts, &[]),
+            "($NVDA OR NVDA) (from:jensenhuang OR from:elonmusk) -is:retweet"
         );
         let one = vec!["WhiteHouse".to_string()];
-        assert_eq!(build_query(&t, &one), "$NVDA (from:WhiteHouse) -is:retweet");
+        assert_eq!(
+            build_query(&t, &one, &[]),
+            "($NVDA OR NVDA) (from:WhiteHouse) -is:retweet"
+        );
+    }
+
+    #[test]
+    fn build_query_appends_keywords_after_symbol_terms() {
+        let t = Ticker::parse("TSLA").unwrap();
+        let accounts = vec!["elonmusk".to_string()];
+        let keywords = vec!["Tesla".to_string(), "Robotaxi".to_string()];
+        assert_eq!(
+            build_query(&t, &accounts, &keywords),
+            "($TSLA OR TSLA OR Tesla OR Robotaxi) (from:elonmusk) -is:retweet"
+        );
     }
 
     #[test]
@@ -163,7 +185,7 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let fetch = src
-            .pulse(&Ticker::parse("AAPL").unwrap(), &accounts, 167, 10)
+            .pulse(&Ticker::parse("AAPL").unwrap(), &accounts, &[], 167, 10)
             .await
             .unwrap(); // cashtag-operator contingency check: a 400 here means switch build_query to bare keyword
         for p in &fetch.posts {

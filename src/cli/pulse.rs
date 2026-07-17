@@ -29,6 +29,7 @@ pub async fn run(args: &PulseArgs, credentials: &Credentials) -> Result<String, 
     let report = crate::application::pulse::pulse(
         &args.ticker,
         &args.accounts,
+        &args.keywords,
         args.hours,
         args.limit,
         &feed,
@@ -79,6 +80,9 @@ fn render_table(report: &PulseReport, now: DateTime<Utc>) -> String {
         report.hours_back,
         report.accounts.join(", ")
     );
+    if !report.keywords.is_empty() {
+        let _ = writeln!(out, "keywords: {}", report.keywords.join(", "));
+    }
     let _ = writeln!(
         out,
         "generated: {}\n",
@@ -136,6 +140,7 @@ mod tests {
         PulseReport {
             ticker: "NVDA".into(),
             accounts: vec!["jensenhuang".into(), "elonmusk".into()],
+            keywords: vec![],
             hours_back: 24,
             posts,
             posts_read,
@@ -164,6 +169,20 @@ mod tests {
         assert!(rendered.contains("cost: 1 posts read (≈ $0.01 at $0.005/read"));
         assert!(rendered.contains("Not financial advice"));
         assert!(!rendered.contains("billed")); // read == shown -> no note
+    }
+
+    #[test]
+    fn table_shows_keywords_line_when_present() {
+        let mut r = report(vec![post(3)]);
+        r.keywords = vec!["Tesla".into(), "Robotaxi".into()];
+        let rendered = render_table(&r, at());
+        assert!(rendered.contains("keywords: Tesla, Robotaxi"));
+    }
+
+    #[test]
+    fn table_omits_keywords_line_when_empty() {
+        let rendered = render_table(&report(vec![post(3)]), at());
+        assert!(!rendered.contains("keywords:"));
     }
 
     #[test]

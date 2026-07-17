@@ -29,6 +29,7 @@ pub struct PulseFetch {
 pub struct PulseReport {
     pub ticker: String,
     pub accounts: Vec<String>,
+    pub keywords: Vec<String>,
     pub hours_back: u32,
     pub posts: Vec<PulsePost>,
     pub posts_read: u32,

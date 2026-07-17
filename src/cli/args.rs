@@ -83,6 +83,12 @@ pub struct PulseArgs {
     #[arg(long, value_delimiter = ',')]
     pub accounts: Vec<String>,
 
+    /// Extra search terms in the accounts' own language, comma-separated;
+    /// phrases allowed (e.g. tesla,robotaxi,General Motors) — cashtags are
+    /// rare in influencer posts
+    #[arg(long, value_delimiter = ',')]
+    pub keywords: Vec<String>,
+
     /// Lookback window in hours (1-167)
     #[arg(long, default_value_t = 24)]
     pub hours: u32,
@@ -213,6 +219,25 @@ mod tests {
             panic!("expected pulse command");
         };
         assert!(args.accounts.is_empty());
+        assert!(args.keywords.is_empty());
         assert_eq!(args.hours, 24);
+    }
+
+    #[test]
+    fn parses_pulse_with_keywords() {
+        let cli = Cli::try_parse_from([
+            "openintel",
+            "pulse",
+            "TSLA",
+            "--accounts",
+            "elonmusk",
+            "--keywords",
+            "tesla,robotaxi",
+        ])
+        .unwrap();
+        let Command::Pulse(args) = cli.command else {
+            panic!("expected pulse command");
+        };
+        assert_eq!(args.keywords, vec!["tesla", "robotaxi"]);
     }
 }

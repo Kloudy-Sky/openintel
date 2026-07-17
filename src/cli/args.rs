@@ -26,6 +26,9 @@ pub enum Command {
 
     /// Catalyst posts from specific high-impact X accounts (paid X API — opt-in)
     Pulse(PulseArgs),
+
+    /// Deterministic risk math for one trade idea: ATR stop, budget-capped size, R targets
+    Risk(RiskArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -96,6 +99,36 @@ pub struct PulseArgs {
     /// Max posts to read — each costs ~$0.005; X bills a minimum of 10 reads per call (1-100)
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
+
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectionArg {
+    Long,
+    Short,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct RiskArgs {
+    /// Ticker symbol, e.g. NVDA
+    pub ticker: String,
+
+    /// Per-trade risk budget in USD — the most a stop-out may lose
+    #[arg(long)]
+    pub budget: f64,
+
+    #[arg(long, value_enum, default_value_t = DirectionArg::Long)]
+    pub direction: DirectionArg,
+
+    /// Stop distance in ATR multiples (0.5-5)
+    #[arg(long = "stop-mult", default_value_t = 2.0)]
+    pub stop_mult: f64,
+
+    /// Entry price override (default: last close)
+    #[arg(long)]
+    pub entry: Option<f64>,
 
     #[arg(long, value_enum, default_value_t = FormatArg::Table)]
     pub format: FormatArg,
@@ -239,5 +272,34 @@ mod tests {
             panic!("expected pulse command");
         };
         assert_eq!(args.keywords, vec!["tesla", "robotaxi"]);
+    }
+
+    #[test]
+    fn parses_risk_args() {
+        let cli = Cli::try_parse_from([
+            "openintel",
+            "risk",
+            "NVDA",
+            "--budget",
+            "200",
+            "--direction",
+            "short",
+            "--stop-mult",
+            "1.5",
+        ])
+        .unwrap();
+        let Command::Risk(args) = cli.command else {
+            panic!("expected risk command");
+        };
+        assert_eq!(args.ticker, "NVDA");
+        assert_eq!(args.budget, 200.0);
+        assert_eq!(args.direction, DirectionArg::Short);
+        assert_eq!(args.stop_mult, 1.5);
+        assert!(args.entry.is_none());
+    }
+
+    #[test]
+    fn risk_requires_budget() {
+        assert!(Cli::try_parse_from(["openintel", "risk", "NVDA"]).is_err());
     }
 }

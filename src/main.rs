@@ -68,5 +68,15 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Risk(args) => match openintel::cli::risk::run(&args).await {
+            Ok(rendered) => {
+                println!("{rendered}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }

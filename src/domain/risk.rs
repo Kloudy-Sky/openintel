@@ -83,11 +83,20 @@ pub fn frame(
     if !(entry.is_finite() && entry > 0.0) {
         return Err(fail("entry must be a positive price"));
     }
+    if !(stop_multiple.is_finite() && stop_multiple > 0.0) {
+        return Err(fail("stop multiple must be a positive number"));
+    }
     let stop_multiple = stop_multiple.clamp(0.5, 5.0);
+    if bars
+        .iter()
+        .any(|b| !(b.high.is_finite() && b.low.is_finite() && b.close.is_finite()))
+    {
+        return Err(fail("price history contains invalid values"));
+    }
     let atr = atr(bars, ATR_PERIOD)
         .ok_or_else(|| fail(format!("not enough history for ATR({ATR_PERIOD})")))?;
-    if atr <= 0.0 {
-        return Err(fail("flat price history — ATR is zero"));
+    if !(atr.is_finite() && atr > 0.0) {
+        return Err(fail("degenerate price history — ATR is zero or invalid"));
     }
 
     let risk_per_share = stop_multiple * atr;
@@ -95,11 +104,17 @@ pub fn frame(
         Direction::Long => entry - risk_per_share,
         Direction::Short => entry + risk_per_share,
     };
-    if stop <= 0.0 {
+    if !(stop.is_finite() && stop > 0.0) {
         return Err(fail("stop below zero — use a smaller multiple"));
     }
 
     let shares = (budget_usd / risk_per_share).floor() as u64;
+    const MAX_SHARES: u64 = 10_000_000; // sanity bound: anything above this is an input error, not a trade
+    if shares > MAX_SHARES {
+        return Err(fail(
+            "share size implausibly large — check budget and stop multiple",
+        ));
+    }
     let note =
         (shares == 0).then(|| "budget too small for one share at this stop distance".to_string());
     let signed = |n: f64| match direction {
@@ -212,5 +227,21 @@ mod tests {
         // flat history -> ATR 0 -> error
         let flat = vec![bar(100.0, 100.0, 100.0); 16];
         assert!(frame("N", &flat, Direction::Long, 100.0, 100.0, 2.0, at()).is_err());
+    }
+
+    #[test]
+    fn nan_inputs_error_instead_of_poisoning_output() {
+        assert!(frame("N", &bars(), Direction::Long, 106.0, 100.0, f64::NAN, at()).is_err());
+        assert!(frame("N", &bars(), Direction::Long, f64::NAN, 100.0, 2.0, at()).is_err());
+        assert!(frame("N", &bars(), Direction::Long, 106.0, f64::NAN, 2.0, at()).is_err());
+        let mut poisoned = bars();
+        poisoned[8] = bar(f64::NAN, 104.0, 106.0);
+        assert!(frame("N", &poisoned, Direction::Long, 106.0, 100.0, 2.0, at()).is_err());
+    }
+
+    #[test]
+    fn implausible_share_count_errors() {
+        // budget astronomically large vs. risk/share of 8 -> shares would exceed the sanity cap
+        assert!(frame("N", &bars(), Direction::Long, 106.0, 1e12, 2.0, at()).is_err());
     }
 }

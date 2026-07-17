@@ -22,7 +22,9 @@ pub const DEFAULT_PULSE_ACCOUNTS: [&str; 4] = [
     "federalreserve",
 ];
 
-pub const MAX_HOURS_BACK: u32 = 168;
+/// X recent search covers 7 days; cap below the boundary so start_time never
+/// lands outside the window mid-flight.
+pub const MAX_HOURS_BACK: u32 = 167;
 pub const MAX_PULSE_LIMIT: usize = 100;
 
 /// Trim, strip a leading `@`, drop invalid handles (X username charset:
@@ -192,7 +194,7 @@ mod tests {
         let (ticker, accounts, hours, limit) = feed.seen.lock().unwrap().clone().unwrap();
         assert_eq!(ticker, "NVDA"); // Ticker::parse normalizes
         assert_eq!(accounts, DEFAULT_PULSE_ACCOUNTS.to_vec());
-        assert_eq!(hours, 168);
+        assert_eq!(hours, 167);
         assert_eq!(limit, 100);
         assert_eq!(report.posts_read, 3);
         assert!((report.estimated_cost_usd - 0.015).abs() < 1e-9);

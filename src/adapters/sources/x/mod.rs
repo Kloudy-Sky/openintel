@@ -163,7 +163,7 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let fetch = src
-            .pulse(&Ticker::parse("AAPL").unwrap(), &accounts, 168, 10)
+            .pulse(&Ticker::parse("AAPL").unwrap(), &accounts, 167, 10)
             .await
             .unwrap(); // cashtag-operator contingency check: a 400 here means switch build_query to bare keyword
         for p in &fetch.posts {

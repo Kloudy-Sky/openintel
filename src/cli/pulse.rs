@@ -108,6 +108,14 @@ fn render_table(report: &PulseReport, now: DateTime<Utc>) -> String {
         "cost: {} posts read (≈ ${:.2} at ${}/read; X dedupes re-reads for 24h)",
         report.posts_read, report.estimated_cost_usd, X_COST_PER_READ_USD
     );
+    if report.posts_read as usize > report.posts.len() {
+        let _ = writeln!(
+            out,
+            "note: X returned {} post(s) (billed); {} shown after limit/filtering",
+            report.posts_read,
+            report.posts.len()
+        );
+    }
     let _ = writeln!(out, "\n{DISCLAIMER}");
     out
 }
@@ -155,6 +163,7 @@ mod tests {
         assert!(rendered.contains("Blackwell Ultra shipping at scale"));
         assert!(rendered.contains("cost: 1 posts read (≈ $0.01 at $0.005/read"));
         assert!(rendered.contains("Not financial advice"));
+        assert!(!rendered.contains("billed")); // read == shown -> no note
     }
 
     #[test]
@@ -162,6 +171,17 @@ mod tests {
         let rendered = render_table(&report(vec![]), at());
         assert!(rendered.contains("no posts from these accounts in the window"));
         assert!(rendered.contains("cost: 0 posts read"));
+        assert!(!rendered.contains("billed"));
+    }
+
+    #[test]
+    fn table_notes_when_billed_reads_exceed_shown_posts() {
+        let mut r = report(vec![post(1), post(2)]);
+        r.posts_read = 10;
+        r.estimated_cost_usd = 10.0 * X_COST_PER_READ_USD;
+        let rendered = render_table(&r, at());
+        assert!(rendered
+            .contains("note: X returned 10 post(s) (billed); 2 shown after limit/filtering"));
     }
 
     #[test]

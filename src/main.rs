@@ -11,12 +11,13 @@ use openintel::config::store::KeychainStore;
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
-    // Credentials resolve env-first, then the OS keychain (written by `openintel setup`).
-    let store = KeychainStore::new();
-    let credentials = Credentials::load(&store);
 
     match cli.command {
         Command::Analyze(args) => {
+            // Credentials resolve env-first, then the OS keychain (written by `openintel setup`).
+            let store = KeychainStore::new();
+            let credentials = Credentials::load(&store);
+
             let config = to_app_config(&args);
 
             let social = openintel::adapters::sources::build_social_sources(&credentials);
@@ -52,16 +53,36 @@ async fn main() -> ExitCode {
             }
         },
         Command::Setup(args) => {
+            // Credentials resolve env-first, then the OS keychain (written by `openintel setup`).
+            let store = KeychainStore::new();
+            let credentials = Credentials::load(&store);
+
             openintel::cli::setup::run(args.source, &credentials, &store, args.forget).await
         }
-        Command::Pulse(args) => match openintel::cli::pulse::run(&args, &credentials).await {
+        Command::Pulse(args) => {
+            // Credentials resolve env-first, then the OS keychain (written by `openintel setup`).
+            let store = KeychainStore::new();
+            let credentials = Credentials::load(&store);
+
+            match openintel::cli::pulse::run(&args, &credentials).await {
+                Ok(rendered) => {
+                    println!("{rendered}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) if e.to_string().contains("not configured") => {
+                    println!("{}", openintel::cli::pulse::not_configured_text());
+                    ExitCode::FAILURE
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Command::Risk(args) => match openintel::cli::risk::run(&args).await {
             Ok(rendered) => {
                 println!("{rendered}");
                 ExitCode::SUCCESS
-            }
-            Err(e) if e.to_string().contains("not configured") => {
-                println!("{}", openintel::cli::pulse::not_configured_text());
-                ExitCode::FAILURE
             }
             Err(e) => {
                 eprintln!("error: {e}");

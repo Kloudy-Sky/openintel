@@ -126,6 +126,26 @@ impl OpenIntelServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
+
+    #[tool(
+        description = "Deterministic risk calculator: given a ticker, a per-trade risk budget in \
+                       USD, and a direction, returns an ATR(14)-based stop level, the whole-share \
+                       size that caps a stop-out at the budget, max loss, and 1R/2R/3R reference \
+                       levels. It does NOT recommend trades — combine it with analyze_ticker / \
+                       x_pulse, present the numbers to the user, and get their explicit approval \
+                       before any execution step. Read-only — does not trade."
+    )]
+    async fn risk_frame(
+        &self,
+        Parameters(args): Parameters<tools::RiskToolArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_risk_frame(args, &self.market)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]

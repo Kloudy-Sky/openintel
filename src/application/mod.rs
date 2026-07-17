@@ -1,6 +1,7 @@
 pub mod analyze;
 pub mod pulse;
 pub mod request;
+pub mod risk;
 
 pub use analyze::analyze;
 pub use request::AnalysisRequest;

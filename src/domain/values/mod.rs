@@ -1,3 +1,4 @@
+pub mod bar;
 pub mod polarity;
 pub mod post_signal;
 pub mod source_kind;

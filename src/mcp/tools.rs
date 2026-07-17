@@ -360,6 +360,73 @@ pub async fn run_pulse(
     })
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum RiskDirectionArg {
+    Long,
+    Short,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RiskToolArgs {
+    /// Ticker symbol, e.g. "NVDA".
+    pub ticker: String,
+    /// Per-trade risk budget in USD — the most a stop-out may lose.
+    pub budget_usd: f64,
+    /// Trade direction (default long).
+    pub direction: Option<RiskDirectionArg>,
+    /// Stop distance in ATR multiples (default 2.0, clamped 0.5-5).
+    pub stop_multiple: Option<f64>,
+    /// Entry price override (default: last close).
+    pub entry: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RiskOutput {
+    pub summary: String,
+    pub frame: crate::domain::risk::RiskFrame,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_risk_frame(
+    args: RiskToolArgs,
+    bars: &dyn crate::domain::ports::bar_source::BarSource,
+) -> Result<RiskOutput, DomainError> {
+    use crate::domain::risk::Direction;
+    let direction = match args.direction.unwrap_or(RiskDirectionArg::Long) {
+        RiskDirectionArg::Long => Direction::Long,
+        RiskDirectionArg::Short => Direction::Short,
+    };
+    let frame = crate::application::risk::risk_frame(
+        &args.ticker,
+        direction,
+        args.budget_usd,
+        args.stop_multiple,
+        args.entry,
+        bars,
+        chrono::Utc::now(),
+    )
+    .await?;
+    let summary = format!(
+        "{} {:?} — entry {:.2} · stop {:.2} · {} shares · max loss ${:.2} (≤ ${:.2}) · 1R {:.2}",
+        frame.ticker,
+        frame.direction,
+        frame.entry,
+        frame.stop,
+        frame.shares,
+        frame.max_loss_usd,
+        frame.budget_usd,
+        frame.targets[0]
+    );
+    Ok(RiskOutput {
+        summary,
+        frame,
+        framing: "risk_frame is a calculator, not advice — it never recommends taking a trade.",
+        disclaimer: DISCLAIMER,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,5 +694,51 @@ mod tests {
             out.report.keywords,
             vec!["Tesla".to_string(), "Robotaxi".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn run_risk_frame_summarizes_and_disclaims() {
+        use crate::domain::ports::bar_source::BarSource;
+        use crate::domain::values::bar::Bar;
+        use async_trait::async_trait;
+
+        struct FixedBars;
+        #[async_trait]
+        impl BarSource for FixedBars {
+            async fn bars(
+                &self,
+                _t: &crate::domain::entities::ticker::Ticker,
+            ) -> Result<Vec<Bar>, DomainError> {
+                let mut v = vec![Bar {
+                    high: 101.0,
+                    low: 99.0,
+                    close: 100.0,
+                }];
+                for _ in 0..15 {
+                    v.push(Bar {
+                        high: 108.0,
+                        low: 104.0,
+                        close: 106.0,
+                    });
+                }
+                Ok(v)
+            }
+        }
+
+        let out = run_risk_frame(
+            RiskToolArgs {
+                ticker: "NVDA".into(),
+                budget_usd: 200.0,
+                direction: Some(RiskDirectionArg::Long),
+                stop_multiple: Some(2.0),
+                entry: None,
+            },
+            &FixedBars,
+        )
+        .await
+        .unwrap();
+        assert!(out.summary.contains("25 shares"));
+        assert!(out.framing.contains("risk_frame is a calculator"));
+        assert!(out.disclaimer.contains("Not financial advice"));
     }
 }

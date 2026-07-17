@@ -122,6 +122,8 @@ pub fn frame(
         Direction::Short => entry - n * risk_per_share,
     };
 
+    let targets = [signed(1.0), signed(2.0), signed(3.0)].map(|t| t.max(0.0));
+
     Ok(RiskFrame {
         ticker: ticker.to_string(),
         direction,
@@ -133,7 +135,7 @@ pub fn frame(
         shares,
         max_loss_usd: shares as f64 * risk_per_share,
         budget_usd,
-        targets: [signed(1.0), signed(2.0), signed(3.0)],
+        targets,
         notional_usd: shares as f64 * entry,
         bars_used: bars.len(),
         note,
@@ -201,6 +203,15 @@ mod tests {
         assert!((f.stop - 110.0).abs() < 1e-12);
         assert!((f.targets[0] - 102.0).abs() < 1e-12);
         assert_eq!(f.shares, 25); // floor(100 / 4)
+    }
+
+    #[test]
+    fn short_targets_clamped_at_zero() {
+        // Short, entry 10.0, ATR 4, k=2 -> risk_per_share=8.
+        // 1R: 10-8=2 (unclamped); 3R: 10-24=-14 (clamped to 0).
+        let f = frame("NVDA", &bars(), Direction::Short, 10.0, 100.0, 2.0, at()).unwrap();
+        assert!((f.targets[0] - 2.0).abs() < 1e-12); // 1R unclamped
+        assert!((f.targets[2] - 0.0).abs() < 1e-12); // 3R clamped to zero
     }
 
     #[test]

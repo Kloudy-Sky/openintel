@@ -1,3 +1,4 @@
+pub mod bar_source;
 pub mod influencer_feed;
 pub mod market_data_source;
 pub mod post_analyzer;

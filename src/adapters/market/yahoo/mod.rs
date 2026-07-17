@@ -8,7 +8,9 @@ use chrono::Utc;
 use crate::domain::entities::market_snapshot::MarketSnapshot;
 use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
+use crate::domain::ports::bar_source::BarSource;
 use crate::domain::ports::market_data_source::MarketDataSource;
+use crate::domain::values::bar::Bar;
 
 const BASE_URL: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
 const TIMEOUT_SECS: u64 = 10;
@@ -30,17 +32,15 @@ impl YahooMarketSource {
             })?;
         Ok(Self { client })
     }
-}
 
-#[async_trait]
-impl MarketDataSource for YahooMarketSource {
-    fn name(&self) -> &'static str {
-        "yahoo"
-    }
-
-    async fn snapshot(&self, ticker: &Ticker) -> Result<MarketSnapshot, DomainError> {
+    /// Issue the chart request and return the HTTP status alongside the raw
+    /// body. Shared by `snapshot` (which needs the status to enrich parse
+    /// failures) and `fetch_chart_body` (which does not).
+    async fn fetch_chart(
+        &self,
+        ticker: &Ticker,
+    ) -> Result<(reqwest::StatusCode, String), DomainError> {
         let url = format!("{BASE_URL}/{}?range=3mo&interval=1d", ticker.as_str());
-        let fetched_at = Utc::now();
 
         let resp = self
             .client
@@ -57,7 +57,34 @@ impl MarketDataSource for YahooMarketSource {
             message: format!("reading body failed (HTTP {status}): {e}"),
         })?;
 
+        Ok((status, body))
+    }
+
+    /// The chart body alone, for consumers (like `bars`) that don't need
+    /// HTTP-status-aware error enrichment.
+    async fn fetch_chart_body(&self, ticker: &Ticker) -> Result<String, DomainError> {
+        self.fetch_chart(ticker).await.map(|(_, body)| body)
+    }
+}
+
+#[async_trait]
+impl MarketDataSource for YahooMarketSource {
+    fn name(&self) -> &'static str {
+        "yahoo"
+    }
+
+    async fn snapshot(&self, ticker: &Ticker) -> Result<MarketSnapshot, DomainError> {
+        let fetched_at = Utc::now();
+        let (status, body) = self.fetch_chart(ticker).await?;
         to_snapshot(status, &body, ticker, fetched_at)
+    }
+}
+
+#[async_trait]
+impl BarSource for YahooMarketSource {
+    async fn bars(&self, ticker: &Ticker) -> Result<Vec<Bar>, DomainError> {
+        let body = self.fetch_chart_body(ticker).await?;
+        response::parse_bars(&body)
     }
 }
 
@@ -100,6 +127,17 @@ mod tests {
         let snap = src.snapshot(&Ticker::parse("AAPL").unwrap()).await.unwrap();
         assert!(snap.last_price > 0.0, "last_price = {}", snap.last_price);
         assert!(snap.previous_close > 0.0);
+    }
+
+    #[tokio::test]
+    #[ignore = "hits live Yahoo (keyless, free); run with --ignored"]
+    async fn live_bars_have_sane_ohlc() {
+        let src = YahooMarketSource::new().unwrap();
+        let bars = src.bars(&Ticker::parse("AAPL").unwrap()).await.unwrap();
+        assert!(bars.len() >= 15);
+        for b in &bars {
+            assert!(b.high >= b.low);
+        }
     }
 
     #[test]

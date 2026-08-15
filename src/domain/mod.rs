@@ -1,3 +1,4 @@
+pub mod dip;
 pub mod engine;
 pub mod entities;
 pub mod error;

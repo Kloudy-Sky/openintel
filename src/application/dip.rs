@@ -335,7 +335,8 @@ pub async fn dip_scan(
         }
     };
 
-    let results: Vec<(String, f64, Result<(DipSignal, Vec<Bar>), DomainError>)> =
+    type CheckOutcome = Result<(DipSignal, Vec<Bar>), DomainError>;
+    let results: Vec<(String, f64, CheckOutcome)> =
         futures::stream::iter(deep.into_iter().map(|row| async move {
             let ctx = CheckContext {
                 change_pct: Some(row.change_pct),

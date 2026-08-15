@@ -180,6 +180,72 @@ pub fn consecutive_down_closes(closes: &[f64]) -> usize {
     closes.windows(2).rev().take_while(|w| w[1] < w[0]).count()
 }
 
+/// Corporate suffix tokens stripped when deriving matchable company-name
+/// forms ("Ultra Clean Holdings, Inc." -> "ultra clean").
+const NAME_SUFFIXES: &[&str] = &[
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "ltd",
+    "limited",
+    "plc",
+    "co",
+    "company",
+    "holdings",
+    "holding",
+    "group",
+    "trust",
+    "sa",
+    "nv",
+    "ag",
+];
+
+fn normalize_words(text: &str) -> Vec<String> {
+    text.to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Does this headline title clearly reference the company — by ticker symbol
+/// (whole word, ≥ 2 chars) or by a meaningful prefix of a known company name?
+/// Used to tell company news from generic market-roundup stories.
+pub fn headline_mentions_company(title: &str, ticker: &str, company_names: &[String]) -> bool {
+    let title_words = normalize_words(title);
+    let ticker_lower = ticker.to_ascii_lowercase();
+    if ticker.len() >= 2 && title_words.contains(&ticker_lower) {
+        return true;
+    }
+    // padded so forms only match on whole-word boundaries
+    let title_joined = format!(" {} ", title_words.join(" "));
+    for name in company_names {
+        let mut words = normalize_words(name);
+        while let Some(last) = words.last() {
+            if NAME_SUFFIXES.contains(&last.as_str()) {
+                words.pop();
+            } else {
+                break;
+            }
+        }
+        if words.first().map(|w| w.as_str()) == Some("the") {
+            words.remove(0);
+        }
+        let form = match words.len() {
+            0 => continue,
+            // single-word names need some length to avoid matching everywhere
+            1 if words[0].len() >= 4 => words[0].clone(),
+            1 => continue,
+            _ => words[..2].join(" "),
+        };
+        if title_joined.contains(&format!(" {form} ")) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Case-insensitive whole-word keyword hits across the given texts, deduped.
 pub fn catalyst_hits(texts: &[&str]) -> Vec<String> {
     let mut hits: Vec<String> = Vec::new();
@@ -373,6 +439,9 @@ pub struct DipInputs<'a> {
     pub filings: GateEvidence<Vec<Filing>>,
     /// Headlines already filtered to the drop day by the caller.
     pub headlines: GateEvidence<Vec<Headline>>,
+    /// Known company names for this ticker (headline gate discrimination).
+    /// Empty = treat every headline as potentially about the company.
+    pub company_names: Vec<String>,
     pub sentiment: Option<SentimentSummary>,
     pub session: Session,
     /// Floor result from the screener row (Unknown in single-ticker mode,
@@ -524,29 +593,56 @@ pub fn dip_signal(inputs: &DipInputs) -> Result<DipSignal, DomainError> {
         }
     };
 
+    // Keyword hits in a headline that clearly references the company CONFIRM
+    // a catalyst (Fail). Hits only in headlines that don't (market roundups,
+    // sector stories) are ambiguous — Unknown, capping at watch, never a
+    // false-positive kill. With no company names known, every headline is
+    // treated as potentially about the company (old, stricter behavior).
     let no_catalyst_headline = match &inputs.headlines {
         GateEvidence::Unavailable(reason) => GateStatus::Unknown(reason.clone()),
         GateEvidence::Available(headlines) => {
-            let titles: Vec<&str> = headlines.iter().map(|h| h.title.as_str()).collect();
-            let hits = catalyst_hits(&titles);
-            if hits.is_empty() {
-                GateStatus::Pass
-            } else {
-                for h in headlines {
-                    let title_hits = catalyst_hits(&[h.title.as_str()]);
-                    if !title_hits.is_empty() {
-                        catalyst_evidence.push(format!(
-                            "headline [{}]: \"{}\" (terms: {})",
-                            h.publisher,
-                            h.title,
-                            title_hits.join(", ")
-                        ));
+            let mut matched_hits: Vec<String> = Vec::new();
+            let mut unmatched_hits: Vec<String> = Vec::new();
+            for h in headlines {
+                let title_hits = catalyst_hits(&[h.title.as_str()]);
+                if title_hits.is_empty() {
+                    continue;
+                }
+                let about_company = inputs.company_names.is_empty()
+                    || headline_mentions_company(&h.title, inputs.ticker, &inputs.company_names);
+                if about_company {
+                    catalyst_evidence.push(format!(
+                        "headline [{}]: \"{}\" (terms: {})",
+                        h.publisher,
+                        h.title,
+                        title_hits.join(", ")
+                    ));
+                    for hit in title_hits {
+                        if !matched_hits.contains(&hit) {
+                            matched_hits.push(hit);
+                        }
+                    }
+                } else {
+                    for hit in title_hits {
+                        if !unmatched_hits.contains(&hit) {
+                            unmatched_hits.push(hit);
+                        }
                     }
                 }
+            }
+            if !matched_hits.is_empty() {
                 GateStatus::Fail(format!(
-                    "catalyst term(s) in headlines: {}",
-                    hits.join(", ")
+                    "catalyst term(s) in company headlines: {}",
+                    matched_hits.join(", ")
                 ))
+            } else if !unmatched_hits.is_empty() {
+                GateStatus::Unknown(format!(
+                    "catalyst term(s) only in headlines not clearly about {}: {}",
+                    inputs.ticker,
+                    unmatched_hits.join(", ")
+                ))
+            } else {
+                GateStatus::Pass
             }
         }
     };
@@ -789,6 +885,7 @@ mod tests {
             spx_change_pct: Some(-0.5),
             filings: GateEvidence::Available(vec![]),
             headlines: GateEvidence::Available(vec![]),
+            company_names: vec![],
             sentiment: Some(SentimentSummary {
                 net_sentiment: 0.2,
                 mentions: 25,
@@ -886,6 +983,90 @@ mod tests {
         let sig = dip_signal(&i).unwrap();
         assert_eq!(sig.verdict, Verdict::NoSetup);
         assert!(sig.catalyst_evidence[0].contains("guidance"));
+    }
+
+    #[test]
+    fn headline_company_matching() {
+        let names = vec!["Ultra Clean Holdings, Inc.".to_string()];
+        assert!(headline_mentions_company(
+            "Ultra Clean Shares Fall After $400 Million Offering",
+            "UCTT",
+            &names
+        ));
+        assert!(headline_mentions_company(
+            "Why UCTT dropped today",
+            "UCTT",
+            &names
+        ));
+        assert!(!headline_mentions_company(
+            "Target Stock Flies To New Highs As Earnings Approach",
+            "UCTT",
+            &names
+        ));
+        // word-boundary: "ultra cleanse" is not "ultra clean <word>"? it IS
+        // "ultra" + "cleanse" — the padded form " ultra clean " must not match
+        assert!(!headline_mentions_company(
+            "An ultra cleanse fad",
+            "UCTT",
+            &names
+        ));
+        // single-word name needs length; "the" prefix stripped
+        let viking = vec!["The Viking Holdings Ltd".to_string()];
+        assert!(headline_mentions_company(
+            "Viking slides on bookings",
+            "VIK",
+            &viking
+        ));
+        assert!(!headline_mentions_company(
+            "Norse history special",
+            "VIK",
+            &viking
+        ));
+    }
+
+    #[test]
+    fn roundup_headline_is_unknown_not_kill_when_names_known() {
+        let prior = prior();
+        let w = ScoreWeights::default();
+        // the VIK case: generic earnings-roundup headlines, none about VIK
+        let mut i = inputs(&prior, &w);
+        i.ticker = "VIK";
+        i.company_names = vec!["Viking Holdings Ltd".into()];
+        i.headlines = GateEvidence::Available(vec![Headline {
+            title: "Stock Market Week Ahead: Walmart, Target Lead Retail Earnings".into(),
+            publisher: "IBD".into(),
+            published_at: Some(chrono::Utc::now()),
+        }]);
+        let sig = dip_signal(&i).unwrap();
+        assert_eq!(sig.verdict, Verdict::Watch); // capped, NOT killed
+        assert!(matches!(
+            sig.gates.no_catalyst_headline,
+            GateStatus::Unknown(_)
+        ));
+        assert!(sig.catalyst_evidence.is_empty());
+
+        // same headline naming the company -> confirmed kill
+        let mut i = inputs(&prior, &w);
+        i.ticker = "VIK";
+        i.company_names = vec!["Viking Holdings Ltd".into()];
+        i.headlines = GateEvidence::Available(vec![Headline {
+            title: "Viking cuts guidance after weak bookings".into(),
+            publisher: "Wire".into(),
+            published_at: Some(chrono::Utc::now()),
+        }]);
+        let sig = dip_signal(&i).unwrap();
+        assert_eq!(sig.verdict, Verdict::NoSetup);
+        assert!(!sig.catalyst_evidence.is_empty());
+
+        // no names known -> old strict behavior: any hit kills
+        let mut i = inputs(&prior, &w);
+        i.headlines = GateEvidence::Available(vec![Headline {
+            title: "Retail earnings week ahead".into(),
+            publisher: "Wire".into(),
+            published_at: Some(chrono::Utc::now()),
+        }]);
+        let sig = dip_signal(&i).unwrap();
+        assert_eq!(sig.verdict, Verdict::NoSetup);
     }
 
     #[test]

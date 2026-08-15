@@ -13,9 +13,8 @@ use crate::domain::error::DomainError;
 use crate::domain::ports::bar_source::BarSource;
 use crate::domain::ports::market_data_source::MarketDataSource;
 use crate::domain::ports::movers_source::MoversSource;
-use crate::domain::ports::news_source::NewsSource;
+use crate::domain::ports::news_source::{NewsFetch, NewsSource};
 use crate::domain::values::bar::Bar;
-use crate::domain::values::headline::Headline;
 use crate::domain::values::mover::MoverRow;
 
 const BASE_URL: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
@@ -137,13 +136,15 @@ impl MoversSource for YahooMarketSource {
 
 #[async_trait]
 impl NewsSource for YahooMarketSource {
-    async fn headlines(&self, ticker: &Ticker, count: usize) -> Result<Vec<Headline>, DomainError> {
+    async fn headlines(&self, ticker: &Ticker, count: usize) -> Result<NewsFetch, DomainError> {
+        // quotesCount=2 so the matching quote's company names ride along
+        // (the catalyst gate uses them to tell company news from roundups).
         let url = format!(
-            "{SEARCH_URL}?q={}&newsCount={count}&quotesCount=0",
+            "{SEARCH_URL}?q={}&newsCount={count}&quotesCount=2",
             ticker.as_str()
         );
         let body = self.fetch_body("yahoo-news", url).await?;
-        news::parse_headlines(&body)
+        news::parse_news(&body, ticker.as_str())
     }
 }
 
@@ -218,11 +219,15 @@ mod tests {
     async fn live_headlines_parse() {
         let src = YahooMarketSource::new().unwrap();
         // AAPL always has news; content varies — assert shape only.
-        let news = NewsSource::headlines(&src, &Ticker::parse("AAPL").unwrap(), 5)
+        let fetch = NewsSource::headlines(&src, &Ticker::parse("AAPL").unwrap(), 5)
             .await
             .unwrap();
-        assert!(!news.is_empty());
-        assert!(news.iter().all(|h| !h.title.is_empty()));
+        assert!(!fetch.headlines.is_empty());
+        assert!(fetch.headlines.iter().all(|h| !h.title.is_empty()));
+        assert!(fetch
+            .company_names
+            .iter()
+            .any(|n| n.to_lowercase().contains("apple")));
     }
 
     #[test]

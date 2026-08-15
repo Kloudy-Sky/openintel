@@ -1035,7 +1035,7 @@ mod tests {
         #[tokio::test]
         async fn scan_mode_summarizes_and_frames() {
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let movers = MockMoversSource(vec![MoverRow {
@@ -1066,7 +1066,7 @@ mod tests {
         #[tokio::test]
         async fn single_ticker_mode_returns_signal() {
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let movers = MockMoversSource(vec![]);
@@ -1130,7 +1130,7 @@ mod tests {
         #[tokio::test]
         async fn analyze_attaches_dip_signal_on_down_day() {
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let deps = DipDeps {
@@ -1164,7 +1164,7 @@ mod tests {
         async fn analyze_dip_failure_degrades_to_note() {
             // AAPL has no bars in the map -> dip_check errors -> note, not failure
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let deps = DipDeps {

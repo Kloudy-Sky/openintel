@@ -232,20 +232,26 @@ async fn check(
         }
     };
 
-    let headlines = match deps.news.headlines(&ticker, HEADLINE_COUNT).await {
+    let (headlines, company_names) = match deps.news.headlines(&ticker, HEADLINE_COUNT).await {
         // Undated headlines are kept — they MIGHT be same-day, and dropping
         // them could hide a catalyst (fail closed, not open).
-        Ok(all) => GateEvidence::Available(
-            all.into_iter()
-                .filter(|h| match h.published_at {
-                    Some(at) => {
-                        at.with_timezone(&chrono_tz::America::New_York).date_naive() == drop_date
-                    }
-                    None => true,
-                })
-                .collect(),
+        Ok(fetch) => (
+            GateEvidence::Available(
+                fetch
+                    .headlines
+                    .into_iter()
+                    .filter(|h| match h.published_at {
+                        Some(at) => {
+                            at.with_timezone(&chrono_tz::America::New_York).date_naive()
+                                == drop_date
+                        }
+                        None => true,
+                    })
+                    .collect(),
+            ),
+            fetch.company_names,
         ),
-        Err(e) => GateEvidence::Unavailable(e.to_string()),
+        Err(e) => (GateEvidence::Unavailable(e.to_string()), Vec::new()),
     };
 
     let sentiment = match ctx.known_sentiment {
@@ -265,6 +271,7 @@ async fn check(
         spx_change_pct,
         filings,
         headlines,
+        company_names,
         sentiment,
         session,
         floor: ctx.floor,
@@ -656,7 +663,7 @@ mod tests {
     #[tokio::test]
     async fn scan_ranks_verdicts_and_collects_errors() {
         let bars = bars_map();
-        let news = MockNewsSource(Ok(vec![]));
+        let news = MockNewsSource(Ok(Default::default()));
         let filings = MockFilingsSource(Ok(vec![]));
         let social = fixture_social();
         let movers = MockMoversSource(vec![
@@ -692,7 +699,7 @@ mod tests {
     #[tokio::test]
     async fn scan_fails_closed_when_edgar_down_and_kills_on_filing() {
         let bars = bars_map();
-        let news = MockNewsSource(Ok(vec![]));
+        let news = MockNewsSource(Ok(Default::default()));
         let social = fixture_social();
         let movers = MockMoversSource(vec![row("GOOD", -8.0)]);
         let req = DipScanRequest::default();
@@ -721,7 +728,7 @@ mod tests {
     #[tokio::test]
     async fn margin_section_present_only_with_equity_and_journal_written() {
         let bars = bars_map();
-        let news = MockNewsSource(Ok(vec![]));
+        let news = MockNewsSource(Ok(Default::default()));
         let filings = MockFilingsSource(Ok(vec![]));
         let social = fixture_social();
         let movers = MockMoversSource(vec![row("GOOD", -8.0)]);
@@ -760,7 +767,7 @@ mod tests {
     #[tokio::test]
     async fn single_ticker_mode_caps_at_watch() {
         let bars = bars_map();
-        let news = MockNewsSource(Ok(vec![]));
+        let news = MockNewsSource(Ok(Default::default()));
         let filings = MockFilingsSource(Ok(vec![]));
         let social = fixture_social();
         let req = DipScanRequest::default();

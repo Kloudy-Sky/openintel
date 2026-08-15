@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod dip;
 pub mod pulse;
 pub mod request;
 pub mod risk;

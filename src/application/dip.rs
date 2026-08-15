@@ -28,6 +28,11 @@ use crate::domain::values::bar::Bar;
 use crate::domain::values::mover::MoverRow;
 use crate::domain::values::source_kind::SourceKind;
 
+/// Appended to every dip output (CLI footer; MCP `framing` field). Single
+/// source of truth — do not duplicate this string.
+pub const FRAMING: &str = "dip_scan grades setup conformance — it never predicts outcomes \
+or recommends entry. Zero candidates is a normal result. Margin amplifies losses as well as gains.";
+
 pub const DEFAULT_SCORE_MIN: f64 = 65.0;
 pub const DEFAULT_DEEP_N: usize = 10;
 pub const MAX_DEEP_N: usize = 25;

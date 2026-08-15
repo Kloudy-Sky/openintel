@@ -7,7 +7,8 @@ use chrono::Utc;
 use crate::adapters::filings::edgar::EdgarSource;
 use crate::adapters::market::yahoo::YahooMarketSource;
 use crate::application::dip::{
-    default_journal_path, dip_check, dip_scan, DipCandidate, DipDeps, DipScanReport, DipScanRequest,
+    default_journal_path, dip_check, dip_scan, DipCandidate, DipDeps, DipScanReport,
+    DipScanRequest, FRAMING,
 };
 use crate::application::DISCLAIMER;
 use crate::cli::args::{DipArgs, FormatArg};
@@ -16,8 +17,7 @@ use crate::domain::dip::{DipSignal, DropBand, GateStatus, QualityFloor};
 use crate::domain::error::DomainError;
 use crate::domain::margin::MarginInputs;
 
-pub const FRAMING_LINE: &str = "dip_scan grades setup conformance — it never predicts outcomes \
-or recommends entry. Zero candidates is a normal result. Margin amplifies losses as well as gains.";
+const FRAMING_LINE: &str = FRAMING;
 
 fn request_from(args: &DipArgs) -> DipScanRequest {
     DipScanRequest {

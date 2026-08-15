@@ -53,6 +53,13 @@ pub struct AnalyzeArgs {
 pub struct AnalyzeOutput {
     pub summary: String,
     pub report: SpeculationReport,
+    /// Present only on a meaningful down day (≤ -4%) when dip deps are wired:
+    /// the same gated signal `dip_scan` computes, for trade-consideration
+    /// context. Single-ticker mode — verdict caps at watch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dip_signal: Option<crate::domain::dip::DipSignal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dip_note: Option<String>,
     pub disclaimer: &'static str,
 }
 
@@ -99,6 +106,7 @@ pub async fn run_analyze(
     args: AnalyzeArgs,
     social_sources: &[Box<dyn SocialDataSource>],
     market_source: &dyn MarketDataSource,
+    dip_deps: Option<&crate::application::dip::DipDeps<'_>>,
 ) -> Result<AnalyzeOutput, DomainError> {
     let req = request_from(
         args.ticker,
@@ -108,9 +116,47 @@ pub async fn run_analyze(
         args.limit,
     );
     let report = application::analyze(&req, social_sources, Some(market_source)).await?;
+
+    // Attach the dip signal only when today actually looks like a dip —
+    // a mild move would make the signal pure noise. Never fails analyze.
+    let mut dip_note = None;
+    let dip_signal = match (&report.market, dip_deps) {
+        (Some(market), Some(deps))
+            if market.pct_change <= crate::domain::dip::DropBand::default().max_pct =>
+        {
+            let dip_req = crate::application::dip::DipScanRequest {
+                journal_path: None,
+                ..Default::default()
+            };
+            // Reuse the sentiment analyze just computed — no second social fetch.
+            let sentiment = Some(crate::domain::dip::SentimentSummary {
+                net_sentiment: report.social.net_sentiment.value(),
+                mentions: report.social.total_mentions,
+            });
+            match crate::application::dip::dip_check(
+                report.ticker.as_str(),
+                &dip_req,
+                deps,
+                sentiment,
+                Utc::now(),
+            )
+            .await
+            {
+                Ok(outcome) => Some(outcome.signal),
+                Err(e) => {
+                    dip_note = Some(format!("dip signal unavailable: {e}"));
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+
     Ok(AnalyzeOutput {
         summary: summarize(&report),
         report,
+        dip_signal,
+        dip_note,
         disclaimer: DISCLAIMER,
     })
 }
@@ -427,6 +473,155 @@ pub async fn run_risk_frame(
     })
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DipScanArgs {
+    /// Evaluate one symbol instead of scanning the losers universe — the
+    /// "considering a trade" mode. The quality-floor gate is unverifiable for
+    /// a single ticker, so the verdict caps at watch.
+    pub ticker: Option<String>,
+    /// Day losers to pull from the screener (1-100, default 100).
+    pub count: Option<usize>,
+    /// Floor+band survivors to deep-analyze (1-25, default 10).
+    pub deep_n: Option<usize>,
+    /// Worst eligible day change in percent (default -15).
+    pub band_min: Option<f64>,
+    /// Mildest eligible day change in percent (default -4).
+    pub band_max: Option<f64>,
+    /// Account equity in USD — enables the risk + margin sizing section.
+    pub equity_usd: Option<f64>,
+    /// Buying-power multiple (overnight Reg-T caps at 2; default 2).
+    pub leverage: Option<f64>,
+    /// Unlock 4x intraday buying power (NOT holdable overnight).
+    pub intraday_bp: Option<bool>,
+    /// Maintenance requirement fraction (default 0.25).
+    pub maintenance: Option<f64>,
+    /// Fraction of equity risked to the stop per position (default 0.01).
+    pub risk_pct: Option<f64>,
+    /// Minimum composite score for the score gate (default 65).
+    pub score_min: Option<f64>,
+    /// Quality floor: minimum share price (default 5).
+    pub min_price: Option<f64>,
+    /// Quality floor: minimum market cap in USD (default 500M).
+    pub min_cap: Option<u64>,
+    /// Quality floor: minimum 3-month average daily volume (default 1M shares).
+    pub min_volume: Option<u64>,
+    /// Quality floor: minimum days since listing (default 180).
+    pub min_listed_days: Option<i64>,
+    /// Skip the scan journal write (~/.openintel/dip_journal.jsonl).
+    pub no_journal: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DipOutput {
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::application::dip::DipScanReport>,
+    /// Single-ticker mode: signal plus optional risk/margin sizing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ticker_report: Option<crate::application::dip::TickerDipReport>,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+fn dip_request_from(args: &DipScanArgs) -> crate::application::dip::DipScanRequest {
+    use crate::application::dip::{default_journal_path, DipScanRequest};
+    use crate::domain::dip::{DropBand, QualityFloor};
+    use crate::domain::margin::MarginInputs;
+    let base = DipScanRequest::default();
+    let band = DropBand::default();
+    let floor = QualityFloor::default();
+    let margin_defaults = MarginInputs::default();
+    DipScanRequest {
+        count: args.count.unwrap_or(base.count),
+        deep_n: args.deep_n.unwrap_or(base.deep_n),
+        band: DropBand {
+            min_pct: args.band_min.unwrap_or(band.min_pct),
+            max_pct: args.band_max.unwrap_or(band.max_pct),
+        },
+        floor: QualityFloor {
+            min_price: args.min_price.unwrap_or(floor.min_price),
+            min_market_cap: args.min_cap.unwrap_or(floor.min_market_cap),
+            min_avg_volume: args.min_volume.unwrap_or(floor.min_avg_volume),
+            min_listed_days: args.min_listed_days.unwrap_or(floor.min_listed_days),
+        },
+        score_min: args.score_min.unwrap_or(base.score_min),
+        margin: args.equity_usd.map(|equity_usd| MarginInputs {
+            equity_usd,
+            leverage: args.leverage.unwrap_or(margin_defaults.leverage),
+            maintenance: args.maintenance.unwrap_or(margin_defaults.maintenance),
+            risk_pct: args.risk_pct.unwrap_or(margin_defaults.risk_pct),
+            intraday_bp: args.intraday_bp.unwrap_or(false),
+        }),
+        journal_path: (!args.no_journal.unwrap_or(false))
+            .then(default_journal_path)
+            .flatten(),
+        ..base
+    }
+}
+
+pub async fn run_dip_scan(
+    args: DipScanArgs,
+    movers: &dyn crate::domain::ports::movers_source::MoversSource,
+    deps: &crate::application::dip::DipDeps<'_>,
+) -> Result<DipOutput, DomainError> {
+    use crate::domain::dip::Verdict;
+    let req = dip_request_from(&args);
+    let now = Utc::now();
+    match &args.ticker {
+        Some(ticker) => {
+            let ticker_report =
+                crate::application::dip::dip_check(ticker, &req, deps, None, now).await?;
+            let signal = &ticker_report.signal;
+            let summary = format!(
+                "{} — {:?} · score {:.0}/{:.0}",
+                signal.ticker, signal.verdict, signal.score, signal.score_max
+            );
+            Ok(DipOutput {
+                summary,
+                report: None,
+                ticker_report: Some(ticker_report),
+                framing: crate::application::dip::FRAMING,
+                disclaimer: DISCLAIMER,
+            })
+        }
+        None => {
+            let report = crate::application::dip::dip_scan(&req, movers, deps, now).await?;
+            let count = |v: Verdict| {
+                report
+                    .candidates
+                    .iter()
+                    .filter(|c| c.signal.verdict == v)
+                    .count()
+            };
+            let summary = match report.candidates.first() {
+                None => format!(
+                    "no candidates evaluated from {} losers ({} per-ticker errors) — zero setups is a normal result",
+                    report.universe_size,
+                    report.errors.len()
+                ),
+                Some(top) => format!(
+                    "{} analyzed: {} high_confidence, {} watch, {} no_setup · top: {} {:.0}/{:.0} ({:?})",
+                    report.candidates.len(),
+                    count(Verdict::HighConfidence),
+                    count(Verdict::Watch),
+                    count(Verdict::NoSetup),
+                    top.ticker,
+                    top.signal.score,
+                    top.signal.score_max,
+                    top.signal.verdict
+                ),
+            };
+            Ok(DipOutput {
+                summary,
+                report: Some(report),
+                ticker_report: None,
+                framing: crate::application::dip::FRAMING,
+                disclaimer: DISCLAIMER,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,11 +647,14 @@ mod tests {
             },
             &fixture_social(),
             &MockMarketSource,
+            None,
         )
         .await
         .unwrap();
         assert!(out.summary.contains("ConfirmingBullish"));
         assert_eq!(out.report.social.total_mentions, 10);
+        // mock market is UP +4% — no dip signal even if deps were wired
+        assert!(out.dip_signal.is_none());
         assert!(out.disclaimer.contains("Not financial advice"));
     }
 
@@ -469,9 +667,11 @@ mod tests {
             no_market: None,
             limit: None,
         };
-        assert!(run_analyze(args, &fixture_social(), &MockMarketSource)
-            .await
-            .is_err());
+        assert!(
+            run_analyze(args, &fixture_social(), &MockMarketSource, None)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -709,13 +909,18 @@ mod tests {
                 &self,
                 _t: &crate::domain::entities::ticker::Ticker,
             ) -> Result<Vec<Bar>, DomainError> {
+                let date = chrono::NaiveDate::from_ymd_opt(2026, 7, 15).unwrap();
                 let mut v = vec![Bar {
+                    date,
+                    open: 100.0,
                     high: 101.0,
                     low: 99.0,
                     close: 100.0,
                 }];
                 for _ in 0..15 {
                     v.push(Bar {
+                        date,
+                        open: 106.0,
                         high: 108.0,
                         low: 104.0,
                         close: 106.0,
@@ -740,5 +945,251 @@ mod tests {
         assert!(out.summary.contains("25 shares"));
         assert!(out.framing.contains("risk_frame is a calculator"));
         assert!(out.disclaimer.contains("Not financial advice"));
+    }
+
+    mod dip {
+        use super::*;
+        use crate::adapters::filings::mock_filings::MockFilingsSource;
+        use crate::adapters::market::mock_movers::MockMoversSource;
+        use crate::adapters::market::mock_news::MockNewsSource;
+        use crate::application::dip::{DipDeps, SPX_PROXY};
+        use crate::domain::ports::bar_source::BarSource;
+        use crate::domain::values::bar::Bar;
+        use crate::domain::values::mover::MoverRow;
+        use async_trait::async_trait;
+        use chrono::NaiveDate;
+        use std::collections::HashMap;
+
+        fn dip_bars(drop_close: f64) -> Vec<Bar> {
+            let mut v: Vec<Bar> = (1..=30)
+                .map(|i| {
+                    let c = 110.0 - i as f64 * 0.5;
+                    Bar {
+                        date: NaiveDate::from_ymd_opt(2026, 7, i).unwrap(),
+                        open: c,
+                        high: c + 1.0,
+                        low: c - 1.0,
+                        close: c,
+                    }
+                })
+                .collect();
+            v.push(Bar {
+                date: NaiveDate::from_ymd_opt(2026, 8, 14).unwrap(),
+                open: drop_close + 0.4,
+                high: drop_close + 0.5,
+                low: drop_close - 7.0,
+                close: drop_close,
+            });
+            v
+        }
+
+        struct MapBars(HashMap<String, Vec<Bar>>);
+
+        #[async_trait]
+        impl BarSource for MapBars {
+            async fn bars(
+                &self,
+                t: &crate::domain::entities::ticker::Ticker,
+            ) -> Result<Vec<Bar>, DomainError> {
+                self.0.get(t.as_str()).cloned().ok_or(DomainError::NoData)
+            }
+        }
+
+        fn bars_map() -> MapBars {
+            let mut m = HashMap::new();
+            m.insert("GOOD".to_string(), dip_bars(87.4));
+            // flat index proxy
+            let mut spy = dip_bars(95.0);
+            for b in &mut spy {
+                b.open = 500.0;
+                b.high = 501.0;
+                b.low = 499.0;
+                b.close = 500.0;
+            }
+            spy.last_mut().unwrap().close = 499.0;
+            m.insert(SPX_PROXY.to_string(), spy);
+            MapBars(m)
+        }
+
+        fn args() -> DipScanArgs {
+            DipScanArgs {
+                ticker: None,
+                count: None,
+                deep_n: None,
+                band_min: None,
+                band_max: None,
+                equity_usd: None,
+                leverage: None,
+                intraday_bp: None,
+                maintenance: None,
+                risk_pct: None,
+                score_min: None,
+                min_price: None,
+                min_cap: None,
+                min_volume: None,
+                min_listed_days: None,
+                no_journal: Some(true),
+            }
+        }
+
+        #[tokio::test]
+        async fn scan_mode_summarizes_and_frames() {
+            let bars = bars_map();
+            let news = MockNewsSource(Ok(vec![]));
+            let filings = MockFilingsSource(Ok(vec![]));
+            let social = fixture_social();
+            let movers = MockMoversSource(vec![MoverRow {
+                symbol: "GOOD".into(),
+                change_pct: -8.0,
+                price: 87.4,
+                market_cap: Some(2_000_000_000),
+                avg_volume_3mo: Some(5_000_000),
+                day_volume: Some(4_000_000),
+                exchange: "NYSE".into(),
+                first_trade_ms: Some(0),
+            }]);
+            let deps = DipDeps {
+                bars: &bars,
+                news: &news,
+                filings: &filings,
+                social: &social,
+                market: None,
+            };
+            let out = run_dip_scan(args(), &movers, &deps).await.unwrap();
+            assert!(out.report.is_some());
+            assert!(out.ticker_report.is_none());
+            assert!(out.summary.contains("GOOD"), "got {}", out.summary);
+            assert!(out.framing.contains("setup conformance"));
+            assert!(out.disclaimer.contains("Not financial advice"));
+        }
+
+        #[tokio::test]
+        async fn single_ticker_mode_returns_signal() {
+            let bars = bars_map();
+            let news = MockNewsSource(Ok(vec![]));
+            let filings = MockFilingsSource(Ok(vec![]));
+            let social = fixture_social();
+            let movers = MockMoversSource(vec![]);
+            let deps = DipDeps {
+                bars: &bars,
+                news: &news,
+                filings: &filings,
+                social: &social,
+                market: None,
+            };
+            let mut a = args();
+            a.ticker = Some("GOOD".into());
+            let out = run_dip_scan(a, &movers, &deps).await.unwrap();
+            assert!(out.report.is_none());
+            let signal = out.ticker_report.unwrap().signal;
+            assert_eq!(signal.ticker, "GOOD");
+            // single-ticker mode: floor unverifiable -> never high_confidence
+            assert_ne!(signal.verdict, crate::domain::dip::Verdict::HighConfidence);
+        }
+
+        #[test]
+        fn request_mapping_honors_overrides() {
+            let mut a = args();
+            a.equity_usd = Some(10_000.0);
+            a.band_min = Some(-12.0);
+            a.deep_n = Some(5);
+            let req = dip_request_from(&a);
+            assert_eq!(req.band.min_pct, -12.0);
+            assert_eq!(req.deep_n, 5);
+            assert!(req.journal_path.is_none()); // no_journal in fixture args
+            assert_eq!(req.margin.unwrap().equity_usd, 10_000.0);
+        }
+
+        /// Market mock whose snapshot is an -8% down day.
+        struct DownMarket;
+
+        #[async_trait]
+        impl crate::domain::ports::market_data_source::MarketDataSource for DownMarket {
+            fn name(&self) -> &'static str {
+                "down-market"
+            }
+            async fn snapshot(
+                &self,
+                ticker: &crate::domain::entities::ticker::Ticker,
+            ) -> Result<crate::domain::entities::market_snapshot::MarketSnapshot, DomainError>
+            {
+                Ok(crate::domain::entities::market_snapshot::MarketSnapshot {
+                    ticker: ticker.clone(),
+                    as_of: Utc::now(),
+                    last_price: 87.4,
+                    previous_close: 95.0,
+                    volume: 4_000_000,
+                    avg_volume: 5_000_000,
+                    realized_vol: None,
+                    put_call_ratio: None,
+                    iv_rank: None,
+                })
+            }
+        }
+
+        #[tokio::test]
+        async fn analyze_attaches_dip_signal_on_down_day() {
+            let bars = bars_map();
+            let news = MockNewsSource(Ok(vec![]));
+            let filings = MockFilingsSource(Ok(vec![]));
+            let social = fixture_social();
+            let deps = DipDeps {
+                bars: &bars,
+                news: &news,
+                filings: &filings,
+                social: &social,
+                market: Some(&DownMarket),
+            };
+            let out = run_analyze(
+                AnalyzeArgs {
+                    ticker: "GOOD".into(),
+                    enable_reddit: None,
+                    enable_bluesky: None,
+                    no_market: None,
+                    limit: None,
+                },
+                &social,
+                &DownMarket,
+                Some(&deps),
+            )
+            .await
+            .unwrap();
+            let signal = out.dip_signal.expect("down day should attach a signal");
+            // single-ticker mode never claims high_confidence
+            assert_ne!(signal.verdict, crate::domain::dip::Verdict::HighConfidence);
+            assert!(out.dip_note.is_none());
+        }
+
+        #[tokio::test]
+        async fn analyze_dip_failure_degrades_to_note() {
+            // AAPL has no bars in the map -> dip_check errors -> note, not failure
+            let bars = bars_map();
+            let news = MockNewsSource(Ok(vec![]));
+            let filings = MockFilingsSource(Ok(vec![]));
+            let social = fixture_social();
+            let deps = DipDeps {
+                bars: &bars,
+                news: &news,
+                filings: &filings,
+                social: &social,
+                market: Some(&DownMarket),
+            };
+            let out = run_analyze(
+                AnalyzeArgs {
+                    ticker: "AAPL".into(),
+                    enable_reddit: None,
+                    enable_bluesky: None,
+                    no_market: None,
+                    limit: None,
+                },
+                &social,
+                &DownMarket,
+                Some(&deps),
+            )
+            .await
+            .unwrap();
+            assert!(out.dip_signal.is_none());
+            assert!(out.dip_note.unwrap().contains("dip signal unavailable"));
+        }
     }
 }

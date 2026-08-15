@@ -29,6 +29,9 @@ pub enum Command {
 
     /// Deterministic risk math for one trade idea: ATR stop, budget-capped size, R targets
     Risk(RiskArgs),
+
+    /// Scan the day's biggest losers for gated dip setups (grades conformance, never advises)
+    Dip(DipArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -129,6 +132,75 @@ pub struct RiskArgs {
     /// Entry price override (default: last close)
     #[arg(long)]
     pub entry: Option<f64>,
+
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct DipArgs {
+    /// Evaluate one symbol instead of scanning the losers universe
+    pub ticker: Option<String>,
+
+    /// Losers to pull from the screener (1-100)
+    #[arg(long, default_value_t = 100)]
+    pub count: usize,
+
+    /// Floor+band survivors to deep-analyze (1-25)
+    #[arg(long, default_value_t = 10)]
+    pub deep: usize,
+
+    /// Worst day-change eligible, in percent
+    #[arg(long = "band-min", default_value_t = -15.0, allow_negative_numbers = true)]
+    pub band_min: f64,
+
+    /// Mildest day-change eligible, in percent
+    #[arg(long = "band-max", default_value_t = -4.0, allow_negative_numbers = true)]
+    pub band_max: f64,
+
+    /// Account equity in USD — enables the risk + margin sizing section
+    #[arg(long)]
+    pub equity: Option<f64>,
+
+    /// Buying-power multiple (overnight Reg-T caps at 2)
+    #[arg(long, default_value_t = 2.0)]
+    pub leverage: f64,
+
+    /// Unlock 4x intraday buying power (not holdable overnight)
+    #[arg(long)]
+    pub intraday_bp: bool,
+
+    /// Maintenance requirement fraction
+    #[arg(long, default_value_t = 0.25)]
+    pub maintenance: f64,
+
+    /// Fraction of equity risked to the stop per position
+    #[arg(long = "risk-pct", default_value_t = 0.01)]
+    pub risk_pct: f64,
+
+    /// Minimum composite score for the score gate
+    #[arg(long = "score-min", default_value_t = 65.0)]
+    pub score_min: f64,
+
+    /// Quality floor: minimum share price
+    #[arg(long = "min-price", default_value_t = 5.0)]
+    pub min_price: f64,
+
+    /// Quality floor: minimum market cap in USD
+    #[arg(long = "min-cap", default_value_t = 500_000_000)]
+    pub min_cap: u64,
+
+    /// Quality floor: minimum 3-month average daily volume in shares
+    #[arg(long = "min-volume", default_value_t = 1_000_000)]
+    pub min_volume: u64,
+
+    /// Quality floor: minimum days since listing
+    #[arg(long = "min-listed-days", default_value_t = 180)]
+    pub min_listed_days: i64,
+
+    /// Skip the scan journal (~/.openintel/dip_journal.jsonl)
+    #[arg(long)]
+    pub no_journal: bool,
 
     #[arg(long, value_enum, default_value_t = FormatArg::Table)]
     pub format: FormatArg,

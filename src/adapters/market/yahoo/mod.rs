@@ -1,4 +1,6 @@
+mod news;
 mod response;
+mod screener;
 
 use std::time::Duration;
 
@@ -10,9 +12,16 @@ use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
 use crate::domain::ports::bar_source::BarSource;
 use crate::domain::ports::market_data_source::MarketDataSource;
+use crate::domain::ports::movers_source::MoversSource;
+use crate::domain::ports::news_source::NewsSource;
 use crate::domain::values::bar::Bar;
+use crate::domain::values::headline::Headline;
+use crate::domain::values::mover::MoverRow;
 
 const BASE_URL: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
+const SCREENER_URL: &str = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved";
+const SEARCH_URL: &str = "https://query1.finance.yahoo.com/v1/finance/search";
+const MAX_SCREENER_ROWS: usize = 100;
 const TIMEOUT_SECS: u64 = 10;
 
 #[derive(Clone)]
@@ -65,6 +74,30 @@ impl YahooMarketSource {
     async fn fetch_chart_body(&self, ticker: &Ticker) -> Result<String, DomainError> {
         self.fetch_chart(ticker).await.map(|(_, body)| body)
     }
+
+    async fn fetch_body(&self, name: &str, url: String) -> Result<String, DomainError> {
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| DomainError::SourceFailure {
+                name: name.into(),
+                message: format!("request failed: {e}"),
+            })?;
+        let status = resp.status();
+        let body = resp.text().await.map_err(|e| DomainError::SourceFailure {
+            name: name.into(),
+            message: format!("reading body failed (HTTP {status}): {e}"),
+        })?;
+        if !status.is_success() {
+            return Err(DomainError::SourceFailure {
+                name: name.into(),
+                message: format!("HTTP {status}"),
+            });
+        }
+        Ok(body)
+    }
 }
 
 #[async_trait]
@@ -85,6 +118,32 @@ impl BarSource for YahooMarketSource {
     async fn bars(&self, ticker: &Ticker) -> Result<Vec<Bar>, DomainError> {
         let body = self.fetch_chart_body(ticker).await?;
         response::parse_bars(&body)
+    }
+}
+
+#[async_trait]
+impl MoversSource for YahooMarketSource {
+    fn name(&self) -> &str {
+        "yahoo-screener"
+    }
+
+    async fn day_losers(&self, count: usize) -> Result<Vec<MoverRow>, DomainError> {
+        let count = count.clamp(1, MAX_SCREENER_ROWS);
+        let url = format!("{SCREENER_URL}?scrIds=day_losers&count={count}");
+        let body = self.fetch_body("yahoo-screener", url).await?;
+        screener::parse_movers(&body).map(|(rows, _skipped)| rows)
+    }
+}
+
+#[async_trait]
+impl NewsSource for YahooMarketSource {
+    async fn headlines(&self, ticker: &Ticker, count: usize) -> Result<Vec<Headline>, DomainError> {
+        let url = format!(
+            "{SEARCH_URL}?q={}&newsCount={count}&quotesCount=0",
+            ticker.as_str()
+        );
+        let body = self.fetch_body("yahoo-news", url).await?;
+        news::parse_headlines(&body)
     }
 }
 
@@ -117,7 +176,8 @@ mod tests {
     #[test]
     fn new_builds_and_names_yahoo() {
         let src = YahooMarketSource::new().unwrap();
-        assert_eq!(src.name(), "yahoo");
+        assert_eq!(MarketDataSource::name(&src), "yahoo");
+        assert_eq!(MoversSource::name(&src), "yahoo-screener");
     }
 
     #[tokio::test]
@@ -138,6 +198,31 @@ mod tests {
         for b in &bars {
             assert!(b.high >= b.low);
         }
+        // dates strictly increase (session dates, deduped by the venue)
+        for w in bars.windows(2) {
+            assert!(w[1].date > w[0].date);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "hits live Yahoo (keyless, free); run with --ignored"]
+    async fn live_day_losers_returns_rows() {
+        let src = YahooMarketSource::new().unwrap();
+        let rows = src.day_losers(100).await.unwrap();
+        assert!(rows.len() >= 50, "got {}", rows.len());
+        assert!(rows.iter().all(|r| r.change_pct < 0.0));
+    }
+
+    #[tokio::test]
+    #[ignore = "hits live Yahoo (keyless, free); run with --ignored"]
+    async fn live_headlines_parse() {
+        let src = YahooMarketSource::new().unwrap();
+        // AAPL always has news; content varies — assert shape only.
+        let news = NewsSource::headlines(&src, &Ticker::parse("AAPL").unwrap(), 5)
+            .await
+            .unwrap();
+        assert!(!news.is_empty());
+        assert!(news.iter().all(|h| !h.title.is_empty()));
     }
 
     #[test]

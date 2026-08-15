@@ -64,13 +64,18 @@ mod tests {
     }
 
     fn history() -> Vec<Bar> {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 7, 15).unwrap();
         let mut v = vec![Bar {
+            date,
+            open: 100.0,
             high: 101.0,
             low: 99.0,
             close: 100.0,
         }];
         for _ in 0..15 {
             v.push(Bar {
+                date,
+                open: 106.0,
                 high: 108.0,
                 low: 104.0,
                 close: 106.0,

@@ -16,6 +16,7 @@ pub struct OpenIntelServer {
     tool_router: ToolRouter<OpenIntelServer>,
     social: Arc<Vec<Box<dyn SocialDataSource>>>,
     market: YahooMarketSource,
+    filings: Arc<crate::adapters::filings::edgar::EdgarSource>,
     pulse_feed: Option<Arc<crate::adapters::sources::x::XPulseSource>>,
 }
 
@@ -23,12 +24,14 @@ impl OpenIntelServer {
     pub fn new(
         social: Vec<Box<dyn SocialDataSource>>,
         market: YahooMarketSource,
+        filings: crate::adapters::filings::edgar::EdgarSource,
         pulse_feed: Option<crate::adapters::sources::x::XPulseSource>,
     ) -> Self {
         Self {
             tool_router: Self::tool_router(),
             social: Arc::new(social),
             market,
+            filings: Arc::new(filings),
             pulse_feed: pulse_feed.map(Arc::new),
         }
     }
@@ -49,13 +52,22 @@ impl OpenIntelServer {
     #[tool(
         description = "Analyze one ticker: fuse social sentiment with market action into a \
                        speculation report (net sentiment, speculation index, crowding, \
-                       alignment = confirming/diverging/quiet). Read-only — does not trade."
+                       alignment = confirming/diverging/quiet). On a ≤ -4% down day the output \
+                       also carries dip_signal — the same gated setup verdict dip_scan computes \
+                       (capped at watch in this mode). Read-only — does not trade."
     )]
     async fn analyze_ticker(
         &self,
         Parameters(args): Parameters<tools::AnalyzeArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        let out = tools::run_analyze(args, &self.social, &self.market)
+        let dip_deps = crate::application::dip::DipDeps {
+            bars: &self.market,
+            news: &self.market,
+            filings: self.filings.as_ref(),
+            social: &self.social,
+            market: Some(&self.market),
+        };
+        let out = tools::run_analyze(args, &self.social, &self.market, Some(&dip_deps))
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let json = serde_json::to_string_pretty(&out)
@@ -146,6 +158,40 @@ impl OpenIntelServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
+
+    #[tool(
+        description = "Scan the day's biggest losers for dip-buy SETUPS, or evaluate one ticker \
+                       (pass `ticker`). Hard gates decide a tiered verdict — no_setup / watch / \
+                       high_confidence: quality floor, -15%..-4% drop band, no same-day SEC \
+                       filing (8-K/6-K/424B5/S-3/FWP via EDGAR), no catalyst headline, \
+                       idiosyncratic vs the index, buyers-at-the-close, and a score floor. \
+                       Unverifiable evidence FAILS CLOSED (caps at watch); intraday runs always \
+                       cap at watch. 'high_confidence' means conformance to the setup template, \
+                       NEVER probability of profit; zero candidates is a normal result. Passing \
+                       equity_usd adds ATR-stop sizing plus margin mechanics (overnight Reg-T 2x \
+                       cap, margin-call price; single-position model, interest not modeled). \
+                       Appends a scan journal line to ~/.openintel/dip_journal.jsonl unless \
+                       no_journal. The composite score's weights are v0 and unvalidated. \
+                       Read-only — does not trade."
+    )]
+    async fn dip_scan(
+        &self,
+        Parameters(args): Parameters<tools::DipScanArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let deps = crate::application::dip::DipDeps {
+            bars: &self.market,
+            news: &self.market,
+            filings: self.filings.as_ref(),
+            social: &self.social,
+            market: Some(&self.market),
+        };
+        let out = tools::run_dip_scan(args, &self.market, &deps)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -174,6 +220,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let social = crate::adapters::sources::build_social_sources(&credentials);
 
     let market = YahooMarketSource::new()?;
+    let filings = crate::adapters::filings::edgar::EdgarSource::new()?;
     let pulse_feed = match credentials.x_bearer.clone() {
         Some(bearer) => match crate::adapters::sources::x::XPulseSource::new(bearer) {
             Ok(src) => Some(src),
@@ -184,7 +231,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         },
         None => None,
     };
-    let service = OpenIntelServer::new(social, market, pulse_feed)
+    let service = OpenIntelServer::new(social, market, filings, pulse_feed)
         .serve(stdio())
         .await?;
     service.waiting().await?;

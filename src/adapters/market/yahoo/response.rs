@@ -67,6 +67,8 @@ struct Quote {
     high: Vec<Option<f64>>,
     #[serde(default)]
     low: Vec<Option<f64>>,
+    #[serde(default)]
+    open: Vec<Option<f64>>,
 }
 
 fn fail(message: impl Into<String>) -> DomainError {
@@ -182,18 +184,31 @@ pub(crate) fn parse_snapshot(
 
 /// OHLC bars from the same chart response `parse_snapshot` reads. Rows with
 /// any missing leg (Yahoo emits nulls for halts/partial days) are skipped.
+/// Bar dates are the New York session date of each timestamp — Yahoo stamps
+/// daily bars at the session open in exchange time.
 pub(crate) fn parse_bars(body: &str) -> Result<Vec<Bar>, DomainError> {
     let chart: ChartResponse =
         serde_json::from_str(body).map_err(|e| fail(format!("malformed response: {e}")))?;
     let result = extract_result(chart)?;
+    let timestamps = result
+        .timestamp
+        .ok_or_else(|| fail("no timestamps in chart response"))?;
     let quote = extract_quote(result.indicators)?;
-    let bars = quote
-        .high
+    let bars = timestamps
         .iter()
+        .zip(quote.open.iter())
+        .zip(quote.high.iter())
         .zip(quote.low.iter())
         .zip(quote.close.iter())
-        .filter_map(|((h, l), c)| {
+        .filter_map(|((((ts, o), h), l), c)| {
+            let date = Utc
+                .timestamp_opt(*ts, 0)
+                .single()?
+                .with_timezone(&chrono_tz::America::New_York)
+                .date_naive();
             Some(Bar {
+                date,
+                open: (*o)?,
                 high: (*h)?,
                 low: (*l)?,
                 close: (*c)?,
@@ -305,16 +320,37 @@ mod tests {
 
     #[test]
     fn parse_bars_zips_and_skips_null_legs() {
-        let body = r#"{"chart":{"result":[{"meta":{},"indicators":{"quote":[{
+        // timestamps are 13:30 UTC = 09:30 New York on 2026-06-22..25
+        let body = r#"{"chart":{"result":[{"meta":{},
+            "timestamp":[1782135000,1782221400,1782307800,1782394200],
+            "indicators":{"quote":[{
             "close":[100.0,106.0,null,107.0],
             "volume":[1,1,1,1],
+            "open":[100.5,105.0,106.0,106.5],
             "high":[101.0,108.0,109.0,null],
             "low":[99.0,104.0,105.0,106.0]
         }]}}],"error":null}}"#;
         let bars = parse_bars(body).unwrap();
         assert_eq!(bars.len(), 2); // rows 2 (null close) and 3 (null high) skipped
         assert_eq!(bars[0].high, 101.0);
+        assert_eq!(bars[0].open, 100.5);
         assert_eq!(bars[1].close, 106.0);
+        assert_eq!(
+            bars[0].date,
+            chrono::NaiveDate::from_ymd_opt(2026, 6, 22).unwrap()
+        );
+        assert_eq!(
+            bars[1].date,
+            chrono::NaiveDate::from_ymd_opt(2026, 6, 23).unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_bars_requires_timestamps() {
+        let body = r#"{"chart":{"result":[{"meta":{},"indicators":{"quote":[{
+            "close":[100.0],"open":[100.0],"high":[101.0],"low":[99.0]
+        }]}}],"error":null}}"#;
+        assert!(parse_bars(body).is_err());
     }
 
     #[test]

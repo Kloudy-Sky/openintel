@@ -153,7 +153,13 @@ mod tests {
     }
 
     fn bar(high: f64, low: f64, close: f64) -> Bar {
-        Bar { high, low, close }
+        Bar {
+            date: chrono::NaiveDate::from_ymd_opt(2026, 7, 15).unwrap(),
+            open: close,
+            high,
+            low,
+            close,
+        }
     }
 
     /// 16 bars: prev_close 100, then 15 identical bars with TR dominated by

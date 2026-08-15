@@ -99,6 +99,41 @@ your ticker and confirm the cost with you before spending.
 
 Turn a trade idea into exact numbers: `openintel risk NVDA --budget 200` returns an ATR(14)-based stop, the whole-share size that caps a stop-out at your budget, max loss, and 1R/2R/3R reference levels. Deterministic math over free Yahoo daily bars — it never recommends taking a trade. Also exposed to agents as the `risk_frame` MCP tool, whose contract requires presenting the numbers and getting your explicit approval before any execution step. Run intraday, the entry default is the live price and ATR includes today's still-forming bar — re-run near the close for settled numbers.
 
+## Dip scan (gated setups, not picks)
+
+`openintel dip` pulls the day's 100 biggest losers (Yahoo's keyless screener), applies a
+quality floor (≥ $5, ≥ $500M cap, ≥ 1M avg volume, listed ≥ 180 days, no OTC) and a drop
+band (−15%…−4% — the catastrophic tail is excluded by design), then grades survivors
+through **hard gates** into a tiered verdict:
+
+| Verdict | Meaning |
+|---|---|
+| `no_setup` | Eligibility failed or a catalyst was CONFIRMED (same-day SEC 8-K/6-K/424B5/S-3/FWP via EDGAR, or a catalyst-keyword headline) — evidence shown |
+| `watch` | Eligible, no confirmed catalyst, but ≥ 1 gate failed or could not be verified (**unverifiable evidence fails closed**) |
+| `high_confidence` | ALL gates pass post-close: no filing, no catalyst headline, idiosyncratic vs SPY (≤ −3% excess), closed in the upper half of the day's range, score ≥ 65 |
+
+`high_confidence` means **conformance to the setup template — never probability of
+profit**. Zero candidates is a normal result. Intraday runs always cap at `watch` (the day
+bar isn't final); run after the close for real verdicts. The composite score's weights are
+**v0 and unvalidated** — every scan appends a JSONL line to `~/.openintel/dip_journal.jsonl`
+(opt out with `--no-journal`) so they can be graded against forward returns later; a
+`dip --review` grader is the named follow-up.
+
+```bash
+openintel dip                                 # scan the losers universe
+openintel dip NVDA                            # one ticker (floor unverifiable -> caps at watch)
+openintel dip --equity 25000 --leverage 2     # adds ATR-stop sizing + margin mechanics
+```
+
+With `--equity`, each candidate gets a risk frame (1% of equity to a 2×ATR stop by
+default) plus margin mechanics: buying-power cap, borrowed amount, margin-call price and
+its distance, and a warning when the margin call would fire **before** your stop.
+Overnight Reg-T caps leverage at 2x; `--intraday-bp` unlocks 4x with a
+not-holdable-overnight note. Single-position model; interest not modeled.
+
+Data: Yahoo screener + news (keyless, unofficial — failure mode is a clean error) and SEC
+EDGAR (keyless, official; identify yourself via `OPENINTEL_SEC_CONTACT` if you fork this).
+
 ## Use with an AI agent (MCP)
 
 OpenIntel can run as a local **MCP server** so an AI agent can consult its analysis while
@@ -128,6 +163,7 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `compare_tickers` | Rank a set by `crowding` / `speculation_index` / `net_sentiment` / `divergence` |
 | `list_sources` | Which data sources are available |
 | `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
+| `dip_scan` | Day's biggest losers → gated dip-setup verdicts (`no_setup`/`watch`/`high_confidence`), optional margin-aware sizing; pass `ticker` for one symbol |
 
 ### ⚠️ Risk & responsibility — read before connecting a broker
 

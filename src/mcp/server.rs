@@ -192,6 +192,24 @@ impl OpenIntelServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
+
+    #[tool(
+        description = "Grade the dip_scan journal (~/.openintel/dip_journal.jsonl) against \
+                       forward returns: 1/5/10-day raw and SPY-adjusted stats per verdict, \
+                       plus score↔return correlation. This is the evidence for whether \
+                       dip_scan's v0 score weights have any edge — until the graded sample is \
+                       meaningful (n≥30), treat verdicts as setup conformance only. Entries \
+                       older than ~3 months are ungradable (bar history limit). Read-only — \
+                       does not trade."
+    )]
+    async fn dip_review(&self) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_dip_review(&self.market)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]

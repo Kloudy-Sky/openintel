@@ -559,6 +559,43 @@ fn dip_request_from(args: &DipScanArgs) -> crate::application::dip::DipScanReque
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct DipReviewOutput {
+    pub summary: String,
+    pub report: crate::application::review::DipReviewReport,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+/// Grade the default scan journal against forward returns. Path is fixed —
+/// this tool never reads caller-chosen files.
+pub async fn run_dip_review(
+    bars: &dyn crate::domain::ports::bar_source::BarSource,
+) -> Result<DipReviewOutput, DomainError> {
+    let path = crate::application::review::default_journal_or_err()?;
+    let report = crate::application::review::dip_review(&path, bars, Utc::now()).await?;
+    let top = report
+        .buckets
+        .first()
+        .and_then(|b| {
+            b.raw
+                .d5
+                .as_ref()
+                .map(|s| format!(" · {:?} d5 mean {:+.1}% (n={})", b.verdict, s.mean_pct, s.n))
+        })
+        .unwrap_or_default();
+    let summary = format!(
+        "{} scans · {} graded, {} pending{}",
+        report.scans, report.graded, report.pending, top
+    );
+    Ok(DipReviewOutput {
+        summary,
+        report,
+        framing: crate::application::review::REVIEW_FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 pub async fn run_dip_scan(
     args: DipScanArgs,
     movers: &dyn crate::domain::ports::movers_source::MoversSource,
@@ -1035,7 +1072,7 @@ mod tests {
         #[tokio::test]
         async fn scan_mode_summarizes_and_frames() {
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let movers = MockMoversSource(vec![MoverRow {
@@ -1066,7 +1103,7 @@ mod tests {
         #[tokio::test]
         async fn single_ticker_mode_returns_signal() {
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let movers = MockMoversSource(vec![]);
@@ -1130,7 +1167,7 @@ mod tests {
         #[tokio::test]
         async fn analyze_attaches_dip_signal_on_down_day() {
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let deps = DipDeps {
@@ -1164,7 +1201,7 @@ mod tests {
         async fn analyze_dip_failure_degrades_to_note() {
             // AAPL has no bars in the map -> dip_check errors -> note, not failure
             let bars = bars_map();
-            let news = MockNewsSource(Ok(vec![]));
+            let news = MockNewsSource(Ok(Default::default()));
             let filings = MockFilingsSource(Ok(vec![]));
             let social = fixture_social();
             let deps = DipDeps {

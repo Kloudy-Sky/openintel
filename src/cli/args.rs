@@ -142,6 +142,10 @@ pub struct DipArgs {
     /// Evaluate one symbol instead of scanning the losers universe
     pub ticker: Option<String>,
 
+    /// Grade the scan journal against forward returns instead of scanning
+    #[arg(long, conflicts_with = "ticker")]
+    pub review: bool,
+
     /// Losers to pull from the screener (1-100)
     #[arg(long, default_value_t = 100)]
     pub count: usize,

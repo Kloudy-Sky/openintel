@@ -198,6 +198,9 @@ struct CheckContext {
     day_volume: Option<u64>,
     avg_volume_3mo: Option<u64>,
     floor: GateStatus,
+    /// Sentiment already computed by the caller (analyze reuses its own
+    /// social fetch); None = fetch here.
+    known_sentiment: Option<SentimentSummary>,
 }
 
 /// Evaluate one ticker end-to-end and return the signal plus the bar history
@@ -230,20 +233,25 @@ async fn check(
     };
 
     let headlines = match deps.news.headlines(&ticker, HEADLINE_COUNT).await {
+        // Undated headlines are kept — they MIGHT be same-day, and dropping
+        // them could hide a catalyst (fail closed, not open).
         Ok(all) => GateEvidence::Available(
             all.into_iter()
-                .filter(|h| {
-                    h.published_at
-                        .with_timezone(&chrono_tz::America::New_York)
-                        .date_naive()
-                        == drop_date
+                .filter(|h| match h.published_at {
+                    Some(at) => {
+                        at.with_timezone(&chrono_tz::America::New_York).date_naive() == drop_date
+                    }
+                    None => true,
                 })
                 .collect(),
         ),
         Err(e) => GateEvidence::Unavailable(e.to_string()),
     };
 
-    let sentiment = sentiment_for(ticker.as_str(), deps.social).await;
+    let sentiment = match ctx.known_sentiment {
+        Some(s) => Some(s),
+        None => sentiment_for(ticker.as_str(), deps.social).await,
+    };
 
     let signal = dip_signal(&DipInputs {
         ticker: ticker.as_str(),
@@ -267,15 +275,30 @@ async fn check(
     Ok((signal, bars))
 }
 
+/// Single-ticker result: the signal plus the sizing overlay when the request
+/// carries margin inputs.
+#[derive(Debug, Serialize)]
+pub struct TickerDipReport {
+    pub signal: DipSignal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk: Option<RiskFrame>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub margin: Option<MarginFrame>,
+    pub notes: Vec<String>,
+}
+
 /// Single-ticker mode — the "considering a trade" entry point. The quality
 /// floor is Unknown here (no screener row to evaluate), so the verdict caps
 /// at `watch`; volumes come from a market snapshot when one is wired.
+/// `known_sentiment` lets a caller that already fetched social data (analyze)
+/// avoid refetching it.
 pub async fn dip_check(
     ticker_raw: &str,
     req: &DipScanRequest,
     deps: &DipDeps<'_>,
+    known_sentiment: Option<SentimentSummary>,
     now: DateTime<Utc>,
-) -> Result<DipSignal, DomainError> {
+) -> Result<TickerDipReport, DomainError> {
     let (day_volume, avg_volume_3mo) = match deps.market {
         Some(market) => match market.snapshot(&Ticker::parse(ticker_raw)?).await {
             Ok(snap) => (Some(snap.volume), Some(snap.avg_volume)),
@@ -291,10 +314,20 @@ pub async fn dip_check(
         floor: GateStatus::Unknown(
             "quality floor not evaluated — ticker not from the screener universe".into(),
         ),
+        known_sentiment,
     };
-    check(ticker_raw, ctx, spx, req, deps, now)
-        .await
-        .map(|(signal, _)| signal)
+    let (signal, bars) = check(ticker_raw, ctx, spx, req, deps, now).await?;
+    let mut notes = Vec::new();
+    let (risk, margin) = match &req.margin {
+        Some(inputs) => risk_and_margin(&signal.ticker, &bars, inputs, now, &mut notes),
+        None => (None, None),
+    };
+    Ok(TickerDipReport {
+        signal,
+        risk,
+        margin,
+        notes,
+    })
 }
 
 fn verdict_rank(v: Verdict) -> u8 {
@@ -348,6 +381,7 @@ pub async fn dip_scan(
                 day_volume: row.day_volume,
                 avg_volume_3mo: row.avg_volume_3mo,
                 floor: GateStatus::Pass,
+                known_sentiment: None,
             };
             let outcome = check(&row.symbol, ctx, spx_change_pct, req, deps, now).await;
             (row.symbol, row.change_pct, outcome)
@@ -530,7 +564,7 @@ mod tests {
             .collect();
         v.push(Bar {
             date: NaiveDate::from_ymd_opt(2026, 8, 14).unwrap(),
-            open: drop_close + 6.0,
+            open: drop_close + 0.4,
             high: drop_close + 0.5,
             low: drop_close - 7.0,
             close: drop_close,
@@ -731,9 +765,11 @@ mod tests {
         let social = fixture_social();
         let req = DipScanRequest::default();
         let deps = clean_deps(&bars, &news, &filings, &social);
-        let signal = dip_check("GOOD", &req, &deps, post_close_now())
+        let outcome = dip_check("GOOD", &req, &deps, None, post_close_now())
             .await
             .unwrap();
+        assert!(outcome.risk.is_none()); // no margin inputs given
+        let signal = outcome.signal;
         // clean everything, but the floor is unverifiable -> watch, not high
         assert_eq!(signal.verdict, Verdict::Watch);
         assert!(matches!(signal.gates.quality_floor, GateStatus::Unknown(_)));

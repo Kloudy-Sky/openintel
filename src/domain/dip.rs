@@ -23,9 +23,15 @@ pub const RSI_PERIOD: usize = 14;
 /// Minimum prior (pre-drop-day) bars for baselines: SMA(20) plus one.
 pub const MIN_PRIOR_BARS: usize = 21;
 
-/// Filing forms that mark a real same-day catalyst: material events (8-K,
-/// foreign 6-K) and dilution/offering paper (424B5, S-3, FWP).
-pub const CATALYST_FORMS: &[&str] = &["8-K", "6-K", "424B5", "S-3", "FWP"];
+/// Filing-form PREFIXES that mark a real same-day catalyst: material events
+/// (8-K incl. 8-K/A, foreign 6-K) and dilution/offering paper (the whole
+/// 424B prospectus family, S-3 incl. /A and ASR shelf variants, FWP).
+pub const CATALYST_FORM_PREFIXES: &[&str] = &["8-K", "6-K", "424B", "S-3", "FWP"];
+
+/// Amendments and variants count: `8-K/A` is still a material event.
+pub fn is_catalyst_form(form: &str) -> bool {
+    CATALYST_FORM_PREFIXES.iter().any(|p| form.starts_with(p))
+}
 
 /// Whole-word, case-insensitive markers of a fundamental catalyst in
 /// headline or social text. A hit is evidence, matched conservatively.
@@ -502,7 +508,7 @@ pub fn dip_signal(inputs: &DipInputs) -> Result<DipSignal, DomainError> {
         GateEvidence::Available(filings) => {
             let hits: Vec<&Filing> = filings
                 .iter()
-                .filter(|f| f.filed_on >= since && CATALYST_FORMS.contains(&f.form.as_str()))
+                .filter(|f| f.filed_on >= since && is_catalyst_form(&f.form))
                 .collect();
             if hits.is_empty() {
                 GateStatus::Pass
@@ -766,12 +772,12 @@ mod tests {
         DipInputs {
             ticker: "TEST",
             prior_bars,
-            // Gapped down, sold to 80, closed 87.4 — near the high of the
-            // day's range (location ≈ 0.93): buyers stepped in.
+            // Gapped down to 88, sold to 80, closed 87.4 — near the high of
+            // the day's range (location ≈ 0.87): buyers stepped in.
             drop_day_bar: Some(Bar {
                 date: d(31),
-                open: 94.0,
-                high: 88.0,
+                open: 88.0,
+                high: 88.5,
                 low: 80.0,
                 close: 87.4,
             }),
@@ -847,6 +853,27 @@ mod tests {
     }
 
     #[test]
+    fn amended_and_variant_forms_trigger_plain_forms_do_not() {
+        for form in [
+            "8-K", "8-K/A", "6-K/A", "424B3", "424B5", "S-3/A", "S-3ASR", "FWP",
+        ] {
+            assert!(is_catalyst_form(form), "{form} should be a catalyst");
+        }
+        for form in ["4", "10-Q", "10-K", "S-1", "13F-HR", "SC 13G"] {
+            assert!(!is_catalyst_form(form), "{form} should not be a catalyst");
+        }
+        // end-to-end: an amended 8-K on the drop day still kills the setup
+        let prior = prior();
+        let w = ScoreWeights::default();
+        let mut i = inputs(&prior, &w);
+        i.filings = GateEvidence::Available(vec![Filing {
+            form: "8-K/A".into(),
+            filed_on: d(31),
+        }]);
+        assert_eq!(dip_signal(&i).unwrap().verdict, Verdict::NoSetup);
+    }
+
+    #[test]
     fn catalyst_headline_is_no_setup_with_evidence() {
         let prior = prior();
         let w = ScoreWeights::default();
@@ -854,7 +881,7 @@ mod tests {
         i.headlines = GateEvidence::Available(vec![Headline {
             title: "Company cuts guidance after earnings miss".into(),
             publisher: "Wire".into(),
-            published_at: chrono::Utc::now(),
+            published_at: Some(chrono::Utc::now()),
         }]);
         let sig = dip_signal(&i).unwrap();
         assert_eq!(sig.verdict, Verdict::NoSetup);

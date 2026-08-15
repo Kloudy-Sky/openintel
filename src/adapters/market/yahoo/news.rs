@@ -31,9 +31,11 @@ fn fail(message: impl Into<String>) -> DomainError {
     }
 }
 
-/// Headlines with all required fields; incomplete items are skipped (a
-/// missing timestamp would defeat the same-day filter). An empty list is a
-/// valid result — quiet tickers have no news.
+/// Headlines from the search body. Only title-less items are skipped (they
+/// carry no scannable evidence); a missing/invalid timestamp yields
+/// `published_at: None` so the catalyst gate can treat the item
+/// conservatively instead of losing it. An empty list is a valid result —
+/// quiet tickers have no news.
 pub(crate) fn parse_headlines(body: &str) -> Result<Vec<Headline>, DomainError> {
     let resp: SearchResponse =
         serde_json::from_str(body).map_err(|e| fail(format!("malformed response: {e}")))?;
@@ -44,7 +46,9 @@ pub(crate) fn parse_headlines(body: &str) -> Result<Vec<Headline>, DomainError> 
             Some(Headline {
                 title: n.title?,
                 publisher: n.publisher.unwrap_or_else(|| "unknown".into()),
-                published_at: Utc.timestamp_opt(n.provider_publish_time?, 0).single()?,
+                published_at: n
+                    .provider_publish_time
+                    .and_then(|t| Utc.timestamp_opt(t, 0).single()),
             })
         })
         .collect())
@@ -55,16 +59,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_headlines_and_skips_incomplete() {
+    fn parses_headlines_keeps_undated_skips_titleless() {
         let body = r#"{"news":[
             {"title":"Company cuts guidance","publisher":"Wire","providerPublishTime":1786818192},
             {"title":"No timestamp","publisher":"Wire"},
             {"publisher":"Wire","providerPublishTime":1786818192}
         ]}"#;
         let h = parse_headlines(body).unwrap();
-        assert_eq!(h.len(), 1);
+        assert_eq!(h.len(), 2); // only the title-less item is dropped
         assert_eq!(h[0].title, "Company cuts guidance");
-        assert_eq!(h[0].published_at.timestamp(), 1786818192);
+        assert_eq!(h[0].published_at.unwrap().timestamp(), 1786818192);
+        assert_eq!(h[1].published_at, None); // undated survives for the gate
     }
 
     #[test]

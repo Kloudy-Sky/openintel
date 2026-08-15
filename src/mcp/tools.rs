@@ -128,15 +128,21 @@ pub async fn run_analyze(
                 journal_path: None,
                 ..Default::default()
             };
+            // Reuse the sentiment analyze just computed — no second social fetch.
+            let sentiment = Some(crate::domain::dip::SentimentSummary {
+                net_sentiment: report.social.net_sentiment.value(),
+                mentions: report.social.total_mentions,
+            });
             match crate::application::dip::dip_check(
                 report.ticker.as_str(),
                 &dip_req,
                 deps,
+                sentiment,
                 Utc::now(),
             )
             .await
             {
-                Ok(signal) => Some(signal),
+                Ok(outcome) => Some(outcome.signal),
                 Err(e) => {
                     dip_note = Some(format!("dip signal unavailable: {e}"));
                     None
@@ -510,8 +516,9 @@ pub struct DipOutput {
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub report: Option<crate::application::dip::DipScanReport>,
+    /// Single-ticker mode: signal plus optional risk/margin sizing.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signal: Option<crate::domain::dip::DipSignal>,
+    pub ticker_report: Option<crate::application::dip::TickerDipReport>,
     pub framing: &'static str,
     pub disclaimer: &'static str,
 }
@@ -562,7 +569,9 @@ pub async fn run_dip_scan(
     let now = Utc::now();
     match &args.ticker {
         Some(ticker) => {
-            let signal = crate::application::dip::dip_check(ticker, &req, deps, now).await?;
+            let ticker_report =
+                crate::application::dip::dip_check(ticker, &req, deps, None, now).await?;
+            let signal = &ticker_report.signal;
             let summary = format!(
                 "{} — {:?} · score {:.0}/{:.0}",
                 signal.ticker, signal.verdict, signal.score, signal.score_max
@@ -570,7 +579,7 @@ pub async fn run_dip_scan(
             Ok(DipOutput {
                 summary,
                 report: None,
-                signal: Some(signal),
+                ticker_report: Some(ticker_report),
                 framing: crate::application::dip::FRAMING,
                 disclaimer: DISCLAIMER,
             })
@@ -586,8 +595,9 @@ pub async fn run_dip_scan(
             };
             let summary = match report.candidates.first() {
                 None => format!(
-                    "no setups — 0 of {} losers survived the floor+band (that's a normal result)",
-                    report.universe_size
+                    "no candidates evaluated from {} losers ({} per-ticker errors) — zero setups is a normal result",
+                    report.universe_size,
+                    report.errors.len()
                 ),
                 Some(top) => format!(
                     "{} analyzed: {} high_confidence, {} watch, {} no_setup · top: {} {:.0}/{:.0} ({:?})",
@@ -604,7 +614,7 @@ pub async fn run_dip_scan(
             Ok(DipOutput {
                 summary,
                 report: Some(report),
-                signal: None,
+                ticker_report: None,
                 framing: crate::application::dip::FRAMING,
                 disclaimer: DISCLAIMER,
             })
@@ -965,7 +975,7 @@ mod tests {
                 .collect();
             v.push(Bar {
                 date: NaiveDate::from_ymd_opt(2026, 8, 14).unwrap(),
-                open: drop_close + 6.0,
+                open: drop_close + 0.4,
                 high: drop_close + 0.5,
                 low: drop_close - 7.0,
                 close: drop_close,
@@ -1047,7 +1057,7 @@ mod tests {
             };
             let out = run_dip_scan(args(), &movers, &deps).await.unwrap();
             assert!(out.report.is_some());
-            assert!(out.signal.is_none());
+            assert!(out.ticker_report.is_none());
             assert!(out.summary.contains("GOOD"), "got {}", out.summary);
             assert!(out.framing.contains("setup conformance"));
             assert!(out.disclaimer.contains("Not financial advice"));
@@ -1071,7 +1081,7 @@ mod tests {
             a.ticker = Some("GOOD".into());
             let out = run_dip_scan(a, &movers, &deps).await.unwrap();
             assert!(out.report.is_none());
-            let signal = out.signal.unwrap();
+            let signal = out.ticker_report.unwrap().signal;
             assert_eq!(signal.ticker, "GOOD");
             // single-ticker mode: floor unverifiable -> never high_confidence
             assert_ne!(signal.verdict, crate::domain::dip::Verdict::HighConfidence);

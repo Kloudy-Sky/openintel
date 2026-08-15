@@ -7,8 +7,8 @@ use chrono::Utc;
 use crate::adapters::filings::edgar::EdgarSource;
 use crate::adapters::market::yahoo::YahooMarketSource;
 use crate::application::dip::{
-    default_journal_path, dip_check, dip_scan, DipCandidate, DipDeps, DipScanReport,
-    DipScanRequest, FRAMING,
+    default_journal_path, dip_check, dip_scan, DipDeps, DipScanReport, DipScanRequest,
+    TickerDipReport, FRAMING,
 };
 use crate::application::DISCLAIMER;
 use crate::cli::args::{DipArgs, FormatArg};
@@ -62,10 +62,10 @@ pub async fn run(args: &DipArgs, credentials: &Credentials) -> Result<String, Do
 
     match &args.ticker {
         Some(ticker) => {
-            let signal = dip_check(ticker, &req, &deps, now).await?;
+            let report = dip_check(ticker, &req, &deps, None, now).await?;
             Ok(match args.format {
-                FormatArg::Table => render_signal_table(&signal),
-                FormatArg::Json => render_json(&signal)?,
+                FormatArg::Table => render_ticker_table(&report),
+                FormatArg::Json => render_json(&report)?,
             })
         }
         None => {
@@ -143,15 +143,19 @@ fn write_signal_block(out: &mut String, signal: &DipSignal) {
     }
 }
 
-fn write_sizing(out: &mut String, c: &DipCandidate) {
-    if let Some(risk) = &c.risk {
+fn write_sizing(
+    out: &mut String,
+    risk: &Option<crate::domain::risk::RiskFrame>,
+    margin: &Option<crate::domain::margin::MarginFrame>,
+) {
+    if let Some(risk) = risk {
         let _ = writeln!(
             out,
             "  size: {} sh @ {:.2} · stop {:.2} · max loss ${:.2}",
             risk.shares, risk.entry, risk.stop, risk.max_loss_usd
         );
     }
-    if let Some(m) = &c.margin {
+    if let Some(m) = margin {
         let _ = writeln!(
             out,
             "  margin ({}x): {} sh · borrowed ${:.2} · m-call {} ({} away)",
@@ -203,7 +207,7 @@ fn render_report_table(r: &DipScanReport) -> String {
             c.signal.score_max,
         );
         write_signal_block(&mut out, &c.signal);
-        write_sizing(&mut out, c);
+        write_sizing(&mut out, &c.risk, &c.margin);
         let _ = writeln!(out);
     }
 
@@ -218,7 +222,8 @@ fn render_report_table(r: &DipScanReport) -> String {
     out
 }
 
-fn render_signal_table(signal: &DipSignal) -> String {
+fn render_ticker_table(report: &TickerDipReport) -> String {
+    let signal = &report.signal;
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -231,6 +236,10 @@ fn render_signal_table(signal: &DipSignal) -> String {
         signal.verdict, signal.score, signal.score_max
     );
     write_signal_block(&mut out, signal);
+    write_sizing(&mut out, &report.risk, &report.margin);
+    for n in &report.notes {
+        let _ = writeln!(out, "  note: {n}");
+    }
     let _ = writeln!(out, "\n{FRAMING_LINE}");
     let _ = writeln!(out, "\n{DISCLAIMER}");
     out
@@ -239,6 +248,7 @@ fn render_signal_table(signal: &DipSignal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::dip::DipCandidate;
     use crate::domain::dip::{DipMetrics, GateResults, ScoreComponents, Session, Verdict};
     use chrono::TimeZone;
 
@@ -324,10 +334,42 @@ mod tests {
     }
 
     #[test]
-    fn single_signal_table_renders() {
-        let t = render_signal_table(&signal(Verdict::Watch));
+    fn single_signal_table_renders_with_optional_sizing() {
+        let report = TickerDipReport {
+            signal: signal(Verdict::Watch),
+            risk: None,
+            margin: None,
+            notes: vec![],
+        };
+        let t = render_ticker_table(&report);
         assert!(t.contains("Dip Signal — GOOD"));
         assert!(t.contains("verdict: Watch"));
+        assert!(!t.contains("size:"));
+
+        let report = TickerDipReport {
+            signal: signal(Verdict::Watch),
+            risk: Some(crate::domain::risk::RiskFrame {
+                ticker: "GOOD".into(),
+                direction: crate::domain::risk::Direction::Long,
+                entry: 87.4,
+                atr: 2.0,
+                stop_multiple: 2.0,
+                stop: 83.4,
+                risk_per_share: 4.0,
+                shares: 62,
+                max_loss_usd: 248.0,
+                budget_usd: 250.0,
+                targets: [91.4, 95.4, 99.4],
+                notional_usd: 5418.8,
+                bars_used: 31,
+                note: None,
+                generated_at: Utc.with_ymd_and_hms(2026, 8, 14, 21, 30, 0).unwrap(),
+            }),
+            margin: None,
+            notes: vec![],
+        };
+        let t = render_ticker_table(&report);
+        assert!(t.contains("size: 62 sh @ 87.40"));
     }
 
     #[test]

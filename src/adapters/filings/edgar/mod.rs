@@ -20,9 +20,10 @@ use crate::domain::values::filing::Filing;
 const TICKER_MAP_URL: &str = "https://www.sec.gov/files/company_tickers.json";
 const SUBMISSIONS_BASE: &str = "https://data.sec.gov/submissions";
 const TIMEOUT_SECS: u64 = 10;
-/// Overridable contact for SEC's fair-access UA policy.
+/// Overridable contact for SEC's fair-access UA policy. SEC 403s UAs
+/// without an email-style contact (verified 2026-08-15).
 const CONTACT_ENV: &str = "OPENINTEL_SEC_CONTACT";
-const DEFAULT_CONTACT: &str = "+https://github.com/kloudysky/openintel";
+const DEFAULT_CONTACT: &str = "contact: adam@kloudysky.io";
 
 fn fail(message: impl Into<String>) -> DomainError {
     DomainError::SourceFailure {

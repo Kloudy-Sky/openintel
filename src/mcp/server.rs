@@ -52,13 +52,22 @@ impl OpenIntelServer {
     #[tool(
         description = "Analyze one ticker: fuse social sentiment with market action into a \
                        speculation report (net sentiment, speculation index, crowding, \
-                       alignment = confirming/diverging/quiet). Read-only — does not trade."
+                       alignment = confirming/diverging/quiet). On a ≤ -4% down day the output \
+                       also carries dip_signal — the same gated setup verdict dip_scan computes \
+                       (capped at watch in this mode). Read-only — does not trade."
     )]
     async fn analyze_ticker(
         &self,
         Parameters(args): Parameters<tools::AnalyzeArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        let out = tools::run_analyze(args, &self.social, &self.market)
+        let dip_deps = crate::application::dip::DipDeps {
+            bars: &self.market,
+            news: &self.market,
+            filings: self.filings.as_ref(),
+            social: &self.social,
+            market: Some(&self.market),
+        };
+        let out = tools::run_analyze(args, &self.social, &self.market, Some(&dip_deps))
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let json = serde_json::to_string_pretty(&out)

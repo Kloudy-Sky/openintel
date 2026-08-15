@@ -53,6 +53,13 @@ pub struct AnalyzeArgs {
 pub struct AnalyzeOutput {
     pub summary: String,
     pub report: SpeculationReport,
+    /// Present only on a meaningful down day (≤ -4%) when dip deps are wired:
+    /// the same gated signal `dip_scan` computes, for trade-consideration
+    /// context. Single-ticker mode — verdict caps at watch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dip_signal: Option<crate::domain::dip::DipSignal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dip_note: Option<String>,
     pub disclaimer: &'static str,
 }
 
@@ -99,6 +106,7 @@ pub async fn run_analyze(
     args: AnalyzeArgs,
     social_sources: &[Box<dyn SocialDataSource>],
     market_source: &dyn MarketDataSource,
+    dip_deps: Option<&crate::application::dip::DipDeps<'_>>,
 ) -> Result<AnalyzeOutput, DomainError> {
     let req = request_from(
         args.ticker,
@@ -108,9 +116,41 @@ pub async fn run_analyze(
         args.limit,
     );
     let report = application::analyze(&req, social_sources, Some(market_source)).await?;
+
+    // Attach the dip signal only when today actually looks like a dip —
+    // a mild move would make the signal pure noise. Never fails analyze.
+    let mut dip_note = None;
+    let dip_signal = match (&report.market, dip_deps) {
+        (Some(market), Some(deps))
+            if market.pct_change <= crate::domain::dip::DropBand::default().max_pct =>
+        {
+            let dip_req = crate::application::dip::DipScanRequest {
+                journal_path: None,
+                ..Default::default()
+            };
+            match crate::application::dip::dip_check(
+                report.ticker.as_str(),
+                &dip_req,
+                deps,
+                Utc::now(),
+            )
+            .await
+            {
+                Ok(signal) => Some(signal),
+                Err(e) => {
+                    dip_note = Some(format!("dip signal unavailable: {e}"));
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+
     Ok(AnalyzeOutput {
         summary: summarize(&report),
         report,
+        dip_signal,
+        dip_note,
         disclaimer: DISCLAIMER,
     })
 }
@@ -597,11 +637,14 @@ mod tests {
             },
             &fixture_social(),
             &MockMarketSource,
+            None,
         )
         .await
         .unwrap();
         assert!(out.summary.contains("ConfirmingBullish"));
         assert_eq!(out.report.social.total_mentions, 10);
+        // mock market is UP +4% — no dip signal even if deps were wired
+        assert!(out.dip_signal.is_none());
         assert!(out.disclaimer.contains("Not financial advice"));
     }
 
@@ -614,9 +657,11 @@ mod tests {
             no_market: None,
             limit: None,
         };
-        assert!(run_analyze(args, &fixture_social(), &MockMarketSource)
-            .await
-            .is_err());
+        assert!(
+            run_analyze(args, &fixture_social(), &MockMarketSource, None)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -1043,6 +1088,98 @@ mod tests {
             assert_eq!(req.deep_n, 5);
             assert!(req.journal_path.is_none()); // no_journal in fixture args
             assert_eq!(req.margin.unwrap().equity_usd, 10_000.0);
+        }
+
+        /// Market mock whose snapshot is an -8% down day.
+        struct DownMarket;
+
+        #[async_trait]
+        impl crate::domain::ports::market_data_source::MarketDataSource for DownMarket {
+            fn name(&self) -> &'static str {
+                "down-market"
+            }
+            async fn snapshot(
+                &self,
+                ticker: &crate::domain::entities::ticker::Ticker,
+            ) -> Result<crate::domain::entities::market_snapshot::MarketSnapshot, DomainError>
+            {
+                Ok(crate::domain::entities::market_snapshot::MarketSnapshot {
+                    ticker: ticker.clone(),
+                    as_of: Utc::now(),
+                    last_price: 87.4,
+                    previous_close: 95.0,
+                    volume: 4_000_000,
+                    avg_volume: 5_000_000,
+                    realized_vol: None,
+                    put_call_ratio: None,
+                    iv_rank: None,
+                })
+            }
+        }
+
+        #[tokio::test]
+        async fn analyze_attaches_dip_signal_on_down_day() {
+            let bars = bars_map();
+            let news = MockNewsSource(Ok(vec![]));
+            let filings = MockFilingsSource(Ok(vec![]));
+            let social = fixture_social();
+            let deps = DipDeps {
+                bars: &bars,
+                news: &news,
+                filings: &filings,
+                social: &social,
+                market: Some(&DownMarket),
+            };
+            let out = run_analyze(
+                AnalyzeArgs {
+                    ticker: "GOOD".into(),
+                    enable_reddit: None,
+                    enable_bluesky: None,
+                    no_market: None,
+                    limit: None,
+                },
+                &social,
+                &DownMarket,
+                Some(&deps),
+            )
+            .await
+            .unwrap();
+            let signal = out.dip_signal.expect("down day should attach a signal");
+            // single-ticker mode never claims high_confidence
+            assert_ne!(signal.verdict, crate::domain::dip::Verdict::HighConfidence);
+            assert!(out.dip_note.is_none());
+        }
+
+        #[tokio::test]
+        async fn analyze_dip_failure_degrades_to_note() {
+            // AAPL has no bars in the map -> dip_check errors -> note, not failure
+            let bars = bars_map();
+            let news = MockNewsSource(Ok(vec![]));
+            let filings = MockFilingsSource(Ok(vec![]));
+            let social = fixture_social();
+            let deps = DipDeps {
+                bars: &bars,
+                news: &news,
+                filings: &filings,
+                social: &social,
+                market: Some(&DownMarket),
+            };
+            let out = run_analyze(
+                AnalyzeArgs {
+                    ticker: "AAPL".into(),
+                    enable_reddit: None,
+                    enable_bluesky: None,
+                    no_market: None,
+                    limit: None,
+                },
+                &social,
+                &DownMarket,
+                Some(&deps),
+            )
+            .await
+            .unwrap();
+            assert!(out.dip_signal.is_none());
+            assert!(out.dip_note.unwrap().contains("dip signal unavailable"));
         }
     }
 }

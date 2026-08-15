@@ -226,7 +226,9 @@ impl ServerHandler for OpenIntelServer {
             ))
             .with_instructions(
                 "OpenIntel — fuses social sentiment with market action into a speculation \
-                 report (crowding, divergence, sentiment). READ-ONLY: it never places trades.",
+                 report (crowding, divergence, sentiment), plus deterministic risk/margin \
+                 calculators and a gated dip-setup scanner with a forward-return review. \
+                 READ-ONLY: it never places trades.",
             )
     }
 }

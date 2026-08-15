@@ -165,10 +165,11 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 
 | Tool | What it does |
 |---|---|
-| `analyze_ticker` | One symbol → full speculation report (sentiment, speculation index, crowding, alignment) |
+| `analyze_ticker` | One symbol → full speculation report (sentiment, speculation index, crowding, alignment); carries `dip_signal` on ≤ −4% down days |
 | `scan_watchlist` | A list of symbols → reports, run concurrently |
 | `compare_tickers` | Rank a set by `crowding` / `speculation_index` / `net_sentiment` / `divergence` |
 | `list_sources` | Which data sources are available |
+| `x_pulse` | Catalyst posts from chosen high-impact X accounts (paid X API — opt-in, cost confirmed with you first) |
 | `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
 | `dip_scan` | Day's biggest losers → gated dip-setup verdicts (`no_setup`/`watch`/`high_confidence`), optional margin-aware sizing; pass `ticker` for one symbol |
 | `dip_review` | Grade the dip journal against forward returns (raw + SPY-adjusted, per verdict) — the evidence check on dip_scan's v0 score |
@@ -213,10 +214,12 @@ approval. That boundary *is* the safety model; keep it.
 
 Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clock live at the edge.
 
-- `domain/` — entities, value objects, the pure `SpeculationEngine`, and port traits.
-- `adapters/` — `LexiconAnalyzer`, the `YahooMarketSource` (real, keyless), the `RedditSource` and `BlueskySource` (real, credential-gated — no mock sources).
+- `domain/` — entities, value objects, port traits, and the pure engines: `SpeculationEngine`, `risk` (ATR stop/size), `margin` (buying power, margin-call price), `dip` (gates + score + verdict), `dip_review` (forward-return grading).
+- `application/` — orchestration at the IO edge: `analyze`, `pulse`, `risk`, `dip` (scan/check + journal), `review` (journal grading). Clock and filesystem stamped here.
+- `adapters/` — `LexiconAnalyzer`; `YahooMarketSource` (keyless: chart bars/snapshot, `day_losers` screener, news+company names); `EdgarSource` (keyless SEC filings, ticker→CIK cached); `RedditSource`, `BlueskySource`, `XPulseSource` (credential-gated).
 - `config/` — secrets resolution (env + OS keychain, via `secrecy`) and runtime settings.
-- `cli/` — clap args, orchestration, rendering.
+- `cli/` — clap args, per-command leaves, rendering (only `main.rs` prints).
+- `mcp/` — the rmcp stdio server exposing the tools table above.
 
 Secrets come from environment variables (`OPENINTEL_REDDIT_CLIENT_ID`, `OPENINTEL_REDDIT_CLIENT_SECRET`, `OPENINTEL_BLUESKY_HANDLE`, `OPENINTEL_BLUESKY_APP_PASSWORD`, `OPENINTEL_MARKET_API_KEY`) or the OS keychain (written only by `openintel setup` after a live verify; env always wins), wrapped in `SecretString` — plaintext never touches disk, never logged.
 

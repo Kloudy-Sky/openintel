@@ -112,17 +112,24 @@ through **hard gates** into a tiered verdict:
 | `watch` | Eligible, no confirmed catalyst, but ≥ 1 gate failed or could not be verified (**unverifiable evidence fails closed**) |
 | `high_confidence` | ALL gates pass post-close: no filing, no catalyst headline, idiosyncratic vs SPY (≤ −3% excess), closed in the upper half of the day's range, score ≥ 65 |
 
+Keyword hits in headlines that clearly reference the company (by ticker or company name)
+confirm a catalyst; hits only in generic market-roundup headlines cap at `watch` instead
+of killing the candidate.
+
 `high_confidence` means **conformance to the setup template — never probability of
 profit**. Zero candidates is a normal result. Intraday runs always cap at `watch` (the day
 bar isn't final); run after the close for real verdicts. The composite score's weights are
 **v0 and unvalidated** — every scan appends a JSONL line to `~/.openintel/dip_journal.jsonl`
-(opt out with `--no-journal`) so they can be graded against forward returns later; a
-`dip --review` grader is the named follow-up.
+(opt out with `--no-journal`), and `openintel dip --review` grades that journal against
+subsequent prices: 1/5/10-trading-day raw and SPY-adjusted returns per verdict, win rates,
+and a score↔return correlation. Until the graded sample is meaningful (n ≥ 30, and only
+~3 months of entries are gradable per run), the review says so instead of pretending.
 
 ```bash
 openintel dip                                 # scan the losers universe
 openintel dip NVDA                            # one ticker (floor unverifiable -> caps at watch)
 openintel dip --equity 25000 --leverage 2     # adds ATR-stop sizing + margin mechanics
+openintel dip --review                        # grade past scans against forward returns
 ```
 
 With `--equity`, each candidate gets a risk frame (1% of equity to a 2×ATR stop by
@@ -164,6 +171,7 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `list_sources` | Which data sources are available |
 | `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
 | `dip_scan` | Day's biggest losers → gated dip-setup verdicts (`no_setup`/`watch`/`high_confidence`), optional margin-aware sizing; pass `ticker` for one symbol |
+| `dip_review` | Grade the dip journal against forward returns (raw + SPY-adjusted, per verdict) — the evidence check on dip_scan's v0 score |
 
 ### ⚠️ Risk & responsibility — read before connecting a broker
 

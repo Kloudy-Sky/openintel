@@ -259,9 +259,13 @@ fn render_review_table(r: &crate::application::review::DipReviewReport) -> Strin
         "scans: {} · entries: {} (graded {} · pending {} · stale {} · deduped {})\n",
         r.scans, r.entries_total, r.graded, r.pending, r.stale, r.deduped
     );
+    // each horizon prints its OWN sample size — d5/d10 can grade fewer
+    // entries than d1 (recent scans haven't produced the forward bars yet)
     let mean = |s: &Option<HorizonStats>| {
-        s.as_ref()
-            .map_or_else(|| "n/a".to_string(), |v| format!("{:+.1}%", v.mean_pct))
+        s.as_ref().map_or_else(
+            || "n/a".to_string(),
+            |v| format!("{:+.1}% (n{})", v.mean_pct, v.n),
+        )
     };
     let win = |s: &Option<HorizonStats>| {
         s.as_ref().map_or_else(
@@ -271,13 +275,13 @@ fn render_review_table(r: &crate::application::review::DipReviewReport) -> Strin
     };
     let _ = writeln!(
         out,
-        "{:<17} {:>4} {:>9} {:>9} {:>9} {:>8} {:>10}",
+        "{:<17} {:>4} {:>13} {:>13} {:>13} {:>7} {:>13}",
         "verdict", "n", "d1 mean", "d5 mean", "d10 mean", "d5 win", "d5 xs-SPY"
     );
     for b in &r.buckets {
         let _ = writeln!(
             out,
-            "{:<17} {:>4} {:>9} {:>9} {:>9} {:>8} {:>10}",
+            "{:<17} {:>4} {:>13} {:>13} {:>13} {:>7} {:>13}",
             format!("{:?}", b.verdict),
             b.n,
             mean(&b.raw.d1),

@@ -209,17 +209,12 @@ fn normalize_words(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Does this headline title clearly reference the company — by ticker symbol
-/// (whole word, ≥ 2 chars) or by a meaningful prefix of a known company name?
-/// Used to tell company news from generic market-roundup stories.
-pub fn headline_mentions_company(title: &str, ticker: &str, company_names: &[String]) -> bool {
-    let title_words = normalize_words(title);
-    let ticker_lower = ticker.to_ascii_lowercase();
-    if ticker.len() >= 2 && title_words.contains(&ticker_lower) {
-        return true;
-    }
-    // padded so forms only match on whole-word boundaries
-    let title_joined = format!(" {} ", title_words.join(" "));
+/// Matchable lowercase forms derived from company names (suffix-stripped,
+/// "the" dropped, first two words). Empty output means NO usable name exists
+/// — callers must then treat every headline as potentially about the company
+/// (blank or junk provider names must not weaken the gate).
+pub fn company_name_forms(company_names: &[String]) -> Vec<String> {
+    let mut forms = Vec::new();
     for name in company_names {
         let mut words = normalize_words(name);
         while let Some(last) = words.last() {
@@ -239,11 +234,27 @@ pub fn headline_mentions_company(title: &str, ticker: &str, company_names: &[Str
             1 => continue,
             _ => words[..2].join(" "),
         };
-        if title_joined.contains(&format!(" {form} ")) {
-            return true;
+        if !forms.contains(&form) {
+            forms.push(form);
         }
     }
-    false
+    forms
+}
+
+/// Does this headline title clearly reference the company — by ticker symbol
+/// (whole word, ≥ 2 chars) or by a `company_name_forms` match? Used to tell
+/// company news from generic market-roundup stories.
+pub fn headline_mentions_company(title: &str, ticker: &str, name_forms: &[String]) -> bool {
+    let title_words = normalize_words(title);
+    let ticker_lower = ticker.to_ascii_lowercase();
+    if ticker.len() >= 2 && title_words.contains(&ticker_lower) {
+        return true;
+    }
+    // padded so forms only match on whole-word boundaries
+    let title_joined = format!(" {} ", title_words.join(" "));
+    name_forms
+        .iter()
+        .any(|form| title_joined.contains(&format!(" {form} ")))
 }
 
 /// Case-insensitive whole-word keyword hits across the given texts, deduped.
@@ -601,6 +612,8 @@ pub fn dip_signal(inputs: &DipInputs) -> Result<DipSignal, DomainError> {
     let no_catalyst_headline = match &inputs.headlines {
         GateEvidence::Unavailable(reason) => GateStatus::Unknown(reason.clone()),
         GateEvidence::Available(headlines) => {
+            // blank/junk names derive no forms -> strict path, not a weaker gate
+            let name_forms = company_name_forms(&inputs.company_names);
             let mut matched_hits: Vec<String> = Vec::new();
             let mut unmatched_hits: Vec<String> = Vec::new();
             for h in headlines {
@@ -608,8 +621,8 @@ pub fn dip_signal(inputs: &DipInputs) -> Result<DipSignal, DomainError> {
                 if title_hits.is_empty() {
                     continue;
                 }
-                let about_company = inputs.company_names.is_empty()
-                    || headline_mentions_company(&h.title, inputs.ticker, &inputs.company_names);
+                let about_company = name_forms.is_empty()
+                    || headline_mentions_company(&h.title, inputs.ticker, &name_forms);
                 if about_company {
                     catalyst_evidence.push(format!(
                         "headline [{}]: \"{}\" (terms: {})",
@@ -987,31 +1000,31 @@ mod tests {
 
     #[test]
     fn headline_company_matching() {
-        let names = vec!["Ultra Clean Holdings, Inc.".to_string()];
+        let forms = company_name_forms(&["Ultra Clean Holdings, Inc.".to_string()]);
+        assert_eq!(forms, vec!["ultra clean".to_string()]);
         assert!(headline_mentions_company(
             "Ultra Clean Shares Fall After $400 Million Offering",
             "UCTT",
-            &names
+            &forms
         ));
         assert!(headline_mentions_company(
             "Why UCTT dropped today",
             "UCTT",
-            &names
+            &forms
         ));
         assert!(!headline_mentions_company(
             "Target Stock Flies To New Highs As Earnings Approach",
             "UCTT",
-            &names
+            &forms
         ));
-        // word-boundary: "ultra cleanse" is not "ultra clean <word>"? it IS
-        // "ultra" + "cleanse" — the padded form " ultra clean " must not match
+        // padded form " ultra clean " must not match inside "ultra cleanse"
         assert!(!headline_mentions_company(
             "An ultra cleanse fad",
             "UCTT",
-            &names
+            &forms
         ));
         // single-word name needs length; "the" prefix stripped
-        let viking = vec!["The Viking Holdings Ltd".to_string()];
+        let viking = company_name_forms(&["The Viking Holdings Ltd".to_string()]);
         assert!(headline_mentions_company(
             "Viking slides on bookings",
             "VIK",
@@ -1022,6 +1035,25 @@ mod tests {
             "VIK",
             &viking
         ));
+        // blank/junk names yield NO forms -- gate must fall back to strict
+        assert!(company_name_forms(&[" ".to_string()]).is_empty());
+        assert!(company_name_forms(&["Inc.".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn blank_company_names_keep_strict_headline_behavior() {
+        let prior = prior();
+        let w = ScoreWeights::default();
+        let mut i = inputs(&prior, &w);
+        i.company_names = vec![" ".into()]; // junk from the provider
+        i.headlines = GateEvidence::Available(vec![Headline {
+            title: "Retail earnings week ahead".into(),
+            publisher: "Wire".into(),
+            published_at: Some(chrono::Utc::now()),
+        }]);
+        // no usable name -> every headline treated as about the company -> kill
+        let sig = dip_signal(&i).unwrap();
+        assert_eq!(sig.verdict, Verdict::NoSetup);
     }
 
     #[test]

@@ -2,6 +2,7 @@ pub mod analyze;
 pub mod dip;
 pub mod pulse;
 pub mod request;
+pub mod review;
 pub mod risk;
 
 pub use analyze::analyze;

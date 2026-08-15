@@ -48,6 +48,14 @@ fn request_from(args: &DipArgs) -> DipScanRequest {
 
 pub async fn run(args: &DipArgs, credentials: &Credentials) -> Result<String, DomainError> {
     let yahoo = YahooMarketSource::new()?;
+    if args.review {
+        let path = crate::application::review::default_journal_or_err()?;
+        let report = crate::application::review::dip_review(&path, &yahoo, Utc::now()).await?;
+        return Ok(match args.format {
+            FormatArg::Table => render_review_table(&report),
+            FormatArg::Json => render_review_json(&report)?,
+        });
+    }
     let edgar = EdgarSource::new()?;
     let social = crate::adapters::sources::build_social_sources(credentials);
     let deps = DipDeps {
@@ -218,6 +226,80 @@ fn render_report_table(r: &DipScanReport) -> String {
         let _ = writeln!(out, "note: {n}");
     }
     let _ = writeln!(out, "\n{FRAMING_LINE}");
+    let _ = writeln!(out, "\n{DISCLAIMER}");
+    out
+}
+
+fn render_review_json(
+    report: &crate::application::review::DipReviewReport,
+) -> Result<String, DomainError> {
+    #[derive(serde::Serialize)]
+    struct Out<'a> {
+        report: &'a crate::application::review::DipReviewReport,
+        framing: &'static str,
+        disclaimer: &'static str,
+    }
+    serde_json::to_string_pretty(&Out {
+        report,
+        framing: crate::application::review::REVIEW_FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+    .map_err(|e| DomainError::SourceFailure {
+        name: "dip-review".into(),
+        message: format!("render failed: {e}"),
+    })
+}
+
+fn render_review_table(r: &crate::application::review::DipReviewReport) -> String {
+    use crate::domain::dip_review::HorizonStats;
+    let mut out = String::new();
+    let _ = writeln!(out, "=== OpenIntel Dip Review — {} ===", r.journal_path);
+    let _ = writeln!(
+        out,
+        "scans: {} · entries: {} (graded {} · pending {} · stale {} · deduped {})\n",
+        r.scans, r.entries_total, r.graded, r.pending, r.stale, r.deduped
+    );
+    let mean = |s: &Option<HorizonStats>| {
+        s.as_ref()
+            .map_or_else(|| "n/a".to_string(), |v| format!("{:+.1}%", v.mean_pct))
+    };
+    let win = |s: &Option<HorizonStats>| {
+        s.as_ref().map_or_else(
+            || "n/a".to_string(),
+            |v| format!("{:.0}%", v.win_rate * 100.0),
+        )
+    };
+    let _ = writeln!(
+        out,
+        "{:<17} {:>4} {:>9} {:>9} {:>9} {:>8} {:>10}",
+        "verdict", "n", "d1 mean", "d5 mean", "d10 mean", "d5 win", "d5 xs-SPY"
+    );
+    for b in &r.buckets {
+        let _ = writeln!(
+            out,
+            "{:<17} {:>4} {:>9} {:>9} {:>9} {:>8} {:>10}",
+            format!("{:?}", b.verdict),
+            b.n,
+            mean(&b.raw.d1),
+            mean(&b.raw.d5),
+            mean(&b.raw.d10),
+            win(&b.raw.d5),
+            mean(&b.excess.d5),
+        );
+    }
+    let _ = writeln!(
+        out,
+        "\nscore↔d5 correlation: {}",
+        r.score_return_corr_d5
+            .map_or_else(|| "n/a".to_string(), |c| format!("{c:+.2}"))
+    );
+    for e in &r.errors {
+        let _ = writeln!(out, "error: {} — {}", e.ticker, e.error);
+    }
+    for n in &r.notes {
+        let _ = writeln!(out, "note: {n}");
+    }
+    let _ = writeln!(out, "\n{}", crate::application::review::REVIEW_FRAMING);
     let _ = writeln!(out, "\n{DISCLAIMER}");
     out
 }

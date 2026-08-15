@@ -559,6 +559,43 @@ fn dip_request_from(args: &DipScanArgs) -> crate::application::dip::DipScanReque
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct DipReviewOutput {
+    pub summary: String,
+    pub report: crate::application::review::DipReviewReport,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+/// Grade the default scan journal against forward returns. Path is fixed —
+/// this tool never reads caller-chosen files.
+pub async fn run_dip_review(
+    bars: &dyn crate::domain::ports::bar_source::BarSource,
+) -> Result<DipReviewOutput, DomainError> {
+    let path = crate::application::review::default_journal_or_err()?;
+    let report = crate::application::review::dip_review(&path, bars, Utc::now()).await?;
+    let top = report
+        .buckets
+        .first()
+        .and_then(|b| {
+            b.raw
+                .d5
+                .as_ref()
+                .map(|s| format!(" · {:?} d5 mean {:+.1}% (n={})", b.verdict, s.mean_pct, s.n))
+        })
+        .unwrap_or_default();
+    let summary = format!(
+        "{} scans · {} graded, {} pending{}",
+        report.scans, report.graded, report.pending, top
+    );
+    Ok(DipReviewOutput {
+        summary,
+        report,
+        framing: crate::application::review::REVIEW_FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 pub async fn run_dip_scan(
     args: DipScanArgs,
     movers: &dyn crate::domain::ports::movers_source::MoversSource,

@@ -659,6 +659,256 @@ pub async fn run_dip_scan(
     }
 }
 
+// ------------------------------------------------------------ trade journal
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum InstrumentTypeArg {
+    Equity,
+    Option,
+    Crypto,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum OptionKindArg {
+    Call,
+    Put,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LogTradeToolArgs {
+    /// "equity", "option" (long only), or "crypto".
+    pub instrument_type: InstrumentTypeArg,
+    /// Ticker for equity, underlying for option, symbol for crypto.
+    pub symbol: String,
+    /// Option only: strike price.
+    pub strike: Option<f64>,
+    /// Option only: expiry as YYYY-MM-DD.
+    pub expiry: Option<String>,
+    /// Option only: "call" or "put".
+    pub option_kind: Option<OptionKindArg>,
+    /// Shares / contracts / units.
+    pub qty: f64,
+    /// Fill price of the traded instrument (premium per contract for options).
+    pub entry: f64,
+    /// The user's why, in their own words. Frozen forever at open.
+    pub thesis: String,
+    /// Free-form setup label, e.g. "sr-support-bounce".
+    pub setup_tag: String,
+    /// Exit-if price of the traded instrument, strictly below entry.
+    pub planned_stop: f64,
+    /// Optional target price, above entry.
+    pub planned_target: Option<f64>,
+    /// USD at risk on this trade (pass with wallet_usd).
+    pub risk_usd: Option<f64>,
+    /// Agentic wallet size right now, from the broker (pass with risk_usd).
+    pub wallet_usd: Option<f64>,
+    /// Skip the same-day duplicate guard (only after confirming it's a distinct trade).
+    pub allow_duplicate: Option<bool>,
+}
+
+fn instrument_from(
+    args: &LogTradeToolArgs,
+) -> Result<crate::domain::trade_journal::Instrument, DomainError> {
+    use crate::domain::trade_journal::{Instrument, OptionKind};
+    let bad = |m: &str| DomainError::SourceFailure {
+        name: "trade_journal".into(),
+        message: m.into(),
+    };
+    let symbol = args.symbol.trim().to_ascii_uppercase();
+    if symbol.is_empty() {
+        return Err(bad("symbol is required"));
+    }
+    match args.instrument_type {
+        InstrumentTypeArg::Equity => Ok(Instrument::Equity { ticker: symbol }),
+        InstrumentTypeArg::Crypto => Ok(Instrument::Crypto { symbol }),
+        InstrumentTypeArg::Option => {
+            let strike = args
+                .strike
+                .filter(|s| s.is_finite() && *s > 0.0)
+                .ok_or_else(|| bad("option needs a positive strike"))?;
+            let expiry = args
+                .expiry
+                .as_deref()
+                .and_then(|e| e.parse::<chrono::NaiveDate>().ok())
+                .ok_or_else(|| bad("option needs expiry as YYYY-MM-DD"))?;
+            let kind = match args
+                .option_kind
+                .as_ref()
+                .ok_or_else(|| bad("option needs option_kind: call or put"))?
+            {
+                OptionKindArg::Call => OptionKind::Call,
+                OptionKindArg::Put => OptionKind::Put,
+            };
+            Ok(Instrument::Option {
+                underlying: symbol,
+                strike,
+                expiry,
+                kind,
+            })
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct LogTradeOutput {
+    pub outcome: crate::application::trade_journal::LogOutcome,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub fn run_log_trade(args: LogTradeToolArgs) -> Result<LogTradeOutput, DomainError> {
+    let path = crate::application::trade_journal::default_path_or_err()?;
+    let instrument = instrument_from(&args)?;
+    let outcome = crate::application::trade_journal::log_trade(
+        &path,
+        crate::application::trade_journal::LogTradeRequest {
+            source: "agent".into(),
+            instrument,
+            qty: args.qty,
+            entry: args.entry,
+            thesis: args.thesis,
+            setup_tag: args.setup_tag,
+            planned_stop: args.planned_stop,
+            planned_target: args.planned_target,
+            risk_usd: args.risk_usd,
+            wallet_usd: args.wallet_usd,
+            allow_duplicate: args.allow_duplicate.unwrap_or(false),
+        },
+        chrono::Utc::now(),
+    )?;
+    Ok(LogTradeOutput {
+        outcome,
+        framing: "Journal entry only — nothing was traded. The thesis and plan are now frozen.",
+        disclaimer: DISCLAIMER,
+    })
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateActionArg {
+    Amend,
+    Close,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CloseReasonArg {
+    Stop,
+    Target,
+    Discretion,
+    Expiry,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct UpdateTradeToolArgs {
+    /// Trade id returned by log_trade, e.g. "NVDA-20260821-1".
+    pub trade_id: String,
+    /// "amend" (note, optionally move stop/target) or "close".
+    pub action: UpdateActionArg,
+    /// Amend: why (required). Close: optional context.
+    pub note: Option<String>,
+    /// Amend only: new stop price. Widened stops are reported by review_trades.
+    pub new_stop: Option<f64>,
+    /// Amend only: new target price.
+    pub new_target: Option<f64>,
+    /// Close only: exit fill price.
+    pub exit: Option<f64>,
+    /// Close only: "stop", "target", "discretion", or "expiry".
+    pub reason: Option<CloseReasonArg>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateTradeOutput {
+    pub trade_id: String,
+    pub updated: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub fn run_update_trade(args: UpdateTradeToolArgs) -> Result<UpdateTradeOutput, DomainError> {
+    use crate::application::trade_journal::TradeUpdate;
+    use crate::domain::trade_journal::CloseReason;
+    let bad = |m: &str| DomainError::SourceFailure {
+        name: "trade_journal".into(),
+        message: m.into(),
+    };
+    let path = crate::application::trade_journal::default_path_or_err()?;
+    let (update, label) = match args.action {
+        UpdateActionArg::Amend => (
+            TradeUpdate::Amend {
+                note: args.note.unwrap_or_default(),
+                new_stop: args.new_stop,
+                new_target: args.new_target,
+            },
+            "amended",
+        ),
+        UpdateActionArg::Close => {
+            let exit = args.exit.ok_or_else(|| bad("close needs an exit price"))?;
+            let reason = match args
+                .reason
+                .ok_or_else(|| bad("close needs a reason: stop, target, discretion, or expiry"))?
+            {
+                CloseReasonArg::Stop => CloseReason::Stop,
+                CloseReasonArg::Target => CloseReason::Target,
+                CloseReasonArg::Discretion => CloseReason::Discretion,
+                CloseReasonArg::Expiry => CloseReason::Expiry,
+            };
+            (
+                TradeUpdate::Close {
+                    exit,
+                    reason,
+                    note: args.note,
+                },
+                "closed",
+            )
+        }
+    };
+    crate::application::trade_journal::update_trade(
+        &path,
+        &args.trade_id,
+        update,
+        chrono::Utc::now(),
+    )?;
+    Ok(UpdateTradeOutput {
+        trade_id: args.trade_id,
+        updated: label,
+        disclaimer: DISCLAIMER,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenPositionsOutput {
+    pub report: crate::application::trade_journal::PositionsReport,
+    pub disclaimer: &'static str,
+}
+
+pub fn run_open_positions() -> Result<OpenPositionsOutput, DomainError> {
+    let path = crate::application::trade_journal::default_path_or_err()?;
+    Ok(OpenPositionsOutput {
+        report: crate::application::trade_journal::open_positions(&path),
+        disclaimer: DISCLAIMER,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReviewTradesOutput {
+    pub report: crate::application::trade_journal::TradeReviewReport,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_review_trades(
+    bars: &dyn crate::domain::ports::bar_source::BarSource,
+) -> Result<ReviewTradesOutput, DomainError> {
+    let path = crate::application::trade_journal::default_path_or_err()?;
+    let report =
+        crate::application::trade_journal::review_trades(&path, bars, chrono::Utc::now()).await?;
+    Ok(ReviewTradesOutput {
+        report,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

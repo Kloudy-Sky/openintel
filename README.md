@@ -141,6 +141,35 @@ not-holdable-overnight note. Single-position model; interest not modeled.
 Data: Yahoo screener + news (keyless, unofficial — failure mode is a clean error) and SEC
 EDGAR (keyless, official; identify yourself via `OPENINTEL_SEC_CONTACT` if you fork this).
 
+## Trade journal (frozen theses, graded record)
+
+An append-only journal at `~/.openintel/trade_journal.jsonl`: every trade is logged with
+its **thesis and plan frozen at entry** — they can never be retroactively edited to match
+the outcome. Amendments and closes append; a trade is a fold over its events.
+
+```bash
+openintel journal log NVDA --qty 10 --entry 178.50 --stop 172 \
+  --thesis "bounce off weekly support at 175" --tag sr-support-bounce \
+  --risk-usd 65 --wallet 5000                # equity; add --option call --strike/--expiry, or --crypto
+openintel journal amend NVDA-20260822-1 --note "trailing after 1R" --stop 178.50
+openintel journal close NVDA-20260822-1 --exit 191.20 --reason target
+openintel journal positions                  # every open trade with its thesis and plan
+openintel journal review                     # grade the whole record
+```
+
+The review grades realized **R vs the original stop** (amendments never soften the grade),
+win rates, **discipline flags** (widened stops, exits beyond the planned stop), and — for
+equities — 1/5/10-trading-day forward returns, raw and SPY-adjusted, bucketed by setup tag
+and instrument. Honesty gates: per-bucket numbers appear only at n ≥ 10 closed trades and
+overall conclusions need n ≥ 30 — below that the report calls itself anecdote. Options
+grade on realized P&L plus the underlying's direction (historical option prices aren't
+available keyless); crypto on realized P&L only. Long-only, matching what a broker's
+agentic account can hold.
+
+The MCP tools below are the primary surface: in an agent chat the entry is journaled in
+the same moment the user approves the trade — zero homework, and `open_positions` gives
+the next conversation the full context of what's held and why.
+
 ## Use with an AI agent (MCP)
 
 OpenIntel can run as a local **MCP server** so an AI agent can consult its analysis while
@@ -173,6 +202,10 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
 | `dip_scan` | Day's biggest losers → gated dip-setup verdicts (`no_setup`/`watch`/`high_confidence`), optional margin-aware sizing; pass `ticker` for one symbol |
 | `dip_review` | Grade the dip journal against forward returns (raw + SPY-adjusted, per verdict) — the evidence check on dip_scan's v0 score |
+| `log_trade` | Journal an approved trade at the moment it's placed: frozen thesis, required stop, risk-of-wallet snapshot; same-day duplicate guard |
+| `update_trade` | Amend an open trade (note, move stop/target — original plan stays frozen) or close it with exit + reason |
+| `open_positions` | Every open trade with its frozen thesis, plan, and amendments — call first in a new chat; the cross-session memory |
+| `review_trades` | Grade the trade journal: R vs original stops, win rates, discipline flags, SPY-adjusted forward returns, per-setup buckets (honesty gates: n ≥ 10/bucket, n ≥ 30 overall) |
 
 ### ⚠️ Risk & responsibility — read before connecting a broker
 
@@ -214,7 +247,7 @@ approval. That boundary *is* the safety model; keep it.
 
 Hexagonal (ports & adapters). The domain is pure and synchronous; IO and the clock live at the edge.
 
-- `domain/` — entities, value objects, port traits, and the pure engines: `SpeculationEngine`, `risk` (ATR stop/size), `margin` (buying power, margin-call price), `dip` (gates + score + verdict), `dip_review` (forward-return grading).
+- `domain/` — entities, value objects, port traits, and the pure engines: `SpeculationEngine`, `risk` (ATR stop/size), `margin` (buying power, margin-call price), `dip` (gates + score + verdict), `dip_review` (forward-return grading), `trade_journal` (event fold, frozen theses), `trade_review` (R-multiples, discipline, buckets).
 - `application/` — orchestration at the IO edge: `analyze`, `pulse`, `risk`, `dip` (scan/check + journal), `review` (journal grading). Clock and filesystem stamped here.
 - `adapters/` — `LexiconAnalyzer`; `YahooMarketSource` (keyless: chart bars/snapshot, `day_losers` screener, news+company names); `EdgarSource` (keyless SEC filings, ticker→CIK cached); `RedditSource`, `BlueskySource`, `XPulseSource` (credential-gated).
 - `config/` — secrets resolution (env + OS keychain, via `secrecy`) and runtime settings.

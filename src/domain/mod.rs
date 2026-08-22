@@ -6,4 +6,6 @@ pub mod error;
 pub mod margin;
 pub mod ports;
 pub mod risk;
+pub mod trade_journal;
+pub mod trade_review;
 pub mod values;

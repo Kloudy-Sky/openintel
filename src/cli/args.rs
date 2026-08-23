@@ -32,6 +32,9 @@ pub enum Command {
 
     /// Scan the day's biggest losers for gated dip setups (grades conformance, never advises)
     Dip(DipArgs),
+
+    /// Trade journal: log entries with a frozen thesis, track positions, grade the record
+    Journal(JournalArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -208,6 +211,140 @@ pub struct DipArgs {
 
     #[arg(long, value_enum, default_value_t = FormatArg::Table)]
     pub format: FormatArg,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct JournalArgs {
+    #[command(subcommand)]
+    pub command: JournalCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum JournalCommand {
+    /// Log an opened trade — thesis and plan are frozen at this moment
+    Log(JournalLogArgs),
+    /// Append a note to an open trade, optionally moving the stop or target
+    Amend(JournalAmendArgs),
+    /// Close an open trade with an exit price and reason
+    Close(JournalCloseArgs),
+    /// Every open trade with its frozen thesis and plan
+    Positions {
+        #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+        format: FormatArg,
+    },
+    /// Grade the whole journal: R vs original stops, discipline, forward returns
+    Review {
+        #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+        format: FormatArg,
+    },
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptionKindArg {
+    Call,
+    Put,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct JournalLogArgs {
+    /// Ticker (equity), underlying (with --option), or symbol (with --crypto)
+    pub symbol: String,
+
+    /// Shares / contracts / units
+    #[arg(long)]
+    pub qty: f64,
+
+    /// Fill price of the traded instrument (premium per contract for options)
+    #[arg(long)]
+    pub entry: f64,
+
+    /// Exit-if price of the traded instrument, strictly below entry
+    #[arg(long)]
+    pub stop: f64,
+
+    /// Why this trade, in your own words — frozen forever
+    #[arg(long)]
+    pub thesis: String,
+
+    /// Setup label, e.g. sr-support-bounce
+    #[arg(long)]
+    pub tag: String,
+
+    /// Optional target price, above entry
+    #[arg(long)]
+    pub target: Option<f64>,
+
+    /// USD at risk on this trade (pair with --wallet)
+    #[arg(long = "risk-usd", requires = "wallet")]
+    pub risk_usd: Option<f64>,
+
+    /// Wallet size right now, for the %-of-wallet snapshot (pair with --risk-usd)
+    #[arg(long, requires = "risk_usd")]
+    pub wallet: Option<f64>,
+
+    /// The instrument is a long option on SYMBOL
+    #[arg(long, value_enum)]
+    pub option: Option<OptionKindArg>,
+
+    /// Option strike price
+    #[arg(long, requires = "option")]
+    pub strike: Option<f64>,
+
+    /// Option expiry, YYYY-MM-DD
+    #[arg(long, requires = "option")]
+    pub expiry: Option<String>,
+
+    /// The instrument is crypto
+    #[arg(long, conflicts_with_all = ["option", "strike", "expiry"])]
+    pub crypto: bool,
+
+    /// Skip the same-day duplicate guard
+    #[arg(long = "allow-duplicate")]
+    pub allow_duplicate: bool,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct JournalAmendArgs {
+    /// Trade id, e.g. NVDA-20260821-1
+    pub trade_id: String,
+
+    /// Why — required for every amendment
+    #[arg(long)]
+    pub note: String,
+
+    /// New stop price (widened stops are reported by review)
+    #[arg(long)]
+    pub stop: Option<f64>,
+
+    /// New target price
+    #[arg(long)]
+    pub target: Option<f64>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalCloseReasonArg {
+    Stop,
+    Target,
+    Discretion,
+    Expiry,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct JournalCloseArgs {
+    /// Trade id, e.g. NVDA-20260821-1
+    pub trade_id: String,
+
+    /// Exit fill price
+    #[arg(long)]
+    pub exit: f64,
+
+    /// What ended it
+    #[arg(long, value_enum)]
+    pub reason: JournalCloseReasonArg,
+
+    /// Optional context
+    #[arg(long)]
+    pub note: Option<String>,
 }
 
 pub fn to_app_config(args: &AnalyzeArgs) -> AppConfig {

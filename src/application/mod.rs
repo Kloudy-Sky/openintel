@@ -4,6 +4,7 @@ pub mod pulse;
 pub mod request;
 pub mod review;
 pub mod risk;
+pub mod trade_journal;
 
 pub use analyze::analyze;
 pub use request::AnalysisRequest;

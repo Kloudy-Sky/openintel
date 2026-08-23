@@ -1,5 +1,6 @@
 pub mod args;
 pub mod dip;
+pub mod journal;
 pub mod pulse;
 pub mod risk;
 pub mod run;

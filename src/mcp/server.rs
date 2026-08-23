@@ -210,6 +210,77 @@ impl OpenIntelServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
+
+    #[tool(
+        description = "Journal a trade the user just APPROVED — call this in the same moment \
+                       the order is placed, before the conversation moves on. The thesis must \
+                       be the user's why in their own words; planned_stop is required (no entry \
+                       without a stop) and refers to the traded instrument's price (premium for \
+                       options). Pass wallet_usd fresh from the broker with risk_usd so the \
+                       %-of-wallet snapshot never goes stale. A same-day duplicate (instrument \
+                       + qty + entry) is rejected with the existing id — a retry, not an error. \
+                       Writes only the local journal; never trades."
+    )]
+    async fn log_trade(
+        &self,
+        Parameters(args): Parameters<tools::LogTradeToolArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_log_trade(args)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        description = "Amend an open journaled trade (append a note, move the stop or target — \
+                       the original plan stays frozen and widened stops are reported by \
+                       review_trades) or close it with an exit price and reason \
+                       (stop/target/discretion/expiry). Log the close in the same conversation \
+                       the exit happens. Writes only the local journal; never trades."
+    )]
+    async fn update_trade(
+        &self,
+        Parameters(args): Parameters<tools::UpdateTradeToolArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_update_trade(args)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        description = "Every open journaled trade with its frozen thesis, plan, amendments, and \
+                       age — the cross-session memory. Call this FIRST in a new conversation \
+                       about trading, before proposing anything, so existing positions and \
+                       their reasoning are in context. Read-only."
+    )]
+    async fn open_positions(&self) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_open_positions()
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        description = "Grade the whole trade journal: realized R vs the ORIGINAL stop, win \
+                       rates, discipline flags (widened stops, exits beyond the planned stop), \
+                       forward returns for equities (raw and SPY-adjusted), buckets by setup \
+                       tag and instrument. Options grade on realized P&L plus underlying \
+                       direction; crypto on realized P&L only. Honesty gates: numbers appear \
+                       only at n≥10 per bucket and conclusions need n≥30 closed trades — below \
+                       that, everything is anecdote and the report says so. Read-only."
+    )]
+    async fn review_trades(&self) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_review_trades(&self.market)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]

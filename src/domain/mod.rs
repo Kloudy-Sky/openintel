@@ -1,3 +1,4 @@
+pub mod chatter;
 pub mod dip;
 pub mod dip_review;
 pub mod discover;

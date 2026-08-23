@@ -56,6 +56,40 @@ fn parse_rfc3339(s: &str) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
 }
 
+fn view_to_post(view: PostView, fetched_at: DateTime<Utc>) -> Option<SocialPost> {
+    let id = match view.uri {
+        Some(u) if !u.is_empty() => u,
+        _ => return None,
+    };
+    let record = view.record.unwrap_or_default();
+    // empty/whitespace text -> skip, not fatal
+    let text = PostText::parse(&record.text.unwrap_or_default()).ok()?;
+    let created_at = record
+        .created_at
+        .as_deref()
+        .and_then(parse_rfc3339)
+        .or_else(|| view.indexed_at.as_deref().and_then(parse_rfc3339))
+        .unwrap_or(fetched_at);
+    let engagement = [view.like_count, view.repost_count, view.reply_count]
+        .iter()
+        .map(|c| c.unwrap_or(0).max(0) as u64)
+        .sum::<u64>()
+        .min(u32::MAX as u64) as u32;
+
+    Some(SocialPost {
+        id,
+        source: SourceKind::Bluesky,
+        author: view
+            .author
+            .unwrap_or_default()
+            .handle
+            .unwrap_or_else(|| "[unknown]".to_string()),
+        text,
+        created_at,
+        engagement,
+    })
+}
+
 pub(crate) fn parse_posts(
     body: &str,
     limit: usize,
@@ -70,39 +104,42 @@ pub(crate) fn parse_posts(
 
     let mut posts = Vec::new();
     for view in resp.posts {
-        let id = match view.uri {
-            Some(u) if !u.is_empty() => u,
-            _ => continue,
-        };
-        let record = view.record.unwrap_or_default();
-        let text = match PostText::parse(&record.text.unwrap_or_default()) {
-            Ok(t) => t,
-            Err(_) => continue, // empty/whitespace text -> skip, not fatal
-        };
-        let created_at = record
-            .created_at
-            .as_deref()
-            .and_then(parse_rfc3339)
-            .or_else(|| view.indexed_at.as_deref().and_then(parse_rfc3339))
-            .unwrap_or(fetched_at);
-        let engagement = [view.like_count, view.repost_count, view.reply_count]
-            .iter()
-            .map(|c| c.unwrap_or(0).max(0) as u64)
-            .sum::<u64>()
-            .min(u32::MAX as u64) as u32;
+        if let Some(post) = view_to_post(view, fetched_at) {
+            posts.push(post);
+        }
+        if posts.len() >= limit {
+            break;
+        }
+    }
+    Ok(posts)
+}
 
-        posts.push(SocialPost {
-            id,
-            source: SourceKind::Bluesky,
-            author: view
-                .author
-                .unwrap_or_default()
-                .handle
-                .unwrap_or_else(|| "[unknown]".to_string()),
-            text,
-            created_at,
-            engagement,
-        });
+#[derive(Debug, Deserialize)]
+struct AuthorFeedResponse {
+    #[serde(default)]
+    feed: Vec<FeedItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FeedItem {
+    #[serde(default)]
+    post: Option<PostView>,
+}
+
+/// `app.bsky.feed.getAuthorFeed` wraps each post one level deeper than
+/// searchPosts; the per-post mapping is shared.
+pub(crate) fn parse_author_feed(
+    body: &str,
+    limit: usize,
+    fetched_at: DateTime<Utc>,
+) -> Result<Vec<SocialPost>, DomainError> {
+    let resp: AuthorFeedResponse =
+        serde_json::from_str(body).map_err(|e| fail(format!("malformed feed response: {e}")))?;
+    let mut posts = Vec::new();
+    for item in resp.feed {
+        if let Some(post) = item.post.and_then(|v| view_to_post(v, fetched_at)) {
+            posts.push(post);
+        }
         if posts.len() >= limit {
             break;
         }

@@ -362,8 +362,9 @@ pub struct PulseToolArgs {
     pub keywords: Option<Vec<String>>,
     /// Lookback window in hours (default 24, max 167).
     pub hours_back: Option<u32>,
-    /// Max posts to read — each read costs ~$0.005 (default 20, max 100).
-    /// X bills a minimum of 10 reads per call.
+    /// Max posts to read — ~$0.005 per post returned, deduped over 24h
+    /// (default 20, max 100). The search floor can return up to 10 posts
+    /// even for smaller limits — budget the worst case.
     pub limit: Option<usize>,
 }
 
@@ -682,12 +683,83 @@ impl ScreenArg {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DiscoverToolArgs {
+    /// "movers" (default) or "chatter" (mention velocity from the listening set).
+    pub mode: Option<DiscoverModeArg>,
     /// Screens to pull: "gainers", "losers", "actives" (default: all three).
     pub screens: Option<Vec<ScreenArg>>,
     /// Rows pulled per screen (1-100, default 25).
     pub count: Option<usize>,
     /// Total candidates deep-annotated across screens (1-25, default 9).
     pub deep: Option<usize>,
+    /// Chatter only: include the PAID X leg (~$0.005 per post returned).
+    /// Confirm the cost with the user BEFORE setting this.
+    pub include_x: Option<bool>,
+    /// Chatter only: lookback hours (1-167, default 24).
+    pub hours: Option<u32>,
+    /// Chatter only: max X posts returned (1-100, default 20 ≈ $0.10 max).
+    pub x_read_cap: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DiscoverModeArg {
+    Movers,
+    Chatter,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatterToolOutput {
+    pub summary: String,
+    pub report: crate::application::chatter::ChatterReport,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_chatter(
+    args: &DiscoverToolArgs,
+    feeds: &[&dyn crate::domain::ports::listening_feed::ListeningFeed],
+    market: Option<&dyn crate::domain::ports::market_data_source::MarketDataSource>,
+) -> Result<ChatterToolOutput, DomainError> {
+    let listening_path =
+        crate::config::listening::default_path().ok_or_else(|| DomainError::SourceFailure {
+            name: "chatter".into(),
+            message: "cannot resolve a home directory".into(),
+        })?;
+    let (listening, _created) = crate::config::listening::load_or_seed(&listening_path)?;
+    let req = crate::application::chatter::ChatterRequest {
+        listening,
+        hours: args
+            .hours
+            .unwrap_or(crate::application::chatter::DEFAULT_HOURS)
+            .clamp(1, 167),
+        free_limit: crate::application::chatter::DEFAULT_FREE_LIMIT,
+        x_read_cap: args
+            .x_read_cap
+            .unwrap_or(crate::application::chatter::DEFAULT_X_READ_CAP)
+            .clamp(1, 100),
+        baseline_path: crate::application::chatter::default_baseline_path(),
+    };
+    let report = crate::application::chatter::chatter(&req, feeds, market, Utc::now()).await?;
+    let spent: f64 = report
+        .platforms
+        .iter()
+        .filter_map(|p| p.estimated_cost_usd)
+        .sum();
+    let summary = format!(
+        "{} platforms scanned · {} tickers surfaced · ${spent:.2} spent",
+        report.platforms.len(),
+        report
+            .platforms
+            .iter()
+            .map(|p| p.tickers.len())
+            .sum::<usize>()
+    );
+    Ok(ChatterToolOutput {
+        summary,
+        report,
+        framing: crate::application::chatter::FRAMING,
+        disclaimer: DISCLAIMER,
+    })
 }
 
 #[derive(Debug, Serialize)]

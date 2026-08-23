@@ -139,6 +139,80 @@ impl SocialDataSource for RedditSource {
     }
 }
 
+#[async_trait]
+impl crate::domain::ports::listening_feed::ListeningFeed for RedditSource {
+    fn platform(&self) -> &'static str {
+        "reddit"
+    }
+
+    fn paid(&self) -> bool {
+        false
+    }
+
+    async fn listening_posts(
+        &self,
+        handles: &[String],
+        hours_back: u32,
+        limit: usize,
+    ) -> Result<crate::domain::ports::listening_feed::ListeningFetch, DomainError> {
+        use crate::domain::entities::pulse::PulsePost;
+        let fail = |m: String| DomainError::SourceFailure {
+            name: "reddit".into(),
+            message: m,
+        };
+        if handles.is_empty() || limit == 0 {
+            return Ok(crate::domain::ports::listening_feed::ListeningFetch {
+                posts: Vec::new(),
+                posts_returned: 0,
+            });
+        }
+        let bearer = self.ensure_token().await?;
+        let fetched_at = Utc::now();
+        let cutoff = fetched_at - chrono::Duration::hours(i64::from(hours_back.max(1)));
+        // Multireddit syntax: one request covers the whole subreddit list.
+        let subs = handles.join("+");
+        let mut url = reqwest::Url::parse(&format!("{API_BASE}/r/{subs}/hot"))
+            .map_err(|e| fail(format!("bad hot url: {e}")))?;
+        url.query_pairs_mut()
+            .append_pair("limit", &limit.min(100).to_string())
+            .append_pair("raw_json", "1");
+
+        let resp = self
+            .client
+            .get(url)
+            .bearer_auth(bearer.expose_secret())
+            .header(reqwest::header::USER_AGENT, &self.user_agent)
+            .send()
+            .await
+            .map_err(|e| fail(format!("hot request failed: {e}")))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| fail(format!("hot body failed (HTTP {status}): {e}")))?;
+        if !status.is_success() {
+            return Err(fail(format!("hot HTTP {status}")));
+        }
+        let fetched = response::parse_posts(&body, limit, fetched_at)?;
+        let returned = fetched.len() as u32;
+        let posts: Vec<PulsePost> = fetched
+            .into_iter()
+            .filter(|p| p.created_at >= cutoff)
+            .map(|p| PulsePost {
+                id: p.id,
+                author: p.author,
+                text: p.text,
+                created_at: p.created_at,
+                engagement: p.engagement,
+            })
+            .collect();
+        Ok(crate::domain::ports::listening_feed::ListeningFetch {
+            posts,
+            posts_returned: returned,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

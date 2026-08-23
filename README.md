@@ -89,7 +89,9 @@ openintel pulse TSLA --accounts elonmusk --keywords tesla,robotaxi     # ≤ 20 
 
 Add `--keywords` with the company's own vocabulary — influencer posts say "Tesla", not "$TSLA".
 
-Note: X's API bills a minimum of 10 post reads per call, so even `--limit 1` costs ≈ $0.05.
+Note: billing is per post returned (deduped over a 24h UTC day, prepaid credits, no
+per-call minimum) — but the search endpoint's `max_results` floor is 10, so a call can
+return up to 10 posts even at `--limit 1`: budget ≈ $0.05 worst case per call.
 
 No `--accounts` → a small macro default list (POTUS, White House, Musk, the Fed).
 Via MCP, the `x_pulse` tool asks the agent to research which accounts matter for
@@ -166,8 +168,35 @@ openintel discover --screens losers --deep 5
 openintel discover --format json
 ```
 
-Also exposed as the `discover` MCP tool. A chatter mode (mention velocity from a
-curated cross-platform listening set) is planned next.
+Also exposed as the `discover` MCP tool (with a `mode` parameter for the chatter mode
+below).
+
+## Chatter (find it before the chart)
+
+`openintel discover --chatter` measures **mention velocity from your listening set** —
+the accounts and communities worth hearing, stored at `~/.openintel/listening.json`
+(seeded on first run with a macro default; edit it, or let your agent propose additions
+for you to approve). Legs, per what's configured:
+
+- **Bluesky** (free): author feeds of your listed accounts.
+- **Reddit** (optional): hot posts from your listed subreddits.
+- **X** (paid, strictly opt-in via `--x` / `include_x`): everything your listed accounts
+  posted in the window — ~$0.005 per post returned, deduped 24h, capped at `--x-limit`
+  (default 20 ≈ $0.10 max per run).
+
+Cashtag mentions are counted once per post and graded against a **baseline journal**
+(`~/.openintel/chatter_baseline.jsonl`, appended every run): velocity = today's mention
+*share* vs the trailing mean — set-size-independent, so growing your listening set can't
+fake a spike, and a changed set is flagged. **Honesty gates:** no velocity claim below
+5 mentions today and 3 prior baseline days; until then the report shows raw counts and
+says "baseline building". The headline flag is **chatter leading the chart**: velocity
+≥ 3× baseline while the day move is under 2% and RVOL is unremarkable.
+
+Influencers write "Tesla", not "$TSLA" — so the report also returns the recent posts
+themselves for you (or your agent) to read. Attention is the signal being measured, not
+information: chatter never ranks, never predicts, and is exactly the kind of thing
+crowding vetoes exist for. Run it daily (a scheduled agent session works well) — the
+baseline only matures with regular runs.
 
 ## Trade journal (frozen theses, graded record)
 
@@ -230,7 +259,7 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
 | `dip_scan` | Day's biggest losers → gated dip-setup verdicts (`no_setup`/`watch`/`high_confidence`), optional margin-aware sizing; pass `ticker` for one symbol |
 | `dip_review` | Grade the dip journal against forward returns (raw + SPY-adjusted, per verdict) — the evidence check on dip_scan's v0 score |
-| `discover` | Today's movers (gainers/losers/actives) with evidence attached: tape, period extremes in ATRs, catalyst gates, attention — no ranking, no picks |
+| `discover` | Movers with evidence (tape, period extremes, catalyst gates) or — `mode: chatter` — mention velocity from the listening set with honesty-gated baselines; `include_x` spends real money and requires user confirmation first. No ranking, no picks |
 | `log_trade` | Journal an approved trade at the moment it's placed: frozen thesis, required stop, risk-of-wallet snapshot; same-day duplicate guard |
 | `update_trade` | Amend an open trade (note, move stop/target — original plan stays frozen) or close it with exit + reason |
 | `open_positions` | Every open trade with its frozen thesis, plan, and amendments — call first in a new chat; the cross-session memory |

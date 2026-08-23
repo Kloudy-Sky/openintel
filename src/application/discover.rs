@@ -234,8 +234,17 @@ pub async fn discover(
     let count = req.count.clamp(1, 100);
     let now_ms = now.timestamp_millis();
 
+    // Order-preserving dedupe: a repeated screen would double-fetch upstream
+    // and then collide on the index map below.
+    let mut screens: Vec<ScreenKind> = Vec::new();
+    for kind in &req.screens {
+        if !screens.contains(kind) {
+            screens.push(*kind);
+        }
+    }
+
     let fetched: Vec<(ScreenKind, Result<Vec<MoverRow>, DomainError>)> = futures::stream::iter(
-        req.screens
+        screens
             .clone()
             .into_iter()
             .map(|kind| async move { (kind, deps.movers.screen(kind, count).await) }),
@@ -247,7 +256,7 @@ pub async fn discover(
     let mut by_kind: BTreeMap<usize, (ScreenKind, Result<Vec<MoverRow>, DomainError>)> =
         BTreeMap::new();
     for entry in fetched {
-        let idx = req.screens.iter().position(|k| *k == entry.0).unwrap_or(0);
+        let idx = screens.iter().position(|k| *k == entry.0).unwrap_or(0);
         by_kind.insert(idx, entry);
     }
 
@@ -449,6 +458,27 @@ mod tests {
         assert!((both[0].rvol.unwrap() - 2.0).abs() < 1e-12);
         assert!(report.notes.iter().any(|n| n.contains("dip_scan")));
         assert!(report.notes.iter().any(|n| n.contains("no social sources")));
+    }
+
+    #[tokio::test]
+    async fn duplicate_screens_collapse_to_one_fetch() {
+        let news = quiet_news();
+        let filings = MockFilingsSource(Ok(vec![]));
+        let deps = DiscoverDeps {
+            movers: &ScreenedMovers,
+            bars: &FixedBars,
+            news: &news,
+            filings: &filings,
+            social: &[],
+        };
+        let req = DiscoverRequest {
+            screens: vec![ScreenKind::DayLosers, ScreenKind::DayLosers],
+            ..DiscoverRequest::default()
+        };
+        let report = discover(&req, &deps, now()).await.unwrap();
+        assert_eq!(report.screens.len(), 1);
+        assert_eq!(report.candidates.len(), 1);
+        assert_eq!(report.candidates[0].ticker, "DOWN");
     }
 
     #[tokio::test]

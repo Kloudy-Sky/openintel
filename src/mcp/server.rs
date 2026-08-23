@@ -15,6 +15,7 @@ use crate::mcp::tools;
 pub struct OpenIntelServer {
     tool_router: ToolRouter<OpenIntelServer>,
     social: Arc<Vec<Box<dyn SocialDataSource>>>,
+    listening: Arc<Vec<Box<dyn crate::domain::ports::listening_feed::ListeningFeed>>>,
     market: YahooMarketSource,
     filings: Arc<crate::adapters::filings::edgar::EdgarSource>,
     pulse_feed: Option<Arc<crate::adapters::sources::x::XPulseSource>>,
@@ -23,6 +24,7 @@ pub struct OpenIntelServer {
 impl OpenIntelServer {
     pub fn new(
         social: Vec<Box<dyn SocialDataSource>>,
+        listening: Vec<Box<dyn crate::domain::ports::listening_feed::ListeningFeed>>,
         market: YahooMarketSource,
         filings: crate::adapters::filings::edgar::EdgarSource,
         pulse_feed: Option<crate::adapters::sources::x::XPulseSource>,
@@ -30,6 +32,7 @@ impl OpenIntelServer {
         Self {
             tool_router: Self::tool_router(),
             social: Arc::new(social),
+            listening: Arc::new(listening),
             market,
             filings: Arc::new(filings),
             pulse_feed: pulse_feed.map(Arc::new),
@@ -111,8 +114,9 @@ impl OpenIntelServer {
                        actually matter for this ticker — CEO/founder, major institutional holders \
                        or activist funds, respected sector journalists, and market-moving macro \
                        figures — then propose the account list and estimated max cost \
-                       (max(limit, 10) × $0.005 — X bills a minimum of 10 reads) to the user \
-                       and get their confirmation. Also propose \
+                       (up to max(limit, 10) × $0.005 — billing is per post returned, deduped \
+                       over 24h; the search floor can return up to 10 posts even for smaller \
+                       limits) to the user and get their confirmation. Also propose \
                        company-language keywords (e.g. \"Tesla\" for TSLA) — these accounts \
                        rarely write cashtags, so symbol-only matching misses their posts. \
                        Omit `accounts` only if the user asks for the default macro list. \
@@ -212,21 +216,49 @@ impl OpenIntelServer {
     }
 
     #[tool(
-        description = "Answer \"where are trades today?\" without a ticker: pull Yahoo's \
-                       predefined screens (gainers / losers / most actives), apply the quality \
-                       floor, and annotate a bounded slice with evidence — day change, RVOL, \
+        description = "Answer \"where are trades today?\" without a ticker. Mode \"movers\" \
+                       (default): Yahoo's predefined screens (gainers / losers / most actives), \
+                       quality floor, then evidence per candidate — day change, RVOL, \
                        ATR-stretch, distance to 3-month and ~1-year period extremes (a proxy, \
                        NOT support/resistance), same-day SEC-filing and catalyst-headline gates \
                        (unverifiable evidence reads Unknown), and social attention where \
-                       configured. NO ranking, NO verdicts, NO picks — present the evidence and \
-                       let the user reason. For gated dip verdicts on losers run dip_scan; for \
-                       a deep read on one name run analyze_ticker; before any trade run \
-                       risk_frame and get explicit user approval. Read-only — does not trade."
+                       configured. Mode \"chatter\": cashtag mention velocity from the user's \
+                       listening set (~/.openintel/listening.json — propose curation additions \
+                       for the user to approve), graded against a baseline journal with honesty \
+                       gates (no velocity claim below 5 mentions / 3 baseline days), plus the \
+                       raw recent posts (influencers write company names, not cashtags — read \
+                       them). include_x adds the PAID X leg: ~$0.005 per post returned, deduped \
+                       24h, default cap 20 ≈ $0.10 max — state the cost and get the user's \
+                       confirmation BEFORE calling with include_x. NO ranking, NO verdicts, NO \
+                       picks. For gated dip verdicts on losers run dip_scan; before any trade \
+                       run risk_frame and get explicit user approval. Read-only — never trades."
     )]
     async fn discover(
         &self,
         Parameters(args): Parameters<tools::DiscoverToolArgs>,
     ) -> Result<CallToolResult, ErrorData> {
+        if matches!(args.mode, Some(tools::DiscoverModeArg::Chatter)) {
+            let mut feeds: Vec<&dyn crate::domain::ports::listening_feed::ListeningFeed> =
+                self.listening.iter().map(|f| f.as_ref() as _).collect();
+            if args.include_x.unwrap_or(false) {
+                match self.pulse_feed.as_deref() {
+                    Some(x) => feeds.push(x),
+                    None => {
+                        return Err(ErrorData::invalid_request(
+                            "include_x set but X is not configured — run `openintel setup x`"
+                                .to_string(),
+                            None,
+                        ))
+                    }
+                }
+            }
+            let out = tools::run_chatter(&args, &feeds, Some(&self.market))
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+            let json = serde_json::to_string_pretty(&out)
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+            return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+        }
         let deps = crate::application::discover::DiscoverDeps {
             movers: &self.market,
             bars: &self.market,
@@ -353,7 +385,8 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         },
         None => None,
     };
-    let service = OpenIntelServer::new(social, market, filings, pulse_feed)
+    let listening = crate::adapters::sources::build_free_listening_feeds(&credentials);
+    let service = OpenIntelServer::new(social, listening, market, filings, pulse_feed)
         .serve(stdio())
         .await?;
     service.waiting().await?;

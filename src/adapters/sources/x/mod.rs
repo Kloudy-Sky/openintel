@@ -76,29 +76,30 @@ impl XPulseSource {
     }
 }
 
-#[async_trait]
-impl InfluencerFeed for XPulseSource {
-    async fn pulse(
+/// Author-only query for chatter listening: everything these accounts posted,
+/// no ticker terms. Same operator-safety posture as `build_query`.
+pub(crate) fn build_listening_query(accounts: &[String]) -> String {
+    let from = accounts
+        .iter()
+        .map(|a| format!("from:{a}"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!("({from}) -is:retweet")
+}
+
+impl XPulseSource {
+    /// Shared paid search: everything from the window stamp to the parse.
+    /// Both entry points guard `limit == 0` before calling (nothing billed).
+    async fn run_search(
         &self,
-        ticker: &Ticker,
-        accounts: &[String],
-        keywords: &[String],
+        query: &str,
         hours_back: u32,
         limit: usize,
     ) -> Result<PulseFetch, DomainError> {
-        if limit == 0 {
-            // No request made, nothing billed.
-            return Ok(PulseFetch {
-                posts: Vec::new(),
-                posts_returned: 0,
-            });
-        }
         let fetched_at = Utc::now();
         let start_time = (fetched_at - Duration::hours(i64::from(hours_back)))
             .to_rfc3339_opts(SecondsFormat::Secs, true);
-        let max_results = limit.clamp(10, 100).to_string(); // API minimum is 10
-
-        let query = build_query(ticker, accounts, keywords);
+        let max_results = limit.clamp(10, 100).to_string(); // max_results floor is 10
         if query.chars().count() > MAX_QUERY_CHARS {
             return Err(fail(format!(
                 "query too long ({} chars, max {MAX_QUERY_CHARS}) — use fewer accounts/keywords",
@@ -109,7 +110,7 @@ impl InfluencerFeed for XPulseSource {
         // `.query()` is behind reqwest's un-enabled `query` feature; build manually.
         let mut url = reqwest::Url::parse(SEARCH_URL).map_err(|e| fail(format!("bad url: {e}")))?;
         url.query_pairs_mut()
-            .append_pair("query", &query)
+            .append_pair("query", query)
             .append_pair("start_time", &start_time)
             .append_pair("max_results", &max_results)
             .append_pair("tweet.fields", "created_at,public_metrics")
@@ -155,6 +156,60 @@ impl InfluencerFeed for XPulseSource {
             return Err(fail(format!("search HTTP {status}")));
         }
         response::parse_posts(&body, limit, fetched_at)
+    }
+}
+
+#[async_trait]
+impl InfluencerFeed for XPulseSource {
+    async fn pulse(
+        &self,
+        ticker: &Ticker,
+        accounts: &[String],
+        keywords: &[String],
+        hours_back: u32,
+        limit: usize,
+    ) -> Result<PulseFetch, DomainError> {
+        if limit == 0 {
+            // No request made, nothing billed.
+            return Ok(PulseFetch {
+                posts: Vec::new(),
+                posts_returned: 0,
+            });
+        }
+        let query = build_query(ticker, accounts, keywords);
+        self.run_search(&query, hours_back, limit).await
+    }
+}
+
+#[async_trait]
+impl crate::domain::ports::listening_feed::ListeningFeed for XPulseSource {
+    fn platform(&self) -> &'static str {
+        "x"
+    }
+
+    fn paid(&self) -> bool {
+        true
+    }
+
+    async fn listening_posts(
+        &self,
+        handles: &[String],
+        hours_back: u32,
+        limit: usize,
+    ) -> Result<crate::domain::ports::listening_feed::ListeningFetch, DomainError> {
+        if handles.is_empty() || limit == 0 {
+            // No request made, nothing billed.
+            return Ok(crate::domain::ports::listening_feed::ListeningFetch {
+                posts: Vec::new(),
+                posts_returned: 0,
+            });
+        }
+        let query = build_listening_query(handles);
+        let fetch = self.run_search(&query, hours_back, limit).await?;
+        Ok(crate::domain::ports::listening_feed::ListeningFetch {
+            posts: fetch.posts,
+            posts_returned: fetch.posts_returned,
+        })
     }
 }
 

@@ -43,6 +43,34 @@ pub fn build_social_sources(credentials: &Credentials) -> Vec<Box<dyn SocialData
     social
 }
 
+/// Assemble the FREE listening feeds for chatter discovery (Bluesky author
+/// feeds, Reddit subreddit hot) from the same credentials. The paid X feed is
+/// wired separately by each composition root — it needs its own opt-in.
+pub fn build_free_listening_feeds(
+    credentials: &Credentials,
+) -> Vec<Box<dyn crate::domain::ports::listening_feed::ListeningFeed>> {
+    let mut feeds: Vec<Box<dyn crate::domain::ports::listening_feed::ListeningFeed>> = Vec::new();
+    if let (Some(handle), Some(password)) = (
+        credentials.bluesky_handle.clone(),
+        credentials.bluesky_app_password.clone(),
+    ) {
+        match bluesky::BlueskySource::new(handle, password) {
+            Ok(src) => feeds.push(Box::new(src)),
+            Err(e) => eprintln!("warning: bluesky listening disabled: {e}"),
+        }
+    }
+    if let (Some(id), Some(secret)) = (
+        credentials.reddit_client_id.clone(),
+        credentials.reddit_client_secret.clone(),
+    ) {
+        match reddit::RedditSource::new(id, secret) {
+            Ok(src) => feeds.push(Box::new(src)),
+            Err(e) => eprintln!("warning: reddit listening disabled: {e}"),
+        }
+    }
+    feeds
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

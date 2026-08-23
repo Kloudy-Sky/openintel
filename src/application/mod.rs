@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod chatter;
 pub mod dip;
 pub mod discover;
 pub mod pulse;

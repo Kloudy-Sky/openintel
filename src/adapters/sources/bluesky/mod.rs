@@ -141,6 +141,88 @@ impl SocialDataSource for BlueskySource {
     }
 }
 
+#[async_trait]
+impl crate::domain::ports::listening_feed::ListeningFeed for BlueskySource {
+    fn platform(&self) -> &'static str {
+        "bluesky"
+    }
+
+    fn paid(&self) -> bool {
+        false
+    }
+
+    async fn listening_posts(
+        &self,
+        handles: &[String],
+        hours_back: u32,
+        limit: usize,
+    ) -> Result<crate::domain::ports::listening_feed::ListeningFetch, DomainError> {
+        use crate::domain::entities::pulse::PulsePost;
+        let fail = |m: String| DomainError::SourceFailure {
+            name: "bluesky".into(),
+            message: m,
+        };
+        if handles.is_empty() || limit == 0 {
+            return Ok(crate::domain::ports::listening_feed::ListeningFetch {
+                posts: Vec::new(),
+                posts_returned: 0,
+            });
+        }
+        let bearer = self.ensure_token().await?;
+        let fetched_at = Utc::now();
+        let cutoff = fetched_at - chrono::Duration::hours(i64::from(hours_back.max(1)));
+        let per_handle = (limit / handles.len()).clamp(1, 100).to_string();
+
+        let mut posts: Vec<PulsePost> = Vec::new();
+        let mut returned: u32 = 0;
+        for handle in handles {
+            let mut url =
+                reqwest::Url::parse(&format!("{PDS_BASE}/xrpc/app.bsky.feed.getAuthorFeed"))
+                    .map_err(|e| fail(format!("bad feed url: {e}")))?;
+            url.query_pairs_mut()
+                .append_pair("actor", handle)
+                .append_pair("filter", "posts_no_replies")
+                .append_pair("limit", &per_handle);
+            let resp = self
+                .client
+                .get(url)
+                .bearer_auth(bearer.expose_secret())
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .send()
+                .await
+                .map_err(|e| fail(format!("feed request failed: {e}")))?;
+            let status = resp.status();
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| fail(format!("feed body failed (HTTP {status}): {e}")))?;
+            if !status.is_success() {
+                return Err(fail(format!("feed HTTP {status} for {handle}")));
+            }
+            let fetched = response::parse_author_feed(&body, limit, fetched_at)?;
+            returned = returned.saturating_add(fetched.len() as u32);
+            posts.extend(
+                fetched
+                    .into_iter()
+                    .filter(|p| p.created_at >= cutoff)
+                    .map(|p| PulsePost {
+                        id: p.id,
+                        author: p.author,
+                        text: p.text,
+                        created_at: p.created_at,
+                        engagement: p.engagement,
+                    }),
+            );
+        }
+        posts.sort_by_key(|p| std::cmp::Reverse(p.created_at));
+        posts.truncate(limit);
+        Ok(crate::domain::ports::listening_feed::ListeningFetch {
+            posts,
+            posts_returned: returned,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

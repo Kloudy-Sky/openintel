@@ -105,7 +105,8 @@ pub struct PulseArgs {
     #[arg(long, default_value_t = 24)]
     pub hours: u32,
 
-    /// Max posts to read — each costs ~$0.005; X bills a minimum of 10 reads per call (1-100)
+    /// Max posts to read — ~$0.005 per post returned (deduped over 24h); the
+    /// search floor can return up to 10 even for smaller limits (1-100)
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
 
@@ -225,15 +226,32 @@ pub enum ScreenArg {
 
 #[derive(clap::Args, Debug)]
 pub struct DiscoverArgs {
-    /// Screens to pull, comma-separated (default: all three)
-    #[arg(long, value_enum, value_delimiter = ',')]
+    /// Chatter mode: cashtag mention velocity from the listening set
+    /// (~/.openintel/listening.json) instead of the movers screens
+    #[arg(long)]
+    pub chatter: bool,
+
+    /// Chatter: include the paid X leg — ~$0.005 per post returned, capped by --x-limit
+    #[arg(long, requires = "chatter")]
+    pub x: bool,
+
+    /// Chatter: lookback window in hours (1-167)
+    #[arg(long, default_value_t = 24, requires = "chatter")]
+    pub hours: u32,
+
+    /// Chatter: max X posts returned (each bills ~$0.005; the search floor can return up to 10)
+    #[arg(long = "x-limit", default_value_t = 20, requires = "x")]
+    pub x_limit: usize,
+
+    /// Movers: screens to pull, comma-separated (default: all three)
+    #[arg(long, value_enum, value_delimiter = ',', conflicts_with = "chatter")]
     pub screens: Vec<ScreenArg>,
 
-    /// Rows pulled per screen (1-100)
+    /// Movers: rows pulled per screen (1-100)
     #[arg(long, default_value_t = 25)]
     pub count: usize,
 
-    /// Total candidates deep-annotated across screens (1-25)
+    /// Movers: total candidates deep-annotated across screens (1-25)
     #[arg(long, default_value_t = 9)]
     pub deep: usize,
 

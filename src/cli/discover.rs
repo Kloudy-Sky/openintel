@@ -6,6 +6,7 @@ use chrono::Utc;
 
 use crate::adapters::filings::edgar::EdgarSource;
 use crate::adapters::market::yahoo::YahooMarketSource;
+use crate::application::chatter::{chatter, ChatterReport, ChatterRequest, DEFAULT_FREE_LIMIT};
 use crate::application::discover::{
     discover, Candidate, DiscoverDeps, DiscoverReport, DiscoverRequest, FRAMING,
 };
@@ -17,6 +18,9 @@ use crate::domain::error::DomainError;
 
 pub async fn run(args: &DiscoverArgs, credentials: &Credentials) -> Result<String, DomainError> {
     let yahoo = YahooMarketSource::new()?;
+    if args.chatter {
+        return run_chatter(args, credentials, &yahoo).await;
+    }
     let edgar = EdgarSource::new()?;
     let social = crate::adapters::sources::build_social_sources(credentials);
     let deps = DiscoverDeps {
@@ -50,6 +54,154 @@ impl ScreenArg {
             ScreenArg::Actives => ScreenKind::MostActives,
         }
     }
+}
+
+async fn run_chatter(
+    args: &DiscoverArgs,
+    credentials: &Credentials,
+    yahoo: &YahooMarketSource,
+) -> Result<String, DomainError> {
+    let listening_path =
+        crate::config::listening::default_path().ok_or_else(|| DomainError::SourceFailure {
+            name: "chatter".into(),
+            message: "cannot resolve a home directory".into(),
+        })?;
+    let (listening, created) = crate::config::listening::load_or_seed(&listening_path)?;
+
+    let free = crate::adapters::sources::build_free_listening_feeds(credentials);
+    let x_feed = if args.x {
+        match credentials.x_bearer.clone() {
+            Some(bearer) => Some(crate::adapters::sources::x::XPulseSource::new(bearer)?),
+            None => {
+                return Err(DomainError::SourceFailure {
+                    name: "chatter".into(),
+                    message: "--x needs X credentials — run `openintel setup x`".into(),
+                })
+            }
+        }
+    } else {
+        None
+    };
+    let mut feeds: Vec<&dyn crate::domain::ports::listening_feed::ListeningFeed> =
+        free.iter().map(|f| f.as_ref()).collect();
+    if let Some(x) = &x_feed {
+        feeds.push(x);
+    }
+
+    let req = ChatterRequest {
+        listening,
+        hours: args.hours.clamp(1, 167),
+        free_limit: DEFAULT_FREE_LIMIT,
+        x_read_cap: args.x_limit.clamp(1, 100),
+        baseline_path: crate::application::chatter::default_baseline_path(),
+    };
+    let report = chatter(&req, &feeds, Some(yahoo), Utc::now()).await?;
+    let mut out = match args.format {
+        FormatArg::Table => render_chatter_table(&report),
+        FormatArg::Json => render_chatter_json(&report)?,
+    };
+    if created && args.format == FormatArg::Table {
+        out.push_str(&format!(
+            "
+seeded {} with the macro defaults — edit it to curate your listening set
+",
+            listening_path.display()
+        ));
+    }
+    Ok(out)
+}
+
+fn render_chatter_json(report: &ChatterReport) -> Result<String, DomainError> {
+    #[derive(serde::Serialize)]
+    struct Out<'a> {
+        report: &'a ChatterReport,
+        framing: &'static str,
+        disclaimer: &'static str,
+    }
+    serde_json::to_string_pretty(&Out {
+        report,
+        framing: crate::application::chatter::FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+    .map_err(|e| DomainError::SourceFailure {
+        name: "chatter".into(),
+        message: format!("render failed: {e}"),
+    })
+}
+
+fn render_chatter_table(r: &ChatterReport) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "=== OpenIntel Discover — chatter ({}h window) ===
+",
+        r.hours
+    );
+    for p in &r.platforms {
+        let cost = p
+            .estimated_cost_usd
+            .map(|c| format!(" · cost ≈ ${c:.2}"))
+            .unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "[{}] {} posts scanned ({} returned){cost}",
+            p.platform, p.posts_scanned, p.posts_returned
+        );
+        for t in &p.tickers {
+            let ratio = t
+                .velocity
+                .ratio
+                .map(|x| format!("{x:.1}x baseline"))
+                .unwrap_or_else(|| "no velocity claim".into());
+            let tape = match (t.change_pct, t.rvol) {
+                (Some(c), Some(v)) => format!(" · day {c:+.1}% rvol {v:.1}"),
+                _ => String::new(),
+            };
+            let btc = match t.before_the_chart {
+                Some(true) => "  ← chatter leading the chart",
+                _ => "",
+            };
+            let _ = writeln!(
+                out,
+                "  {}  {} mentions ({:.0}% of posts) · {ratio}{tape}{btc}",
+                t.ticker,
+                t.velocity.mentions,
+                t.velocity.share * 100.0
+            );
+            for f in &t.velocity.flags {
+                let _ = writeln!(out, "    note: {f}");
+            }
+        }
+        for n in &p.notes {
+            let _ = writeln!(out, "  note: {n}");
+        }
+        if !p.recent_posts.is_empty() {
+            let _ = writeln!(out, "  recent posts:");
+            for post in &p.recent_posts {
+                let text: String = post.text.as_str().chars().take(120).collect();
+                let _ = writeln!(out, "    @{}: {}", post.author, text);
+            }
+        }
+        let _ = writeln!(out);
+    }
+    for e in &r.errors {
+        let _ = writeln!(out, "error: {e}");
+    }
+    for n in &r.notes {
+        let _ = writeln!(out, "note: {n}");
+    }
+    let _ = writeln!(
+        out,
+        "
+{}",
+        crate::application::chatter::FRAMING
+    );
+    let _ = writeln!(
+        out,
+        "
+{DISCLAIMER}"
+    );
+    out
 }
 
 fn render_json(report: &DiscoverReport) -> Result<String, DomainError> {

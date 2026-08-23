@@ -1,5 +1,6 @@
 pub mod dip;
 pub mod dip_review;
+pub mod discover;
 pub mod engine;
 pub mod entities;
 pub mod error;

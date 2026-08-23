@@ -659,6 +659,74 @@ pub async fn run_dip_scan(
     }
 }
 
+// ------------------------------------------------------------ discover
+
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ScreenArg {
+    Gainers,
+    Losers,
+    Actives,
+}
+
+impl ScreenArg {
+    fn kind(self) -> crate::domain::values::mover::ScreenKind {
+        use crate::domain::values::mover::ScreenKind;
+        match self {
+            ScreenArg::Gainers => ScreenKind::DayGainers,
+            ScreenArg::Losers => ScreenKind::DayLosers,
+            ScreenArg::Actives => ScreenKind::MostActives,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DiscoverToolArgs {
+    /// Screens to pull: "gainers", "losers", "actives" (default: all three).
+    pub screens: Option<Vec<ScreenArg>>,
+    /// Rows pulled per screen (1-100, default 25).
+    pub count: Option<usize>,
+    /// Total candidates deep-annotated across screens (1-25, default 9).
+    pub deep: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiscoverOutput {
+    pub summary: String,
+    pub report: crate::application::discover::DiscoverReport,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_discover(
+    args: DiscoverToolArgs,
+    deps: &crate::application::discover::DiscoverDeps<'_>,
+) -> Result<DiscoverOutput, DomainError> {
+    let mut req = crate::application::discover::DiscoverRequest::default();
+    if let Some(screens) = args.screens {
+        req.screens = screens.into_iter().map(ScreenArg::kind).collect();
+    }
+    if let Some(count) = args.count {
+        req.count = count;
+    }
+    if let Some(deep) = args.deep {
+        req.deep = deep;
+    }
+    let report = crate::application::discover::discover(&req, deps, Utc::now()).await?;
+    let summary = format!(
+        "{} candidates annotated across {} screens ({} screen errors)",
+        report.candidates.len(),
+        report.screens.len(),
+        report.errors.len()
+    );
+    Ok(DiscoverOutput {
+        summary,
+        report,
+        framing: crate::application::discover::FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 // ------------------------------------------------------------ trade journal
 
 #[derive(Debug, Deserialize, JsonSchema)]

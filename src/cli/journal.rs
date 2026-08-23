@@ -6,12 +6,12 @@ use chrono::Utc;
 
 use crate::application::trade_journal::{
     default_path_or_err, log_trade, open_positions, review_trades, update_trade, LogTradeRequest,
-    TradeReviewReport, TradeUpdate,
+    PositionsReport, TradeReviewReport, TradeUpdate,
 };
 use crate::application::DISCLAIMER;
 use crate::cli::args::{FormatArg, JournalArgs, JournalCloseReasonArg, JournalCommand};
 use crate::domain::error::DomainError;
-use crate::domain::trade_journal::{CloseReason, Instrument, OptionKind, Trade};
+use crate::domain::trade_journal::{CloseReason, Instrument, OptionKind};
 use crate::domain::trade_review::Bucket;
 
 fn fail(message: impl Into<String>) -> DomainError {
@@ -113,7 +113,7 @@ pub async fn run(args: &JournalArgs) -> Result<String, DomainError> {
             Ok(match format {
                 FormatArg::Json => serde_json::to_string_pretty(&report)
                     .map_err(|e| fail(format!("render failed: {e}")))?,
-                FormatArg::Table => render_positions(&report.open, report.closed_count),
+                FormatArg::Table => render_positions(&report),
             })
         }
         JournalCommand::Review { format } => {
@@ -128,13 +128,15 @@ pub async fn run(args: &JournalArgs) -> Result<String, DomainError> {
     }
 }
 
-fn render_positions(open: &[Trade], closed_count: usize) -> String {
+fn render_positions(report: &PositionsReport) -> String {
     use std::fmt::Write as _;
+    let open = &report.open;
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "=== OpenIntel Trade Journal — {} open, {closed_count} closed ===\n",
-        open.len()
+        "=== OpenIntel Trade Journal — {} open, {} closed ===\n",
+        open.len(),
+        report.closed_count
     );
     if open.is_empty() {
         let _ = writeln!(out, "  no open trades");
@@ -160,6 +162,16 @@ fn render_positions(open: &[Trade], closed_count: usize) -> String {
         for a in &t.amendments {
             let _ = writeln!(out, "    amended {}: {}", a.at.date_naive(), a.note);
         }
+    }
+    if report.skipped_lines > 0 {
+        let _ = writeln!(
+            out,
+            "\n⚠ {} unparseable journal line(s) skipped — the counts above may be incomplete",
+            report.skipped_lines
+        );
+    }
+    for e in &report.errors {
+        let _ = writeln!(out, "⚠ {e}");
     }
     let _ = writeln!(out, "\n{DISCLAIMER}");
     out
@@ -235,7 +247,7 @@ fn render_review(r: &TradeReviewReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::trade_journal::{fold, open_event, RiskSnapshot, TradeEvent};
+    use crate::domain::trade_journal::{fold, open_event, RiskSnapshot, Trade, TradeEvent};
     use crate::domain::trade_review::{aggregate, grade};
     use chrono::TimeZone;
 
@@ -270,7 +282,15 @@ mod tests {
 
     #[test]
     fn positions_table_shows_thesis_and_widened_stop() {
-        let t = render_positions(&trades(), 3);
+        let t = render_positions(&PositionsReport {
+            journal_path: "/tmp/x".into(),
+            open: trades(),
+            closed_count: 3,
+            skipped_lines: 2,
+            errors: vec!["close for unknown trade GHOST-1".into()],
+        });
+        assert!(t.contains("2 unparseable journal line(s) skipped"));
+        assert!(t.contains("close for unknown trade GHOST-1"));
         assert!(t.contains("1 open, 3 closed"));
         assert!(t.contains("thesis: weekly support at 98"));
         assert!(t.contains("stop widened from 95.00"));

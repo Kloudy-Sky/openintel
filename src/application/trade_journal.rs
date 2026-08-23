@@ -101,11 +101,12 @@ pub fn log_trade(
 ) -> Result<LogOutcome, DomainError> {
     let (events, _) = read_events(path);
     let outcome = fold(&events);
+    let instrument = req.instrument.normalized()?;
 
     if !req.allow_duplicate {
         if let Some(existing) = find_duplicate(
             &outcome.trades,
-            &req.instrument,
+            &instrument,
             req.qty,
             req.entry,
             now.date_naive(),
@@ -128,9 +129,8 @@ pub fn log_trade(
         }
     };
 
-    let symbol = req.instrument.symbol().to_ascii_uppercase();
     let day = now.format("%Y%m%d");
-    let prefix = format!("{symbol}-{day}-");
+    let prefix = format!("{}-{day}-", instrument.symbol());
     let n = outcome
         .trades
         .iter()
@@ -143,7 +143,7 @@ pub fn log_trade(
         trade_id.clone(),
         now,
         req.source,
-        req.instrument,
+        instrument,
         req.qty,
         req.entry,
         req.thesis,
@@ -210,8 +210,9 @@ pub fn update_trade(
             }
         }
         TradeUpdate::Close { exit, reason, note } => {
-            if !(exit.is_finite() && exit > 0.0) {
-                return Err(fail("exit must be a positive price"));
+            // Zero is legal: an out-of-the-money option expires worthless.
+            if !(exit.is_finite() && exit >= 0.0) {
+                return Err(fail("exit must be a non-negative price"));
             }
             TradeEvent::Closed {
                 trade_id: trade_id.to_string(),
@@ -373,6 +374,7 @@ mod tests {
 
     fn tmp_journal(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("openintel-tj-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir); // a prior failed run must not leak state in
         dir.join("trade_journal.jsonl")
     }
 
@@ -468,6 +470,48 @@ mod tests {
         )
         .is_err());
 
+        let positions = open_positions(&path);
+        assert!(positions.open.is_empty());
+        assert_eq!(positions.closed_count, 1);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn lowercase_symbols_normalize_and_cannot_dodge_the_duplicate_guard() {
+        let path = tmp_journal("normalize");
+        let mut req = equity_req(100.0);
+        req.instrument = Instrument::Equity {
+            ticker: "nvda".into(),
+        };
+        let a = log_trade(&path, req, now()).unwrap();
+        assert_eq!(a.trade_id, "NVDA-20260821-1");
+
+        let dup = log_trade(&path, equity_req(100.0), now()).unwrap();
+        assert!(!dup.logged);
+
+        let mut junk = equity_req(100.0);
+        junk.instrument = Instrument::Equity {
+            ticker: "$$$".into(),
+        };
+        assert!(log_trade(&path, junk, now()).is_err());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn worthless_expiry_closes_at_zero() {
+        let path = tmp_journal("expiry");
+        let id = log_trade(&path, equity_req(100.0), now()).unwrap().trade_id;
+        update_trade(
+            &path,
+            &id,
+            TradeUpdate::Close {
+                exit: 0.0,
+                reason: CloseReason::Expiry,
+                note: None,
+            },
+            now(),
+        )
+        .unwrap();
         let positions = open_positions(&path);
         assert!(positions.open.is_empty());
         assert_eq!(positions.closed_count, 1);

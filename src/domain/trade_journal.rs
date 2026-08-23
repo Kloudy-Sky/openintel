@@ -60,6 +60,37 @@ impl Instrument {
         }
     }
 
+    /// Canonical form for persistence: ticker-backed symbols validated and
+    /// uppercased via `Ticker::parse` (so a lowercase retry can't slip past
+    /// the duplicate guard, and review can always fetch bars), crypto trimmed
+    /// and uppercased.
+    pub fn normalized(self) -> Result<Instrument, DomainError> {
+        use crate::domain::entities::ticker::Ticker;
+        Ok(match self {
+            Instrument::Equity { ticker } => Instrument::Equity {
+                ticker: Ticker::parse(&ticker)?.as_str().to_string(),
+            },
+            Instrument::Option {
+                underlying,
+                strike,
+                expiry,
+                kind,
+            } => Instrument::Option {
+                underlying: Ticker::parse(&underlying)?.as_str().to_string(),
+                strike,
+                expiry,
+                kind,
+            },
+            Instrument::Crypto { symbol } => {
+                let symbol = symbol.trim().to_ascii_uppercase();
+                if symbol.is_empty() {
+                    return Err(fail("crypto symbol is required"));
+                }
+                Instrument::Crypto { symbol }
+            }
+        })
+    }
+
     pub fn describe(&self) -> String {
         match self {
             Instrument::Equity { ticker } => ticker.clone(),

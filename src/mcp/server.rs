@@ -212,6 +212,37 @@ impl OpenIntelServer {
     }
 
     #[tool(
+        description = "Answer \"where are trades today?\" without a ticker: pull Yahoo's \
+                       predefined screens (gainers / losers / most actives), apply the quality \
+                       floor, and annotate a bounded slice with evidence — day change, RVOL, \
+                       ATR-stretch, distance to 3-month and ~1-year period extremes (a proxy, \
+                       NOT support/resistance), same-day SEC-filing and catalyst-headline gates \
+                       (unverifiable evidence reads Unknown), and social attention where \
+                       configured. NO ranking, NO verdicts, NO picks — present the evidence and \
+                       let the user reason. For gated dip verdicts on losers run dip_scan; for \
+                       a deep read on one name run analyze_ticker; before any trade run \
+                       risk_frame and get explicit user approval. Read-only — does not trade."
+    )]
+    async fn discover(
+        &self,
+        Parameters(args): Parameters<tools::DiscoverToolArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let deps = crate::application::discover::DiscoverDeps {
+            movers: &self.market,
+            bars: &self.market,
+            news: &self.market,
+            filings: self.filings.as_ref(),
+            social: &self.social,
+        };
+        let out = tools::run_discover(args, &deps)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
         description = "Journal a trade the user just APPROVED — call this in the same moment \
                        the order is placed, before the conversation moves on. The thesis must \
                        be the user's why in their own words; planned_stop is required (no entry \

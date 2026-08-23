@@ -9,4 +9,11 @@ use crate::domain::values::bar::Bar;
 #[async_trait]
 pub trait BarSource: Send + Sync {
     async fn bars(&self, ticker: &Ticker) -> Result<Vec<Bar>, DomainError>;
+
+    /// Longer daily history when the source can serve it (target ~1 year,
+    /// for period-extreme levels). Defaults to the standard window — callers
+    /// must report the span they actually received, never assume a year.
+    async fn bars_long(&self, ticker: &Ticker) -> Result<Vec<Bar>, DomainError> {
+        self.bars(ticker).await
+    }
 }

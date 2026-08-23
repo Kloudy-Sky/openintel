@@ -424,7 +424,7 @@ impl Default for DropBand {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct SentimentSummary {
     pub net_sentiment: f64,
     pub mentions: usize,
@@ -489,6 +489,103 @@ pub struct DipSignal {
     pub gates: GateResults,
     pub catalyst_evidence: Vec<String>,
     pub notes: Vec<String>,
+}
+
+/// Catalyst-filing gate, shared by dip_signal and discover: SEC catalyst
+/// forms filed on/after `since` confirm a catalyst (Fail); unfetchable
+/// evidence is Unknown (fails closed). Returns the status plus evidence lines.
+pub fn filing_gate(
+    filings: &GateEvidence<Vec<Filing>>,
+    since: NaiveDate,
+) -> (GateStatus, Vec<String>) {
+    match filings {
+        GateEvidence::Unavailable(reason) => (GateStatus::Unknown(reason.clone()), Vec::new()),
+        GateEvidence::Available(filings) => {
+            let hits: Vec<&Filing> = filings
+                .iter()
+                .filter(|f| f.filed_on >= since && is_catalyst_form(&f.form))
+                .collect();
+            if hits.is_empty() {
+                (GateStatus::Pass, Vec::new())
+            } else {
+                let evidence = hits
+                    .iter()
+                    .map(|f| format!("SEC {} filed {}", f.form, f.filed_on))
+                    .collect();
+                (
+                    GateStatus::Fail(format!(
+                        "{} catalyst filing(s) on/around drop day",
+                        hits.len()
+                    )),
+                    evidence,
+                )
+            }
+        }
+    }
+}
+
+/// Catalyst-headline gate, shared by dip_signal and discover. Keyword hits in
+/// a headline that clearly references the company CONFIRM a catalyst (Fail).
+/// Hits only in headlines that don't (market roundups, sector stories) are
+/// ambiguous — Unknown, never a false-positive kill. With no company names
+/// known, every headline is treated as potentially about the company (the
+/// old, stricter behavior).
+pub fn headline_gate(
+    headlines: &GateEvidence<Vec<Headline>>,
+    ticker: &str,
+    company_names: &[String],
+) -> (GateStatus, Vec<String>) {
+    match headlines {
+        GateEvidence::Unavailable(reason) => (GateStatus::Unknown(reason.clone()), Vec::new()),
+        GateEvidence::Available(headlines) => {
+            // blank/junk names derive no forms -> strict path, not a weaker gate
+            let name_forms = company_name_forms(company_names);
+            let mut evidence: Vec<String> = Vec::new();
+            let mut matched_hits: Vec<String> = Vec::new();
+            let mut unmatched_hits: Vec<String> = Vec::new();
+            for h in headlines {
+                let title_hits = catalyst_hits(&[h.title.as_str()]);
+                if title_hits.is_empty() {
+                    continue;
+                }
+                let about_company = name_forms.is_empty()
+                    || headline_mentions_company(&h.title, ticker, &name_forms);
+                if about_company {
+                    evidence.push(format!(
+                        "headline [{}]: \"{}\" (terms: {})",
+                        h.publisher,
+                        h.title,
+                        title_hits.join(", ")
+                    ));
+                    for hit in title_hits {
+                        if !matched_hits.contains(&hit) {
+                            matched_hits.push(hit);
+                        }
+                    }
+                } else {
+                    for hit in title_hits {
+                        if !unmatched_hits.contains(&hit) {
+                            unmatched_hits.push(hit);
+                        }
+                    }
+                }
+            }
+            let status = if !matched_hits.is_empty() {
+                GateStatus::Fail(format!(
+                    "catalyst term(s) in company headlines: {}",
+                    matched_hits.join(", ")
+                ))
+            } else if !unmatched_hits.is_empty() {
+                GateStatus::Unknown(format!(
+                    "catalyst term(s) only in headlines not clearly about {ticker}: {}",
+                    unmatched_hits.join(", ")
+                ))
+            } else {
+                GateStatus::Pass
+            };
+            (status, evidence)
+        }
+    }
 }
 
 pub fn dip_signal(inputs: &DipInputs) -> Result<DipSignal, DomainError> {
@@ -583,82 +680,12 @@ pub fn dip_signal(inputs: &DipInputs) -> Result<DipSignal, DomainError> {
         };
 
     let since = inputs.drop_date.pred_opt().unwrap_or(inputs.drop_date);
-    let no_filing = match &inputs.filings {
-        GateEvidence::Unavailable(reason) => GateStatus::Unknown(reason.clone()),
-        GateEvidence::Available(filings) => {
-            let hits: Vec<&Filing> = filings
-                .iter()
-                .filter(|f| f.filed_on >= since && is_catalyst_form(&f.form))
-                .collect();
-            if hits.is_empty() {
-                GateStatus::Pass
-            } else {
-                for f in &hits {
-                    catalyst_evidence.push(format!("SEC {} filed {}", f.form, f.filed_on));
-                }
-                GateStatus::Fail(format!(
-                    "{} catalyst filing(s) on/around drop day",
-                    hits.len()
-                ))
-            }
-        }
-    };
+    let (no_filing, filing_evidence) = filing_gate(&inputs.filings, since);
+    catalyst_evidence.extend(filing_evidence);
 
-    // Keyword hits in a headline that clearly references the company CONFIRM
-    // a catalyst (Fail). Hits only in headlines that don't (market roundups,
-    // sector stories) are ambiguous — Unknown, capping at watch, never a
-    // false-positive kill. With no company names known, every headline is
-    // treated as potentially about the company (old, stricter behavior).
-    let no_catalyst_headline = match &inputs.headlines {
-        GateEvidence::Unavailable(reason) => GateStatus::Unknown(reason.clone()),
-        GateEvidence::Available(headlines) => {
-            // blank/junk names derive no forms -> strict path, not a weaker gate
-            let name_forms = company_name_forms(&inputs.company_names);
-            let mut matched_hits: Vec<String> = Vec::new();
-            let mut unmatched_hits: Vec<String> = Vec::new();
-            for h in headlines {
-                let title_hits = catalyst_hits(&[h.title.as_str()]);
-                if title_hits.is_empty() {
-                    continue;
-                }
-                let about_company = name_forms.is_empty()
-                    || headline_mentions_company(&h.title, inputs.ticker, &name_forms);
-                if about_company {
-                    catalyst_evidence.push(format!(
-                        "headline [{}]: \"{}\" (terms: {})",
-                        h.publisher,
-                        h.title,
-                        title_hits.join(", ")
-                    ));
-                    for hit in title_hits {
-                        if !matched_hits.contains(&hit) {
-                            matched_hits.push(hit);
-                        }
-                    }
-                } else {
-                    for hit in title_hits {
-                        if !unmatched_hits.contains(&hit) {
-                            unmatched_hits.push(hit);
-                        }
-                    }
-                }
-            }
-            if !matched_hits.is_empty() {
-                GateStatus::Fail(format!(
-                    "catalyst term(s) in company headlines: {}",
-                    matched_hits.join(", ")
-                ))
-            } else if !unmatched_hits.is_empty() {
-                GateStatus::Unknown(format!(
-                    "catalyst term(s) only in headlines not clearly about {}: {}",
-                    inputs.ticker,
-                    unmatched_hits.join(", ")
-                ))
-            } else {
-                GateStatus::Pass
-            }
-        }
-    };
+    let (no_catalyst_headline, headline_evidence) =
+        headline_gate(&inputs.headlines, inputs.ticker, &inputs.company_names);
+    catalyst_evidence.extend(headline_evidence);
 
     let idiosyncratic = match excess {
         None => GateStatus::Unknown("index change unavailable".into()),

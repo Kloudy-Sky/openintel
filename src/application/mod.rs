@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod dip;
+pub mod discover;
 pub mod pulse;
 pub mod request;
 pub mod review;

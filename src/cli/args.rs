@@ -35,6 +35,9 @@ pub enum Command {
 
     /// Trade journal: log entries with a frozen thesis, track positions, grade the record
     Journal(JournalArgs),
+
+    /// Surface today's movers with evidence attached (period extremes, catalyst gates — never picks)
+    Discover(DiscoverArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -208,6 +211,31 @@ pub struct DipArgs {
     /// Skip the scan journal (~/.openintel/dip_journal.jsonl)
     #[arg(long)]
     pub no_journal: bool,
+
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreenArg {
+    Gainers,
+    Losers,
+    Actives,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct DiscoverArgs {
+    /// Screens to pull, comma-separated (default: all three)
+    #[arg(long, value_enum, value_delimiter = ',')]
+    pub screens: Vec<ScreenArg>,
+
+    /// Rows pulled per screen (1-100)
+    #[arg(long, default_value_t = 25)]
+    pub count: usize,
+
+    /// Total candidates deep-annotated across screens (1-25)
+    #[arg(long, default_value_t = 9)]
+    pub deep: usize,
 
     #[arg(long, value_enum, default_value_t = FormatArg::Table)]
     pub format: FormatArg,

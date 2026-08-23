@@ -1,4 +1,4 @@
-//! Parser for Yahoo's predefined `day_losers` screener (keyless, unofficial —
+//! Parser for Yahoo's predefined mover screeners (keyless, unofficial —
 //! failure mode is a clean error, never a partial silent result).
 
 use serde::Deserialize;

@@ -1,3 +1,23 @@
+/// The predefined mover screens a provider can serve. Providers map these to
+/// their own screen ids; rows come back in the provider's magnitude order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenKind {
+    DayGainers,
+    DayLosers,
+    MostActives,
+}
+
+impl ScreenKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ScreenKind::DayGainers => "gainers",
+            ScreenKind::DayLosers => "losers",
+            ScreenKind::MostActives => "most active",
+        }
+    }
+}
+
 /// One row of a "biggest movers" screener. Optional fields are optional
 /// because screeners omit them for some instruments — the quality floor
 /// treats a missing value as a reject, never a pass.

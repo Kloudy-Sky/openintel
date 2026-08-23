@@ -47,8 +47,9 @@ impl YahooMarketSource {
     async fn fetch_chart(
         &self,
         ticker: &Ticker,
+        range: &str,
     ) -> Result<(reqwest::StatusCode, String), DomainError> {
-        let url = format!("{BASE_URL}/{}?range=3mo&interval=1d", ticker.as_str());
+        let url = format!("{BASE_URL}/{}?range={range}&interval=1d", ticker.as_str());
 
         let resp = self
             .client
@@ -70,8 +71,8 @@ impl YahooMarketSource {
 
     /// The chart body alone, for consumers (like `bars`) that don't need
     /// HTTP-status-aware error enrichment.
-    async fn fetch_chart_body(&self, ticker: &Ticker) -> Result<String, DomainError> {
-        self.fetch_chart(ticker).await.map(|(_, body)| body)
+    async fn fetch_chart_body(&self, ticker: &Ticker, range: &str) -> Result<String, DomainError> {
+        self.fetch_chart(ticker, range).await.map(|(_, body)| body)
     }
 
     async fn fetch_body(&self, name: &str, url: String) -> Result<String, DomainError> {
@@ -107,7 +108,7 @@ impl MarketDataSource for YahooMarketSource {
 
     async fn snapshot(&self, ticker: &Ticker) -> Result<MarketSnapshot, DomainError> {
         let fetched_at = Utc::now();
-        let (status, body) = self.fetch_chart(ticker).await?;
+        let (status, body) = self.fetch_chart(ticker, "3mo").await?;
         to_snapshot(status, &body, ticker, fetched_at)
     }
 }
@@ -115,7 +116,12 @@ impl MarketDataSource for YahooMarketSource {
 #[async_trait]
 impl BarSource for YahooMarketSource {
     async fn bars(&self, ticker: &Ticker) -> Result<Vec<Bar>, DomainError> {
-        let body = self.fetch_chart_body(ticker).await?;
+        let body = self.fetch_chart_body(ticker, "3mo").await?;
+        response::parse_bars(&body)
+    }
+
+    async fn bars_long(&self, ticker: &Ticker) -> Result<Vec<Bar>, DomainError> {
+        let body = self.fetch_chart_body(ticker, "1y").await?;
         response::parse_bars(&body)
     }
 }
@@ -126,9 +132,19 @@ impl MoversSource for YahooMarketSource {
         "yahoo-screener"
     }
 
-    async fn day_losers(&self, count: usize) -> Result<Vec<MoverRow>, DomainError> {
+    async fn screen(
+        &self,
+        kind: crate::domain::values::mover::ScreenKind,
+        count: usize,
+    ) -> Result<Vec<MoverRow>, DomainError> {
+        use crate::domain::values::mover::ScreenKind;
+        let scr_id = match kind {
+            ScreenKind::DayGainers => "day_gainers",
+            ScreenKind::DayLosers => "day_losers",
+            ScreenKind::MostActives => "most_actives",
+        };
         let count = count.clamp(1, MAX_SCREENER_ROWS);
-        let url = format!("{SCREENER_URL}?scrIds=day_losers&count={count}");
+        let url = format!("{SCREENER_URL}?scrIds={scr_id}&count={count}");
         let body = self.fetch_body("yahoo-screener", url).await?;
         screener::parse_movers(&body).map(|(rows, _skipped)| rows)
     }
@@ -209,7 +225,10 @@ mod tests {
     #[ignore = "hits live Yahoo (keyless, free); run with --ignored"]
     async fn live_day_losers_returns_rows() {
         let src = YahooMarketSource::new().unwrap();
-        let rows = src.day_losers(100).await.unwrap();
+        let rows = src
+            .screen(crate::domain::values::mover::ScreenKind::DayLosers, 100)
+            .await
+            .unwrap();
         assert!(rows.len() >= 50, "got {}", rows.len());
         assert!(rows.iter().all(|r| r.change_pct < 0.0));
     }

@@ -141,6 +141,34 @@ not-holdable-overnight note. Single-position model; interest not modeled.
 Data: Yahoo screener + news (keyless, unofficial — failure mode is a clean error) and SEC
 EDGAR (keyless, official; identify yourself via `OPENINTEL_SEC_CONTACT` if you fork this).
 
+## Discover (movers with evidence, never picks)
+
+Answer "where are trades today?" without a ticker. `openintel discover` pulls Yahoo's
+predefined screens (gainers, losers, most actives — keyless), applies the same quality
+floor as `dip`, and annotates a bounded slice (default 9, `--deep`) with evidence:
+
+- **Tape:** day change, RVOL, ATR-stretch vs SMA20, RSI(14).
+- **Period extremes:** distance in ATRs to the 3-month and ~1-year high/low — a cheap
+  proxy for where the crowd's reference points sit, **not** support/resistance; real
+  levels are yours to draw. The output states the actual span covered, never assumes a
+  full year.
+- **Catalyst gates:** same-day SEC filings (EDGAR) and company-referencing catalyst
+  headlines, with the usual fail-closed `unknown` when evidence can't be fetched.
+- **Attention:** social mentions + net sentiment where sources are configured —
+  crowding context, not a signal.
+
+No ranking, no verdicts, no picks — the evidence is the product. Losers carry a pointer
+to `dip_scan` for the gated verdict instead of restating it.
+
+```bash
+openintel discover                          # all three screens
+openintel discover --screens losers --deep 5
+openintel discover --format json
+```
+
+Also exposed as the `discover` MCP tool. A chatter mode (mention velocity from a
+curated cross-platform listening set) is planned next.
+
 ## Trade journal (frozen theses, graded record)
 
 An append-only journal at `~/.openintel/trade_journal.jsonl`: every trade is logged with
@@ -202,6 +230,7 @@ Tools exposed (all **read-only** — OpenIntel never places trades):
 | `risk_frame` | ATR stop + budget-capped size + R targets for one trade idea |
 | `dip_scan` | Day's biggest losers → gated dip-setup verdicts (`no_setup`/`watch`/`high_confidence`), optional margin-aware sizing; pass `ticker` for one symbol |
 | `dip_review` | Grade the dip journal against forward returns (raw + SPY-adjusted, per verdict) — the evidence check on dip_scan's v0 score |
+| `discover` | Today's movers (gainers/losers/actives) with evidence attached: tape, period extremes in ATRs, catalyst gates, attention — no ranking, no picks |
 | `log_trade` | Journal an approved trade at the moment it's placed: frozen thesis, required stop, risk-of-wallet snapshot; same-day duplicate guard |
 | `update_trade` | Amend an open trade (note, move stop/target — original plan stays frozen) or close it with exit + reason |
 | `open_positions` | Every open trade with its frozen thesis, plan, and amendments — call first in a new chat; the cross-session memory |

@@ -89,6 +89,22 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Discover(args) => {
+            // Credentials resolve env-first, then the OS keychain (written by `openintel setup`).
+            let store = KeychainStore::new();
+            let credentials = Credentials::load(&store);
+
+            match openintel::cli::discover::run(&args, &credentials).await {
+                Ok(rendered) => {
+                    println!("{rendered}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Journal(args) => match openintel::cli::journal::run(&args).await {
             Ok(rendered) => {
                 println!("{rendered}");

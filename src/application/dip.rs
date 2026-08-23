@@ -172,7 +172,7 @@ async fn spx_change(bars_src: &dyn BarSource) -> Result<f64, DomainError> {
 
 /// Social-only sentiment for the divergence component. Any failure (including
 /// "no posts") degrades to None — the domain scores divergence 0 with a note.
-async fn sentiment_for(
+pub(crate) async fn sentiment_for(
     ticker: &str,
     social: &[Box<dyn SocialDataSource>],
 ) -> Option<SentimentSummary> {
@@ -353,7 +353,12 @@ pub async fn dip_scan(
     deps: &DipDeps<'_>,
     now: DateTime<Utc>,
 ) -> Result<DipScanReport, DomainError> {
-    let rows = movers.day_losers(req.count).await?;
+    let rows = movers
+        .screen(
+            crate::domain::values::mover::ScreenKind::DayLosers,
+            req.count,
+        )
+        .await?;
     let universe_size = rows.len();
     let mut notes: Vec<String> = Vec::new();
 

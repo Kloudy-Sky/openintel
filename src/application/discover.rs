@@ -462,10 +462,26 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_screens_collapse_to_one_fetch() {
+        struct CountingMovers(std::sync::atomic::AtomicUsize);
+        #[async_trait]
+        impl MoversSource for CountingMovers {
+            fn name(&self) -> &str {
+                "counting"
+            }
+            async fn screen(
+                &self,
+                kind: ScreenKind,
+                count: usize,
+            ) -> Result<Vec<MoverRow>, DomainError> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                ScreenedMovers.screen(kind, count).await
+            }
+        }
+        let movers = CountingMovers(std::sync::atomic::AtomicUsize::new(0));
         let news = quiet_news();
         let filings = MockFilingsSource(Ok(vec![]));
         let deps = DiscoverDeps {
-            movers: &ScreenedMovers,
+            movers: &movers,
             bars: &FixedBars,
             news: &news,
             filings: &filings,
@@ -476,6 +492,7 @@ mod tests {
             ..DiscoverRequest::default()
         };
         let report = discover(&req, &deps, now()).await.unwrap();
+        assert_eq!(movers.0.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(report.screens.len(), 1);
         assert_eq!(report.candidates.len(), 1);
         assert_eq!(report.candidates[0].ticker, "DOWN");

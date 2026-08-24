@@ -168,8 +168,9 @@ const REDDIT_UNAUTHORIZED_HINT: &str =
          name; the secret is labelled \"secret\").";
 
 const BLUESKY_UNAUTHORIZED_HINT: &str =
-    "Your handle or app password looks wrong. Check the handle\n   \
-         (e.g. yourname.bsky.social) and generate a fresh app password at\n   \
+    "Your handle or app password looks wrong. Check the handle — either\n   \
+         yourname.bsky.social or your own domain (kloudysky.io style), no @ needed —\n   \
+         and generate a fresh app password at\n   \
          https://bsky.app/settings/app-passwords (the value is shown only once).";
 
 /// Everything the shared interactive loop needs to know about one source.
@@ -220,7 +221,7 @@ const BLUESKY_SPEC: SourceSpec = SourceSpec {
     label: "Bluesky",
     first_key: "OPENINTEL_BLUESKY_HANDLE",
     second_key: Some("OPENINTEL_BLUESKY_APP_PASSWORD"),
-    first_prompt: "Handle (e.g. yourname.bsky.social)",
+    first_prompt: "Handle (yourname.bsky.social or your own domain; @ optional)",
     second_prompt: Some("App password"),
     pre_probe_confirm: None,
     condensed_guide: "\

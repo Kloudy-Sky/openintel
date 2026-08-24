@@ -639,7 +639,7 @@ Bluesky needs a free app password — search requires auth. ~2 minutes:
   4. Put your handle and the app password in your shell (or a gitignored
      .env — see .env.example), then re-run this command:
 
-       export OPENINTEL_BLUESKY_HANDLE=yourname.bsky.social
+       export OPENINTEL_BLUESKY_HANDLE=yourname.bsky.social   # or your own domain
        export OPENINTEL_BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
        openintel setup bluesky
 

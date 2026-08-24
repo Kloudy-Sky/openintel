@@ -28,8 +28,11 @@ pub struct BlueskySource {
 
 /// ATProto identifiers never carry the display `@`, and custom-domain handles
 /// (kloudysky.io) are as valid as *.bsky.social — accept both spellings.
+/// Exactly one leading `@` is stripped: `@@name` stays malformed and fails
+/// the live verify loudly instead of silently querying a different actor.
 fn normalize_handle(raw: &str) -> String {
-    raw.trim().trim_start_matches('@').to_string()
+    let trimmed = raw.trim();
+    trimmed.strip_prefix('@').unwrap_or(trimmed).to_string()
 }
 
 impl BlueskySource {
@@ -235,10 +238,13 @@ mod tests_handle {
     use super::normalize_handle;
 
     #[test]
-    fn strips_at_and_whitespace_keeps_domains() {
+    fn strips_one_at_and_whitespace_keeps_domains() {
         assert_eq!(normalize_handle("@kloudysky.io "), "kloudysky.io");
         assert_eq!(normalize_handle("name.bsky.social"), "name.bsky.social");
         assert_eq!(normalize_handle(" @name.bsky.social"), "name.bsky.social");
+        // Double @ stays malformed -> fails the live verify instead of
+        // silently resolving to a different actor.
+        assert_eq!(normalize_handle("@@name.bsky.social"), "@name.bsky.social");
     }
 }
 

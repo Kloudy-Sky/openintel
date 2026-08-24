@@ -26,8 +26,18 @@ pub struct BlueskySource {
     token: RwLock<Option<CachedToken>>,
 }
 
+/// ATProto identifiers never carry the display `@`, and custom-domain handles
+/// (kloudysky.io) are as valid as *.bsky.social — accept both spellings.
+/// Exactly one leading `@` is stripped: `@@name` stays malformed and fails
+/// the live verify loudly instead of silently querying a different actor.
+fn normalize_handle(raw: &str) -> String {
+    let trimmed = raw.trim();
+    trimmed.strip_prefix('@').unwrap_or(trimmed).to_string()
+}
+
 impl BlueskySource {
     pub fn new(handle: String, app_password: SecretString) -> Result<Self, DomainError> {
+        let handle = normalize_handle(&handle);
         let user_agent = format!("rust:openintel:v{}", env!("CARGO_PKG_VERSION"));
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(TIMEOUT_SECS))
@@ -180,7 +190,7 @@ impl crate::domain::ports::listening_feed::ListeningFeed for BlueskySource {
                 reqwest::Url::parse(&format!("{PDS_BASE}/xrpc/app.bsky.feed.getAuthorFeed"))
                     .map_err(|e| fail(format!("bad feed url: {e}")))?;
             url.query_pairs_mut()
-                .append_pair("actor", handle)
+                .append_pair("actor", &normalize_handle(handle))
                 .append_pair("filter", "posts_no_replies")
                 .append_pair("limit", &per_handle);
             let resp = self
@@ -220,6 +230,21 @@ impl crate::domain::ports::listening_feed::ListeningFeed for BlueskySource {
             posts,
             posts_returned: returned,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests_handle {
+    use super::normalize_handle;
+
+    #[test]
+    fn strips_one_at_and_whitespace_keeps_domains() {
+        assert_eq!(normalize_handle("@kloudysky.io "), "kloudysky.io");
+        assert_eq!(normalize_handle("name.bsky.social"), "name.bsky.social");
+        assert_eq!(normalize_handle(" @name.bsky.social"), "name.bsky.social");
+        // Double @ stays malformed -> fails the live verify instead of
+        // silently resolving to a different actor.
+        assert_eq!(normalize_handle("@@name.bsky.social"), "@name.bsky.social");
     }
 }
 

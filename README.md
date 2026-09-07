@@ -215,6 +215,8 @@ You don't need a bot, a memory system, or an always-on agent. Three small pieces
 - Read today's digest in ~/.openintel/digests/ before scanning.
 ```
 
+A complete starter lives in [`examples/trading-desk/`](examples/trading-desk/): session order (anchor the date, read positions, read the digest), freshness rules so a next-day question triggers a fresh call instead of yesterday's numbers, money rules, and voice. Copy both files, edit the numbers.
+
 **2. The journal is the memory.** `log_trade` at entry, `open_positions` at the start of the next chat, `review_trades` when the record is big enough to grade. A conversational "learning" memory would remember hunches with no grade attached; the journal remembers theses and scores them against what the market did.
 
 **3. A post-close cron for the free scans.** One script, weekdays after the bell, no paid legs. Tomorrow's session reads the digest instead of re-running everything:

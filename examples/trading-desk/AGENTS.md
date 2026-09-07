@@ -8,7 +8,7 @@ This directory is where I talk to my agent about markets. Two MCPs are wired: `o
 
 1. **Anchor the date.** State today's date, the weekday, and the US market state: pre-market, open, post-close, or closed (weekend, holiday). Every number you quote from here on carries its as-of date.
 2. **Call `open_positions`.** Summarize what is held and each frozen thesis before anything else. An empty journal is a normal answer.
-3. **Read today's brief** at `briefs/<YYYY-MM-DD>.md` (written before the open by `bin/morning-brief.sh`) and last night's digest at `~/.openintel/digests/<YYYY-MM-DD>.txt`. If either is missing, say so; with no digest, run `discover` and `dip_scan` fresh instead.
+3. **Read today's brief** at `briefs/<YYYY-MM-DD>.md` (written before the open by `bin/morning-brief.sh`) and the most recent digest in `~/.openintel/digests/`, which is the prior trading day's close scan. If either is missing, say so; with no digest, run `discover` and `dip_scan` fresh instead.
 4. Then take my question.
 
 Done when I have the date, the positions, and the day's scans in front of me.

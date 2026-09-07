@@ -251,7 +251,7 @@ curl -s -X POST "$SLACK_WEBHOOK_URL" -H 'Content-type: application/json' \
 **4. A morning brief on your phone.** The same folder can run the agent headless an hour before the open: it reads the digest, checks positions and overnight news, pulls today's earnings, and proposes up to three setups with a risk frame each. The push is a six-line plain-text summary; the full brief lands in `briefs/<date>.md` for your session to open on. [`examples/trading-desk/`](examples/trading-desk/) has the prompt and the script; the tool allowlist is read-only by construction, so it can propose and never place. Put an [ntfy](https://ntfy.sh) topic name in `.ntfy_topic`, subscribe on your phone, and add the cron line:
 
 ```bash
-30 7 * * 1-5 $HOME/trading/bin/morning-brief.sh   # 07:30 CT = 08:30 ET, an hour before the open
+30 7 * * 1-5 $HOME/trading/bin/morning-brief.sh   # cron runs in the host's local time: this is 07:30 Central, 08:30 Eastern. Convert to yours.
 ```
 
 Keep it one-way. A channel that receives the digest is a read-only surface. A chat bot that holds a live broker session is an always-on execution rail behind a chat token, and the next section is exactly why we don't ship one.

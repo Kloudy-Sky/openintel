@@ -1,4 +1,4 @@
-Write this morning's brief. This is a headless run: nobody can answer a question, so place no orders, spend no money (`x_pulse` stays unused and `include_x` stays false), and pass `no_journal: true` to `dip_scan` if you rescan anything. Output only the brief in markdown, nothing before or after it.
+Write this morning's brief. This is a headless run: nobody can answer a question, so place no orders and spend no money (`x_pulse` stays unused and `include_x` stays false). Dip verdicts come from the digest; there is no rescan. Output only the brief in markdown, nothing before or after it.
 
 The output opens with a phone summary, then the brief.
 
@@ -12,7 +12,7 @@ Then the brief, in this order:
 `open_positions` plus `get_equity_positions` for your broker's agentic account only. For each held name: last price against entry and stop, and any overnight `get_equity_news` or filing that touches the frozen thesis. Flag a name that is through its stop, or that has a catalyst, on its own line starting with **ALERT**.
 
 ## Yesterday's scans
-Read `~/.openintel/digests/<most recent date>.txt`. List the dip candidates at `watch` or better and the chatter "leading the chart" flags, each with a fresh price from `get_equity_quotes`. Note which ones moved overnight.
+Read the most recent file in `~/.openintel/digests/`, which is the prior trading day's close scan, and name its date. List the dip candidates at `watch` or better and the chatter "leading the chart" flags, each with a fresh price from `get_equity_quotes`. Note which ones moved overnight.
 
 ## Calendar
 `get_earnings_calendar` for today. Names that are held, on yesterday's lists, or large-cap, reporting before the open or after the close.

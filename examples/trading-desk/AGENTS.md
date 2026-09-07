@@ -1,4 +1,4 @@
-<!-- Starter rules file for the trading folder described in the README. Copy this file and CLAUDE.md into your own directory and edit the Money section to your numbers. -->
+<!-- Starter trading folder described in the README. Copy this file, CLAUDE.md, prompts/ and bin/ into your own directory, edit the Money section to your numbers, and put an ntfy topic in .ntfy_topic for the morning brief. -->
 
 # Trading desk
 
@@ -8,7 +8,7 @@ This directory is where I talk to my agent about markets. Two MCPs are wired: `o
 
 1. **Anchor the date.** State today's date, the weekday, and the US market state: pre-market, open, post-close, or closed (weekend, holiday). Every number you quote from here on carries its as-of date.
 2. **Call `open_positions`.** Summarize what is held and each frozen thesis before anything else. An empty journal is a normal answer.
-3. **Read today's digest** at `~/.openintel/digests/<YYYY-MM-DD>.txt`. If today's file is missing, say so and run `discover` and `dip_scan` fresh instead.
+3. **Read today's brief** at `briefs/<YYYY-MM-DD>.md` (written before the open by `bin/morning-brief.sh`) and last night's digest at `~/.openintel/digests/<YYYY-MM-DD>.txt`. If either is missing, say so; with no digest, run `discover` and `dip_scan` fresh instead.
 4. Then take my question.
 
 Done when I have the date, the positions, and the day's scans in front of me.

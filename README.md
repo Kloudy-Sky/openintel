@@ -21,15 +21,15 @@ cargo install --path .                                             # 1. install 
 openintel analyze AAPL                                             # 2. works right now: market data is keyless (Yahoo)
 openintel setup reddit; openintel setup bluesky                    # 3. optional free social sources, guided, saved to your OS keychain
 
-claude mcp add openintel -- openintel mcp                          # 4. wire the analysis into your agent
-claude mcp add robinhood-trading --transport http https://agent.robinhood.com/mcp/trading   # 5. wire execution (broker's MCP)
+claude mcp add --scope user openintel -- openintel mcp             # 4. wire the analysis into your agent, for every directory
+claude mcp add --scope user --transport http robinhood-trading https://agent.robinhood.com/mcp/trading   # 5. wire execution (broker's MCP)
 ```
 
 Then, in a chat: *"call open_positions, then run discover and tell me what has evidence."* Or skip the agent and use the CLI directly. Other agents add the same two MCP commands in their own settings. Offline or unconfigured sources degrade with a note, never a fabricated value.
 
 ## Cheat sheet
 
-Every capability, both surfaces. All MCP tools are read-only.
+Every capability, both surfaces. Every MCP tool is read-only toward markets and brokers; the journal tools write only your local journal.
 
 | Question | CLI | MCP tool | Cost |
 |---|---|---|---|
@@ -47,7 +47,7 @@ Every capability, both surfaces. All MCP tools are read-only.
 
 ## Things it will never do
 
-- **Place a trade, hold broker credentials, or touch your account.** The only thing it writes is your local journal under `~/.openintel/`.
+- **Place a trade, hold broker credentials, or touch your account.** It writes only its own files under `~/.openintel/` (journals, the chatter baseline, your listening set) and, through `setup`, your OS keychain.
 - **Upgrade a verdict on evidence it couldn't fetch.** Every gate is pass / fail / unknown. Unknown caps the verdict, never lifts it.
 - **Tell you something is likely to profit.** `high_confidence` means "matches the setup template". Scores are unvalidated until the review loop grades them.
 - **Draw a conclusion from a small sample.** Reviews call themselves anecdote below n ≥ 30.
@@ -157,7 +157,7 @@ Influencers write "Tesla", not "$TSLA", so the report also returns the recent po
 <details>
 <summary><b>Pulse</b> · catalyst posts from specific X accounts (paid)</summary>
 
-Catalyst posts from high-impact X accounts (a POTUS tariff post, a CEO announcement), surfaced as **events to reason about**, never averaged into sentiment. X's API is pay-per-use, so the pulse is strictly opt-in: nothing calls X unless you run it.
+Catalyst posts from high-impact X accounts (a POTUS tariff post, a CEO announcement), surfaced as **events to reason about**, never averaged into sentiment. X's API is pay-per-use, so the pulse is strictly opt-in: nothing calls X unless you run it, and that includes the one verify read during `setup x`.
 
 ```bash
 openintel setup x                                                    # guided token setup (verify reads ≈ $0.05)
@@ -204,7 +204,7 @@ In an agent chat the MCP tools are the primary surface: `log_trade` journals the
 
 You don't need a bot, a memory system, or an always-on agent. Three small pieces cover the whole loop; the rest is a normal chat.
 
-**1. A trading folder, not this repo.** Once both MCPs are wired they're available to any agent session. Start market conversations from a dedicated directory whose `CLAUDE.md` (or your agent's equivalent) holds your standing rules. That file is the agent's stable memory:
+**1. A trading folder, not this repo.** Wire both MCPs at user scope (the `--scope user` flag above) so they follow you to any directory. Start market conversations from a dedicated directory whose `CLAUDE.md` (or your agent's equivalent) holds your standing rules. That file is the agent's stable memory:
 
 ```markdown
 # Trading rules
@@ -234,7 +234,12 @@ OUT="$HOME/.openintel/digests"; mkdir -p "$OUT"; F="$OUT/$(date +%F).txt"
 crontab -e   # 20 16 * * 1-5 $HOME/.openintel/bin/daily-close.sh   (16:20 local, Mon–Fri)
 ```
 
-Cron can't open the OS keychain. If Reddit or Bluesky are configured there, export the `OPENINTEL_*` variables at the top of the script instead (env always wins).
+Cron can't see your session keychain by default. On Linux, add these two lines under the shebang so the script reaches it; secrets stay in the keychain, never in the script:
+
+```bash
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+```
 
 **Optional: push the digest to Slack, Telegram, or Discord.** Not necessary, but if you want the close-of-day scan on your phone, add one line to the end of the script. A Slack incoming webhook, for example:
 
@@ -255,13 +260,13 @@ Connecting an AI agent to a brokerage MCP means **an AI can place real trades wi
 - **You are fully responsible for every trade placed.** This software has no warranty and is not financial advice. Nothing here is a strategy shown to be profitable.
 - **Only fund money you can afford to lose entirely.** Use a dedicated broker *agentic sub-account* and fund a deliberately small wallet. **That balance is your hard blast-radius cap.** The agent cannot spend beyond it.
 - **Keep the broker's approval-required mode on.** Review and approve trades before they execute. Do not authorize unattended or autonomous trading until you genuinely trust the setup. Connecting also grants the agent broad **read** access to your accounts, which is a privacy surface.
-- **Scope and status:** Robinhood's Agentic Trading is a **beta, US-only, equities-only** product. OpenIntel itself is early software (live market data via Yahoo; Reddit and Bluesky sentiment live when configured); the intelligence layer is meant to be iterated on.
+- **Scope and status:** Robinhood's Agentic Trading is a **US** product covering equities, options, and crypto as of September 2026; check its current terms and scope yourself. OpenIntel itself is early software (live market data via Yahoo; Reddit and Bluesky sentiment live when configured); the intelligence layer is meant to be iterated on.
 
 By design, **OpenIntel never executes trades, touches a broker, or holds credentials.** Execution happens only through the broker's own MCP, gated by the broker's controls and your approval. That boundary *is* the safety model. Keep it.
 
 ## Sources and secrets
 
-Market data is keyless (Yahoo Finance, unofficial) and SEC EDGAR is keyless and official. Social sources are optional and credentialed. Each `setup` command walks you through creating free credentials, verifies them live, and saves them to your OS keychain. Rotate by re-running it; remove with `--forget`. Environment variables always override the keychain, which is what CI and cron want.
+Market data is keyless (Yahoo Finance, unofficial) and SEC EDGAR is keyless and official. Social sources are optional and credentialed. Reddit and Bluesky credentials are free; X bills about $0.05 for its verify read. Each `setup` command walks you through creating the credential, verifies it live, and saves it to your OS keychain. Rotate by re-running it; remove with `--forget`. Environment variables always override the keychain, which is what CI and cron want.
 
 <details>
 <summary><b>Reddit</b> · <code>openintel setup reddit</code></summary>

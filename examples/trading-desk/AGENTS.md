@@ -24,7 +24,7 @@ Done when I have the date, the positions, and the day's scans in front of me.
 - Wallet: **$5,000** in the Robinhood agentic sub-account. That balance is the blast-radius cap.
 - Risk per trade: at most **$65** (1.3% of wallet) from entry to stop.
 - Long only, US equities, no margin. That is what the agentic account can hold.
-- Every trade idea becomes a `risk_frame` first: entry, stop, share size, max loss, R levels. Trades wait for my explicit **yes** in this chat. Then place it through Robinhood, then `log_trade` in the same breath with the thesis, the tag, and the stop.
+- Every trade idea becomes a `risk_frame` first: entry, stop, share size, max loss, R levels. Trades wait for my explicit **yes** in this chat. Then place it through Robinhood, then `log_trade` in the same breath with the thesis, the tag, and the stop. If the journal write fails, retry it before doing anything else; the same-day duplicate guard makes retries safe, and an unlogged position is the one failure the next session cannot see.
 - Paid X reads (`x_pulse`, `include_x`): quote the cost in dollars and wait for my yes.
 
 ## Voice

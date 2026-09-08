@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use chrono::Utc;
+
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo};
@@ -42,6 +44,21 @@ impl OpenIntelServer {
 
 #[tool_router]
 impl OpenIntelServer {
+    #[tool(
+        description = "Market clock: the current date and time in New York and UTC, the weekday, \
+                       and the NYSE session state (pre_market / open / post_close / closed with the \
+                       holiday or weekend reason / unknown outside the vendored calendar), plus the \
+                       date of the last completed session (the newest daily bar) and the next open. \
+                       No network, no arguments. Call this FIRST in a conversation and again whenever \
+                       the user asks about now or today: any price, verdict, or scan fetched under an \
+                       earlier session state is expired and must be re-fetched, never quoted from memory."
+    )]
+    async fn market_clock(&self) -> Result<CallToolResult, ErrorData> {
+        let json = serde_json::to_string_pretty(&crate::domain::clock::market_clock(Utc::now()))
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
     #[tool(
         description = "List the social and market data sources OpenIntel can analyze. Read-only metadata."
     )]
@@ -362,7 +379,11 @@ impl ServerHandler for OpenIntelServer {
                 "OpenIntel — fuses social sentiment with market action into a speculation \
                  report (crowding, divergence, sentiment), plus deterministic risk/margin \
                  calculators and a gated dip-setup scanner with a forward-return review. \
-                 READ-ONLY: it never places trades.",
+                 READ-ONLY: it never places trades. TIME: call market_clock first in every \
+                 conversation and whenever the user asks about now or today. Every number you \
+                 quote carries its as-of time. Data fetched under an earlier session state \
+                 (a prior day, or before a close that has since happened) is expired: re-fetch \
+                 it, never answer from an earlier tool result.",
             )
     }
 }

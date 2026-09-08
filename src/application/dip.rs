@@ -762,6 +762,7 @@ mod tests {
         let filings = MockFilingsSource(Ok(vec![Filing {
             form: "8-K".into(),
             filed_on: NaiveDate::from_ymd_opt(2026, 8, 14).unwrap(),
+            accession: None,
         }]));
         let deps = clean_deps(&bars, &news, &filings, &social);
         let report = dip_scan(&req, &movers, &deps, post_close_now())

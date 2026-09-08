@@ -33,7 +33,12 @@ pub fn filing_events(
 ) -> Vec<Event> {
     let mut out = Vec::new();
     for f in filings.iter().filter(|f| is_catalyst_form(&f.form)) {
-        let key = format!("{ticker}|{}|{}", f.form, f.filed_on);
+        let key = format!(
+            "{ticker}|{}|{}|{}",
+            f.form,
+            f.filed_on,
+            f.accession.as_deref().unwrap_or("-")
+        );
         if state.seen_filings.insert(key) {
             out.push(Event {
                 polled_at: now,
@@ -116,7 +121,8 @@ pub fn move_events(
     let steps = (move_atr.abs() / threshold_atr).floor() as u32;
     let mut out = Vec::new();
     for step in 1..=steps {
-        let key = format!("{ticker}|{step}|{date}");
+        let direction = if move_atr < 0.0 { "down" } else { "up" };
+        let key = format!("{ticker}|{direction}|{step}|{date}");
         if state.emitted_moves.insert(key) {
             let pct = (last - prior_close) / prior_close * 100.0;
             out.push(Event {
@@ -222,16 +228,33 @@ mod tests {
             Filing {
                 form: "8-K".into(),
                 filed_on: ymd(2026, 9, 8),
+                accession: None,
             },
             Filing {
                 form: "4".into(),
                 filed_on: ymd(2026, 9, 8),
+                accession: None,
             },
         ];
         let first = filing_events(&mut state, "ADSK", &filings, now());
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].kind, EventKind::Filing);
         assert!(filing_events(&mut state, "ADSK", &filings, now()).is_empty());
+
+        // two 8-Ks on the same day with different accession numbers are two facts
+        let two = vec![
+            Filing {
+                form: "8-K".into(),
+                filed_on: ymd(2026, 9, 9),
+                accession: Some("0000001-26-000001".into()),
+            },
+            Filing {
+                form: "8-K".into(),
+                filed_on: ymd(2026, 9, 9),
+                accession: Some("0000001-26-000002".into()),
+            },
+        ];
+        assert_eq!(filing_events(&mut state, "ADSK", &two, now()).len(), 2);
     }
 
     #[test]
@@ -280,6 +303,10 @@ mod tests {
             2
         );
         assert!(move_events(&mut state, "NVDA", mv(91.0, 0.0), d, now()).is_empty());
+        // a reversal to +1 ATR the same day is a new fact, not the earlier down step
+        let up = move_events(&mut state, "NVDA", mv(105.0, 4.0), d, now());
+        assert_eq!(up.len(), 1);
+        assert!(up[0].summary.contains("+1.25 ATR"));
     }
 
     #[test]

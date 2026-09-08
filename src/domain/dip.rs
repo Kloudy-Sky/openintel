@@ -969,6 +969,7 @@ mod tests {
             Filing {
                 form: "8-K".into(),
                 filed_on: d(31),
+                accession: None,
             },
             Filing {
                 form: "4".into(), // insider form — must NOT trigger
@@ -1011,6 +1012,7 @@ mod tests {
         i.filings = GateEvidence::Available(vec![Filing {
             form: "8-K/A".into(),
             filed_on: d(31),
+            accession: None,
         }]);
         assert_eq!(dip_signal(&i).unwrap().verdict, Verdict::NoSetup);
     }

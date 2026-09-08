@@ -326,6 +326,7 @@ mod tests {
         let filings = MockFilingsSource(Ok(vec![Filing {
             form: "8-K".into(),
             filed_on: NaiveDate::from_ymd_opt(2026, 9, 8).unwrap(),
+            accession: None,
         }]));
         let news = MockNewsSource(Err("news down".into()));
         let deps = WatchDeps {

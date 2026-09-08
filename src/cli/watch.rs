@@ -70,20 +70,13 @@ fn notifier_from(args: &WatchArgs) -> Result<Option<NtfyNotifier>, DomainError> 
         .transpose()
 }
 
-async fn emit(
-    outcome: &PollOutcome,
-    events_path: Option<&std::path::Path>,
-    notifier: Option<&NtfyNotifier>,
-) {
+/// Print and push a poll's events and errors. Persistence is separate so a
+/// failed write keeps the events in the retry buffer instead of losing them.
+async fn announce(outcome: &PollOutcome, notifier: Option<&NtfyNotifier>) {
     for event in &outcome.events {
         match serde_json::to_string(event) {
             Ok(line) => println!("{line}"),
             Err(e) => eprintln!("watch: could not render an event: {e}"),
-        }
-    }
-    if let Some(path) = events_path {
-        if let Err(e) = append_events(path, &outcome.events) {
-            eprintln!("watch: {e}");
         }
     }
     if let Some(n) = notifier {
@@ -95,6 +88,19 @@ async fn emit(
     }
     for e in &outcome.errors {
         eprintln!("watch: {e}");
+    }
+}
+
+/// Append everything still pending; on failure keep it for the next tick,
+/// so an event reaches `recent_events` once the disk recovers.
+fn persist(pending: &mut Vec<Event>, events_path: Option<&std::path::Path>) {
+    let Some(path) = events_path else {
+        pending.clear();
+        return;
+    };
+    match append_events(path, pending) {
+        Ok(()) => pending.clear(),
+        Err(e) => eprintln!("watch: {e}; {} event(s) held for retry", pending.len()),
     }
 }
 
@@ -143,8 +149,9 @@ pub async fn run(args: &WatchArgs, credentials: &Credentials) -> Result<(), Doma
         baseline_path: crate::application::chatter::default_baseline_path(),
         write_baseline: false,
     };
+    let chatter_minutes = args.chatter_every.min(24 * 60);
     let chatter_every =
-        (args.chatter_every > 0).then(|| chrono::Duration::minutes(args.chatter_every as i64));
+        (chatter_minutes > 0).then(|| chrono::Duration::minutes(chatter_minutes as i64));
 
     eprintln!(
         "watch: {} names every {interval}s{}{} · {}",
@@ -162,12 +169,15 @@ pub async fn run(args: &WatchArgs, credentials: &Credentials) -> Result<(), Doma
     let mut state = WatchState::default();
     let mut cache = WatchCache::default();
     let mut last_chatter: Option<chrono::DateTime<Utc>> = None;
+    let mut pending: Vec<Event> = Vec::new();
     let mut timer = tokio::time::interval(Duration::from_secs(interval));
     loop {
         timer.tick().await;
         let now = Utc::now();
         let outcome = poll(&req, &deps, &mut state, &mut cache, now).await;
-        emit(&outcome, events_path.as_deref(), notifier.as_ref()).await;
+        announce(&outcome, notifier.as_ref()).await;
+        pending.extend(outcome.events.iter().cloned());
+        persist(&mut pending, events_path.as_deref());
 
         let chatter_due = match (chatter_every, last_chatter) {
             (Some(_), None) => true,
@@ -177,7 +187,9 @@ pub async fn run(args: &WatchArgs, credentials: &Credentials) -> Result<(), Doma
         if chatter_due && !feeds.is_empty() {
             last_chatter = Some(now);
             let outcome = poll_chatter(&chatter_req, &feeds, Some(&yahoo), &mut state, now).await;
-            emit(&outcome, events_path.as_deref(), notifier.as_ref()).await;
+            announce(&outcome, notifier.as_ref()).await;
+            pending.extend(outcome.events.iter().cloned());
+            persist(&mut pending, events_path.as_deref());
         }
         if args.once {
             eprintln!(

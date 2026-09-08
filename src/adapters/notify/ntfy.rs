@@ -49,7 +49,7 @@ impl Notifier for NtfyNotifier {
             .body(body.to_string())
             .send()
             .await
-            .map_err(|e| fail(format!("request failed: {e}")))?;
+            .map_err(|_| fail("request failed (network or timeout)"))?;
         let status = resp.status();
         if !status.is_success() {
             return Err(fail(format!("HTTP {status}")));

@@ -52,6 +52,8 @@ struct Recent {
     form: Vec<String>,
     #[serde(default)]
     filing_date: Vec<String>,
+    #[serde(default)]
+    accession_number: Vec<String>,
 }
 
 /// Filings on/after `since` from a submissions body. Form/date arrays are
@@ -73,11 +75,20 @@ pub(crate) fn parse_recent_filings(
         )));
     }
     let mut filings = Vec::new();
-    for (form, date) in recent.form.into_iter().zip(recent.filing_date) {
+    for (i, (form, date)) in recent.form.into_iter().zip(recent.filing_date).enumerate() {
         let filed_on = NaiveDate::parse_from_str(&date, "%Y-%m-%d")
             .map_err(|_| fail(format!("unparseable filing date '{date}' for form {form}")))?;
         if filed_on >= since {
-            filings.push(Filing { form, filed_on });
+            let accession = recent
+                .accession_number
+                .get(i)
+                .filter(|a| !a.trim().is_empty())
+                .cloned();
+            filings.push(Filing {
+                form,
+                filed_on,
+                accession,
+            });
         }
     }
     Ok(filings)
@@ -102,7 +113,8 @@ mod tests {
     fn filings_filter_by_date_and_zip_positionally() {
         let body = r#"{"filings":{"recent":{
             "form":["8-K","4","10-Q"],
-            "filingDate":["2026-08-14","2026-08-13","2026-07-31"]
+            "filingDate":["2026-08-14","2026-08-13","2026-07-31"],
+            "accessionNumber":["0000320193-26-000001","0000320193-26-000002","0000320193-26-000003"]
         }}}"#;
         let since = NaiveDate::from_ymd_opt(2026, 8, 13).unwrap();
         let filings = parse_recent_filings(body, since).unwrap();

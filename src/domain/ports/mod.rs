@@ -1,4 +1,5 @@
 pub mod bar_source;
+pub mod earnings_calendar_source;
 pub mod filings_source;
 pub mod influencer_feed;
 pub mod listening_feed;

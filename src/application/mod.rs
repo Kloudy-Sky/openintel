@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod brief;
 pub mod chatter;
 pub mod dip;
 pub mod discover;

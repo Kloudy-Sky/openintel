@@ -20,6 +20,7 @@ pub struct OpenIntelServer {
     listening: Arc<Vec<Box<dyn crate::domain::ports::listening_feed::ListeningFeed>>>,
     market: YahooMarketSource,
     filings: Arc<crate::adapters::filings::edgar::EdgarSource>,
+    calendar: Arc<crate::adapters::calendar::nasdaq::NasdaqCalendar>,
     pulse_feed: Option<Arc<crate::adapters::sources::x::XPulseSource>>,
 }
 
@@ -29,6 +30,7 @@ impl OpenIntelServer {
         listening: Vec<Box<dyn crate::domain::ports::listening_feed::ListeningFeed>>,
         market: YahooMarketSource,
         filings: crate::adapters::filings::edgar::EdgarSource,
+        calendar: crate::adapters::calendar::nasdaq::NasdaqCalendar,
         pulse_feed: Option<crate::adapters::sources::x::XPulseSource>,
     ) -> Self {
         Self {
@@ -37,6 +39,7 @@ impl OpenIntelServer {
             listening: Arc::new(listening),
             market,
             filings: Arc::new(filings),
+            calendar: Arc::new(calendar),
             pulse_feed: pulse_feed.map(Arc::new),
         }
     }
@@ -44,6 +47,34 @@ impl OpenIntelServer {
 
 #[tool_router]
 impl OpenIntelServer {
+    #[tool(
+        description = "Today's dated evidence with no ticker required: the market clock, scheduled \
+                       macro releases (CPI, jobs, FOMC, GDP, PCE from a vendored calendar), the \
+                       earnings calendar bucketed before-open / after-close (large caps plus any \
+                       ticker you pass), overnight SEC filings and catalyst headlines since the \
+                       prior close for the tickers you pass (held and watched names), and the last \
+                       chatter baseline counts. Every item carries its as-of time; a leg that can't \
+                       be fetched is an error line, never a quiet day. Call this first in a morning \
+                       session instead of fanning out. Evidence only — no ranking, no picks. \
+                       Read-only, no paid legs."
+    )]
+    async fn brief(
+        &self,
+        Parameters(args): Parameters<tools::BriefToolArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let deps = crate::application::brief::BriefDeps {
+            earnings: self.calendar.as_ref(),
+            news: &self.market,
+            filings: self.filings.as_ref(),
+        };
+        let out = tools::run_brief(args, &deps)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
     #[tool(
         description = "Market clock: the current date and time in New York and UTC, the weekday, \
                        and the NYSE session state (pre_market / open / post_close / closed with the \
@@ -396,6 +427,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     let market = YahooMarketSource::new()?;
     let filings = crate::adapters::filings::edgar::EdgarSource::new()?;
+    let calendar = crate::adapters::calendar::nasdaq::NasdaqCalendar::new()?;
     let pulse_feed = match credentials.x_bearer.clone() {
         Some(bearer) => match crate::adapters::sources::x::XPulseSource::new(bearer) {
             Ok(src) => Some(src),
@@ -407,7 +439,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
     let listening = crate::adapters::sources::build_free_listening_feeds(&credentials);
-    let service = OpenIntelServer::new(social, listening, market, filings, pulse_feed)
+    let service = OpenIntelServer::new(social, listening, market, filings, calendar, pulse_feed)
         .serve(stdio())
         .await?;
     service.waiting().await?;

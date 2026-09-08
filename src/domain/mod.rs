@@ -15,3 +15,4 @@ pub mod risk;
 pub mod trade_journal;
 pub mod trade_review;
 pub mod values;
+pub mod watch;

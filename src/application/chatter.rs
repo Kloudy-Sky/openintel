@@ -45,6 +45,7 @@ pub fn default_baseline_path() -> Option<PathBuf> {
     std::env::home_dir().map(|h| h.join(".openintel").join("chatter_baseline.jsonl"))
 }
 
+#[derive(Clone)]
 pub struct ChatterRequest {
     pub listening: ListeningSet,
     pub hours: u32,
@@ -54,6 +55,9 @@ pub struct ChatterRequest {
     pub x_read_cap: usize,
     /// None = no baseline read or write (velocity reports "baseline building").
     pub baseline_path: Option<PathBuf>,
+    /// Append today's line after reading. A read-only pass (the watch loop)
+    /// sets this false so repeated runs can't stack a day's worth of lines.
+    pub write_baseline: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -194,7 +198,7 @@ async fn platform_leg(
         ));
     }
 
-    if let Some(path) = &req.baseline_path {
+    if let Some(path) = req.baseline_path.as_ref().filter(|_| req.write_baseline) {
         let line = BaselineLine {
             date: today,
             platform: platform.clone(),
@@ -326,6 +330,7 @@ mod tests {
             free_limit: 100,
             x_read_cap: 20,
             baseline_path: baseline,
+            write_baseline: true,
         }
     }
 

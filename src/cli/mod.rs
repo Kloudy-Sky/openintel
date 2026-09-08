@@ -9,3 +9,4 @@ pub mod pulse;
 pub mod risk;
 pub mod run;
 pub mod setup;
+pub mod watch;

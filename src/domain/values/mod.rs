@@ -1,6 +1,7 @@
 pub mod asset_class;
 pub mod bar;
 pub mod earnings_row;
+pub mod event;
 pub mod filing;
 pub mod headline;
 pub mod macro_release;

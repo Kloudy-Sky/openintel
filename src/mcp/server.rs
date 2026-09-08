@@ -71,6 +71,27 @@ impl OpenIntelServer {
     }
 
     #[tool(
+        description = "Events the local `openintel watch` loop recorded: catalyst filings, \
+                       company-referencing catalyst headlines, price moves in whole ATR steps from \
+                       the prior close, chatter velocity flags, and market state changes, each \
+                       stamped with the poll time that saw it (keyless polling, minute-level \
+                       latency). Newest first. Call it to answer 'what happened since the open' \
+                       or 'since I last looked'. An empty list means nothing was recorded, which \
+                       also happens when the watch is not running. Read-only; the watch never \
+                       places or suggests an order."
+    )]
+    async fn recent_events(
+        &self,
+        Parameters(args): Parameters<tools::RecentEventsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_recent_events(args)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
         description = "Today's dated evidence with no ticker required: the market clock, scheduled \
                        macro releases (CPI, jobs, FOMC, GDP, PCE from a vendored calendar), the \
                        earnings calendar bucketed before-open / after-close (large caps plus any \

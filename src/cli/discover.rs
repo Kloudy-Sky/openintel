@@ -95,6 +95,7 @@ async fn run_chatter(
         free_limit: DEFAULT_FREE_LIMIT,
         x_read_cap: args.x_limit.clamp(1, 100),
         baseline_path: crate::application::chatter::default_baseline_path(),
+        write_baseline: true,
     };
     let report = chatter(&req, &feeds, Some(yahoo), Utc::now()).await?;
     let mut out = match args.format {

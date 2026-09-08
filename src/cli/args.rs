@@ -48,6 +48,36 @@ pub enum Command {
     /// Defined-risk frame for a long call or put: contracts to a budget, breakeven, the move it needs (never the odds)
     #[command(name = "option")]
     OptionFrame(OptionFrameArgs),
+
+    /// Watch held and listed names and emit dated events as they are seen: filings, catalyst headlines, ATR moves, chatter velocity, market state (never orders)
+    Watch(WatchArgs),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct WatchArgs {
+    /// Tickers to watch in addition to open journal positions, comma-separated
+    #[arg(long, value_delimiter = ',')]
+    pub tickers: Vec<String>,
+
+    /// Seconds between polls (15-3600)
+    #[arg(long, default_value_t = 60)]
+    pub interval: u64,
+
+    /// Whole ATR multiples from the prior close that each earn one event
+    #[arg(long = "move-atr", default_value_t = 1.0)]
+    pub move_atr: f64,
+
+    /// Minutes between read-only chatter passes over the free listening feeds (0 = off)
+    #[arg(long = "chatter-every", default_value_t = 15)]
+    pub chatter_every: u64,
+
+    /// ntfy.sh topic to push each event to (or env OPENINTEL_NTFY_TOPIC); omit for no push
+    #[arg(long = "ntfy-topic")]
+    pub ntfy_topic: Option<String>,
+
+    /// Poll once and exit
+    #[arg(long)]
+    pub once: bool,
 }
 
 #[derive(clap::Args, Debug)]

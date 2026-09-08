@@ -9,6 +9,7 @@ pub mod request;
 pub mod review;
 pub mod risk;
 pub mod trade_journal;
+pub mod watch;
 
 pub use analyze::analyze;
 pub use request::AnalysisRequest;

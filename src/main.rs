@@ -99,6 +99,17 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Watch(args) => {
+            let store = KeychainStore::new();
+            let credentials = Credentials::load(&store);
+            match openintel::cli::watch::run(&args, &credentials).await {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Clock(args) => match openintel::cli::clock::run(&args) {
             Ok(rendered) => {
                 println!("{rendered}");

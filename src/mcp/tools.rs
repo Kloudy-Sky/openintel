@@ -886,6 +886,53 @@ pub async fn run_option_frame(
     })
 }
 
+// ------------------------------------------------------------ recent events
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct RecentEventsArgs {
+    /// Look back this many minutes (default 480, max 10080).
+    pub since_minutes: Option<u32>,
+    /// Newest events to return (default 50, max 500).
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentEventsOutput {
+    pub since: chrono::DateTime<Utc>,
+    pub events: Vec<crate::domain::values::event::Event>,
+    pub malformed_lines: usize,
+    pub notes: Vec<String>,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub fn run_recent_events(args: RecentEventsArgs) -> Result<RecentEventsOutput, DomainError> {
+    let minutes = args.since_minutes.unwrap_or(480).clamp(1, 10_080);
+    let limit = args.limit.unwrap_or(50).clamp(1, 500);
+    let since = Utc::now() - chrono::Duration::minutes(minutes as i64);
+    let path = crate::application::watch::default_events_path().ok_or_else(|| {
+        DomainError::SourceFailure {
+            name: "watch".into(),
+            message: "cannot resolve a home directory".into(),
+        }
+    })?;
+    let (events, malformed_lines) = crate::application::watch::events_since(&path, since, limit)?;
+    let mut notes = Vec::new();
+    if events.is_empty() {
+        notes.push(format!(
+            "no events since {since}: either nothing happened or `openintel watch` is not running on this machine"
+        ));
+    }
+    Ok(RecentEventsOutput {
+        since,
+        events,
+        malformed_lines,
+        notes,
+        framing: crate::application::watch::FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 // ------------------------------------------------------------ clock
 
 #[derive(Debug, Deserialize, JsonSchema)]

@@ -5,7 +5,7 @@
 //! empty. Evidence only — no ranking, no picks.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::America::New_York;
@@ -161,6 +161,26 @@ async fn ticker_evidence(
     }
 }
 
+/// Baseline lines plus how many lines failed to parse. A missing file is
+/// Ok(empty): a journal that hasn't started yet. Any other read failure is
+/// the caller's to report, never a quiet "no baseline".
+fn read_baseline(path: &Path) -> std::io::Result<(Vec<BaselineLine>, usize)> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
+        Err(e) => return Err(e),
+    };
+    let mut lines = Vec::new();
+    let mut malformed = 0;
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        match serde_json::from_str(line) {
+            Ok(parsed) => lines.push(parsed),
+            Err(_) => malformed += 1,
+        }
+    }
+    Ok((lines, malformed))
+}
+
 fn latest_baselines(lines: Vec<BaselineLine>) -> Vec<ChatterSnapshot> {
     let mut latest: BTreeMap<String, BaselineLine> = BTreeMap::new();
     for line in lines {
@@ -260,21 +280,35 @@ pub async fn brief(
             notes.push("chatter baseline path not set; chatter leg skipped".into());
             Vec::new()
         }
-        Some(path) => {
-            let snapshots = latest_baselines(crate::application::chatter::read_baseline(path));
-            if snapshots.is_empty() {
-                notes.push(
-                    "no chatter baseline yet; run `discover --chatter` after the close".into(),
-                );
-            } else if let Some(oldest) = snapshots.iter().map(|s| s.date).min() {
-                if oldest < since_date {
+        Some(path) => match read_baseline(path) {
+            Err(e) => {
+                errors.push(format!(
+                    "chatter baseline unreadable at {}: {e}",
+                    path.display()
+                ));
+                Vec::new()
+            }
+            Ok((lines, malformed)) => {
+                if malformed > 0 {
                     notes.push(format!(
-                        "chatter baseline last written {oldest}, before the prior close; counts are stale"
+                        "{malformed} malformed line(s) skipped in the chatter baseline"
                     ));
                 }
+                let snapshots = latest_baselines(lines);
+                if snapshots.is_empty() {
+                    notes.push(
+                        "no chatter baseline yet; run `discover --chatter` after the close".into(),
+                    );
+                } else if let Some(oldest) = snapshots.iter().map(|s| s.date).min() {
+                    if oldest < since_date {
+                        notes.push(format!(
+                            "chatter baseline last written {oldest}, before the prior close; counts are stale"
+                        ));
+                    }
+                }
+                snapshots
             }
-            snapshots
-        }
+        },
     };
 
     Ok(BriefReport {
@@ -329,6 +363,22 @@ mod tests {
         let report = brief(&req(&["ADSK"], None), &deps, tuesday_pre_market())
             .await
             .unwrap();
+
+        let unreadable = brief(
+            &req(&["ADSK"], Some(std::env::temp_dir())),
+            &deps,
+            tuesday_pre_market(),
+        )
+        .await
+        .unwrap();
+        assert!(unreadable
+            .errors
+            .iter()
+            .any(|e| e.contains("chatter baseline unreadable")));
+        assert!(!unreadable
+            .notes
+            .iter()
+            .any(|n| n.contains("no chatter baseline yet")));
 
         assert_eq!(
             report.clock.prior_close_date,

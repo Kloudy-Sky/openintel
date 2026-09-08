@@ -64,6 +64,17 @@ impl EarningsCalendarSource for NasdaqCalendar {
 
 pub(crate) fn parse_rows(body: &str) -> Result<Vec<EarningsRow>, DomainError> {
     let v: Value = serde_json::from_str(body).map_err(|e| fail(format!("malformed JSON: {e}")))?;
+    // Nasdaq reports application errors inside a 200 body: status.rCode != 200.
+    if let Some(code) = v.pointer("/status/rCode").and_then(Value::as_i64) {
+        if code != 200 {
+            let message = v
+                .pointer("/status/bCodeMessage/0/errorMessage")
+                .or_else(|| v.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("no message");
+            return Err(fail(format!("application error rCode {code}: {message}")));
+        }
+    }
     let data = v.get("data").ok_or_else(|| fail("no data field"))?;
     let rows = match data.get("rows") {
         None | Some(Value::Null) => return Ok(Vec::new()),
@@ -156,6 +167,9 @@ mod tests {
                 .is_empty()
         );
         assert!(parse_rows(r#"{"status":{"rCode":400}}"#).is_err());
+        let app_error = r#"{"data":null,"message":null,"status":{"rCode":400,"bCodeMessage":[{"code":400,"errorMessage":"invalid date"}]}}"#;
+        let err = parse_rows(app_error).unwrap_err().to_string();
+        assert!(err.contains("rCode 400") && err.contains("invalid date"));
         assert!(parse_rows("not json").is_err());
         assert!(parse_rows(r#"{"data":{"rows":[{"name":"x"}]}}"#).is_err());
     }

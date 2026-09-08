@@ -48,6 +48,29 @@ impl OpenIntelServer {
 #[tool_router]
 impl OpenIntelServer {
     #[tool(
+        description = "Defined-risk calculator for a LONG call or put: given the underlying, the \
+                       kind, strike, expiry, the premium quoted by the broker's chain, and a budget \
+                       in USD, returns the contracts that fit the budget, the cost (the max loss, \
+                       paid up front), breakeven, the move from spot to breakeven, calendar and \
+                       trading days to expiry, an ATR-scaled range through expiry as a SCALE for \
+                       that move (not a forecast), realized vol, and IV rank when available. It \
+                       does NOT rate the odds — present the numbers and get the user's explicit \
+                       approval before any execution step. Equities and ETFs only. Read-only — \
+                       does not trade."
+    )]
+    async fn option_frame(
+        &self,
+        Parameters(args): Parameters<tools::OptionFrameToolArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let out = tools::run_option_frame(args, &self.market, &self.market)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let json = serde_json::to_string_pretty(&out)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
         description = "Today's dated evidence with no ticker required: the market clock, scheduled \
                        macro releases (CPI, jobs, FOMC, GDP, PCE from a vendored calendar), the \
                        earnings calendar bucketed before-open / after-close (large caps plus any \

@@ -810,6 +810,82 @@ pub async fn run_discover(
     })
 }
 
+// ------------------------------------------------------------ option frame
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct OptionFrameToolArgs {
+    /// Underlying equity or ETF ticker, e.g. "NVDA".
+    pub underlying: String,
+    /// "call" or "put" (long only).
+    pub option_kind: OptionKindArg,
+    pub strike: f64,
+    /// Expiry as YYYY-MM-DD.
+    pub expiry: String,
+    /// Quoted premium per share from the broker's chain (the contract costs premium × 100).
+    pub premium: f64,
+    /// Budget in USD: the whole premium is the max loss.
+    pub budget_usd: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OptionFrameOutput {
+    pub summary: String,
+    pub frame: crate::domain::option::OptionFrame,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_option_frame(
+    args: OptionFrameToolArgs,
+    bars: &dyn crate::domain::ports::bar_source::BarSource,
+    market: &dyn crate::domain::ports::market_data_source::MarketDataSource,
+) -> Result<OptionFrameOutput, DomainError> {
+    use crate::domain::trade_journal::OptionKind;
+    let expiry =
+        args.expiry
+            .parse::<chrono::NaiveDate>()
+            .map_err(|_| DomainError::SourceFailure {
+                name: "option".into(),
+                message: format!("expiry {:?} is not YYYY-MM-DD", args.expiry),
+            })?;
+    let spec = crate::domain::option::OptionSpec {
+        underlying: args.underlying,
+        kind: match args.option_kind {
+            OptionKindArg::Call => OptionKind::Call,
+            OptionKindArg::Put => OptionKind::Put,
+        },
+        strike: args.strike,
+        expiry,
+        premium: args.premium,
+        budget_usd: args.budget_usd,
+    };
+    let frame = crate::application::option::option_frame(spec, bars, market, Utc::now()).await?;
+    let summary = format!(
+        "{} {} {:?} exp {} — {} contracts · cost ${:.2} (max loss) · breakeven {:.2} · move to breakeven {} · {} sessions left",
+        frame.underlying,
+        frame.strike,
+        frame.kind,
+        frame.expiry,
+        frame.contracts,
+        frame.cost_usd,
+        frame.breakeven,
+        frame
+            .move_to_breakeven_pct
+            .map(|m| format!("{m:+.1}%"))
+            .unwrap_or_else(|| "n/a".into()),
+        frame
+            .trading_days_to_expiry
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "n/a".into())
+    );
+    Ok(OptionFrameOutput {
+        summary,
+        frame,
+        framing: crate::application::option::FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+}
+
 // ------------------------------------------------------------ clock
 
 #[derive(Debug, Deserialize, JsonSchema)]

@@ -9,6 +9,7 @@ pub mod entities;
 pub mod error;
 pub mod macro_calendar;
 pub mod margin;
+pub mod option;
 pub mod ports;
 pub mod risk;
 pub mod trade_journal;

@@ -4,6 +4,7 @@ pub mod clock;
 pub mod dip;
 pub mod discover;
 pub mod journal;
+pub mod option;
 pub mod pulse;
 pub mod risk;
 pub mod run;

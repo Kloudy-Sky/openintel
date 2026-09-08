@@ -34,6 +34,7 @@ Every capability, both surfaces. Every MCP tool is read-only toward markets and 
 | Question | CLI | MCP tool | Cost |
 |---|---|---|---|
 | What day is it, is the market open? | `clock` | `market_clock` | free, no network |
+| What's on today's calendar and what moved overnight? | `brief --tickers ADSK,EFX` | `brief` | free |
 | Is this ticker crowded? | `analyze AAPL` | `analyze_ticker` · `scan_watchlist` · `compare_tickers` | free |
 | Where are trades today? | `discover` | `discover` | free |
 | Is this dip a setup? | `dip` · `dip NVDA` | `dip_scan` | free |
@@ -103,6 +104,27 @@ openintel discover --format json
 ```
 
 No ranking, no verdicts, no picks. The evidence is the product. Losers carry a pointer to Dip for the gated verdict instead of restating it. MCP: `discover`.
+
+</details>
+
+<details>
+<summary><b>Brief</b> · today's dated evidence, no ticker required</summary>
+
+The morning call. One command assembles what could move the session ahead, every item with its as-of time:
+
+- **Clock:** date, weekday, session state, the last completed session (the newest daily bar), the next open.
+- **Macro:** scheduled releases from a vendored calendar (CPI, jobs report, FOMC decisions, GDP, PCE) with ET times. Outside the calendar's coverage the answer is "unknown", never a quiet day.
+- **Earnings:** Nasdaq's calendar (keyless, unofficial) bucketed before open / after close, listing names at or above the $500M floor plus any ticker you pass. Everything else is a count.
+- **Tickers you pass** (held and watched): SEC filings and catalyst headlines since the prior close, graded through the same gates Dip uses, plus the headlines themselves.
+- **Chatter:** the last baseline counts per platform. The velocity claim still needs a fresh `discover --chatter`.
+
+```bash
+openintel brief                          # calendar and clock only
+openintel brief --tickers ADSK,EFX,TRU   # plus overnight evidence on these
+openintel brief --format json
+```
+
+A leg that can't be fetched is an error line. No ranking, no proposals: the agent reasons, this lists. MCP: `brief` with `tickers`.
 
 </details>
 
@@ -252,7 +274,7 @@ curl -s -X POST "$SLACK_WEBHOOK_URL" -H 'Content-type: application/json' \
   --data "$(jq -n --rawfile t "$F" '{text: $t}')"
 ```
 
-**4. A morning brief on your phone.** The same folder can run the agent headless an hour before the open: it reads the digest, checks positions and overnight news, pulls today's earnings, and proposes up to three setups with a risk frame each. The push is a six-line plain-text summary; the full brief lands in `briefs/<date>.md` for your session to open on. [`examples/trading-desk/`](examples/trading-desk/) has the prompt and the script; the tool allowlist is read-only by construction, so it can propose and never place. Put an [ntfy](https://ntfy.sh) topic name in `.ntfy_topic`, subscribe on your phone, and add the cron line:
+**4. A morning brief on your phone.** The same folder can run the agent headless an hour before the open: it calls `brief` for the clock, calendar, and overnight evidence, reads the digest, checks positions, and proposes up to three setups with a risk frame each. The push is a six-line plain-text summary; the full brief lands in `briefs/<date>.md` for your session to open on. [`examples/trading-desk/`](examples/trading-desk/) has the prompt and the script; the tool allowlist is read-only by construction, so it can propose and never place. Put an [ntfy](https://ntfy.sh) topic name in `.ntfy_topic`, subscribe on your phone, and add the cron line:
 
 ```bash
 30 7 * * 1-5 $HOME/trading/bin/morning-brief.sh   # cron runs in the host's local time: this is 07:30 Central, 08:30 Eastern. Convert to yours.

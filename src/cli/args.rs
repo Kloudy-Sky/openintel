@@ -41,6 +41,19 @@ pub enum Command {
 
     /// Market clock: date, weekday, and NYSE session state (pre-market, open, post-close, closed)
     Clock(ClockArgs),
+
+    /// Today's dated evidence with no ticker: clock, macro releases, earnings, overnight filings and headlines, chatter (never picks)
+    Brief(BriefArgs),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct BriefArgs {
+    /// Held and watched tickers to check for overnight filings and headlines, comma-separated
+    #[arg(long, value_delimiter = ',')]
+    pub tickers: Vec<String>,
+
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
 }
 
 #[derive(clap::Args, Debug)]

@@ -13,6 +13,8 @@ use crate::domain::values::source_kind::SourceKind;
 use crate::domain::values::speculation::Alignment;
 use chrono::Utc;
 
+use crate::domain::entities::ticker::Ticker;
+
 #[derive(Debug, Serialize)]
 pub struct SourcesOutput {
     pub social: Vec<String>,
@@ -795,6 +797,59 @@ pub async fn run_discover(
         summary,
         report,
         framing: crate::application::discover::FRAMING,
+        disclaimer: DISCLAIMER,
+    })
+}
+
+// ------------------------------------------------------------ brief
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BriefToolArgs {
+    /// Held and watched tickers: overnight filings and headlines are checked for these.
+    pub tickers: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BriefOutput {
+    pub summary: String,
+    pub report: crate::application::brief::BriefReport,
+    pub framing: &'static str,
+    pub disclaimer: &'static str,
+}
+
+pub async fn run_brief(
+    args: BriefToolArgs,
+    deps: &crate::application::brief::BriefDeps<'_>,
+) -> Result<BriefOutput, DomainError> {
+    let tickers = args
+        .tickers
+        .unwrap_or_default()
+        .iter()
+        .map(|t| Ticker::parse(t))
+        .collect::<Result<Vec<_>, _>>()?;
+    let req = crate::application::brief::BriefRequest {
+        tickers,
+        ..crate::application::brief::BriefRequest::default()
+    };
+    let report = crate::application::brief::brief(&req, deps, Utc::now()).await?;
+    let earnings_listed = report
+        .earnings
+        .as_ref()
+        .map(|e| e.before_open.len() + e.after_close.len() + e.unspecified.len())
+        .unwrap_or(0);
+    let summary = format!(
+        "{} {}: {} macro releases, {} earnings listed, {} tickers checked, {} errors",
+        report.clock.date_et,
+        report.clock.state.as_str(),
+        report.macro_releases.len(),
+        earnings_listed,
+        report.tickers.len(),
+        report.errors.len()
+    );
+    Ok(BriefOutput {
+        summary,
+        report,
+        framing: crate::application::brief::FRAMING,
         disclaimer: DISCLAIMER,
     })
 }

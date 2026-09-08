@@ -237,6 +237,9 @@ pub async fn poll_chatter(
     }
 }
 
+/// Append events as whole lines. On a failed write the file is truncated
+/// back to its length before the batch, so a retry can neither leave a
+/// partial line nor duplicate an event.
 pub fn append_events(path: &Path, events: &[Event]) -> Result<(), DomainError> {
     if events.is_empty() {
         return Ok(());
@@ -244,14 +247,24 @@ pub fn append_events(path: &Path, events: &[Event]) -> Result<(), DomainError> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| fail(format!("create {}: {e}", dir.display())))?;
     }
+    let mut lines = String::new();
+    for event in events {
+        lines.push_str(&serde_json::to_string(event).map_err(|e| fail(e.to_string()))?);
+        lines.push('\n');
+    }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(|e| fail(format!("open {}: {e}", path.display())))?;
-    for event in events {
-        let line = serde_json::to_string(event).map_err(|e| fail(e.to_string()))?;
-        writeln!(file, "{line}").map_err(|e| fail(format!("write {}: {e}", path.display())))?;
+    let before = file
+        .metadata()
+        .map(|m| m.len())
+        .map_err(|e| fail(format!("stat {}: {e}", path.display())))?;
+    let written = file.write_all(lines.as_bytes()).and_then(|()| file.flush());
+    if let Err(e) = written {
+        let _ = file.set_len(before);
+        return Err(fail(format!("write {}: {e}", path.display())));
     }
     Ok(())
 }
@@ -397,6 +410,30 @@ mod tests {
         )
         .await;
         assert_eq!(bars.0.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_failed_append_leaves_the_file_as_it_was() {
+        let dir = std::env::temp_dir().join(format!("openintel-watch-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let event = Event {
+            polled_at: tuesday_open(),
+            kind: EventKind::MarketState,
+            ticker: None,
+            summary: "x".into(),
+            evidence: vec![],
+            source: "clock".into(),
+        };
+        // the "file" is a directory: open fails, nothing is written, the error is clean
+        let err = append_events(&dir, std::slice::from_ref(&event)).unwrap_err();
+        assert!(err.to_string().contains("open"));
+        let path = dir.join("events.jsonl");
+        append_events(&path, std::slice::from_ref(&event)).unwrap();
+        let len = std::fs::metadata(&path).unwrap().len();
+        assert!(len > 0);
+        assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

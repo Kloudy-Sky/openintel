@@ -26,6 +26,9 @@ use crate::domain::watch::WatchState;
 
 const MIN_INTERVAL_SECS: u64 = 15;
 const MAX_INTERVAL_SECS: u64 = 3600;
+/// Events held for retry while the events file is unwritable; beyond this
+/// the oldest are dropped and the loss is reported, never silent.
+const MAX_PENDING: usize = 1000;
 
 fn fail(message: impl Into<String>) -> DomainError {
     DomainError::SourceFailure {
@@ -92,13 +95,20 @@ async fn announce(outcome: &PollOutcome, notifier: Option<&NtfyNotifier>) {
 }
 
 /// Append what is pending one event per write, draining each on success, so
-/// a failure mid-batch neither loses an event nor writes one twice; the rest
-/// waits for the next tick.
-fn persist(pending: &mut Vec<Event>, events_path: Option<&std::path::Path>) {
+/// a failure neither loses an event nor writes one twice; the rest waits for
+/// the next tick. The buffer is bounded and any drop is reported.
+fn persist(pending: &mut Vec<Event>, events_path: Option<&std::path::Path>) -> bool {
     let Some(path) = events_path else {
         pending.clear();
-        return;
+        return true;
     };
+    if pending.len() > MAX_PENDING {
+        let dropped = pending.len() - MAX_PENDING;
+        pending.drain(..dropped);
+        eprintln!(
+            "watch: events file still unwritable; dropped the {dropped} oldest pending event(s)"
+        );
+    }
     while let Some(first) = pending.first() {
         match append_events(path, std::slice::from_ref(first)) {
             Ok(()) => {
@@ -106,10 +116,11 @@ fn persist(pending: &mut Vec<Event>, events_path: Option<&std::path::Path>) {
             }
             Err(e) => {
                 eprintln!("watch: {e}; {} event(s) held for retry", pending.len());
-                return;
+                return false;
             }
         }
     }
+    true
 }
 
 fn push_body(event: &Event) -> String {
@@ -185,7 +196,7 @@ pub async fn run(args: &WatchArgs, credentials: &Credentials) -> Result<(), Doma
         let outcome = poll(&req, &deps, &mut state, &mut cache, now).await;
         announce(&outcome, notifier.as_ref()).await;
         pending.extend(outcome.events.iter().cloned());
-        persist(&mut pending, events_path.as_deref());
+        let mut persisted = persist(&mut pending, events_path.as_deref());
 
         let chatter_due = match (chatter_every, last_chatter) {
             (Some(_), None) => true,
@@ -197,7 +208,7 @@ pub async fn run(args: &WatchArgs, credentials: &Credentials) -> Result<(), Doma
             let outcome = poll_chatter(&chatter_req, &feeds, Some(&yahoo), &mut state, now).await;
             announce(&outcome, notifier.as_ref()).await;
             pending.extend(outcome.events.iter().cloned());
-            persist(&mut pending, events_path.as_deref());
+            persisted = persist(&mut pending, events_path.as_deref()) && persisted;
         }
         if args.once {
             eprintln!(
@@ -205,6 +216,12 @@ pub async fn run(args: &WatchArgs, credentials: &Credentials) -> Result<(), Doma
                 outcome.events.len(),
                 outcome.errors.len()
             );
+            if !persisted {
+                return Err(fail(format!(
+                    "{} event(s) were not written to the events file",
+                    pending.len()
+                )));
+            }
             return Ok(());
         }
     }

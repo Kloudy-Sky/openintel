@@ -974,6 +974,7 @@ mod tests {
             Filing {
                 form: "4".into(), // insider form — must NOT trigger
                 filed_on: d(31),
+                accession: None,
             },
         ]);
         let sig = dip_signal(&i).unwrap();
@@ -990,6 +991,7 @@ mod tests {
         i.filings = GateEvidence::Available(vec![Filing {
             form: "8-K".into(),
             filed_on: d(20), // well before the drop
+            accession: None,
         }]);
         let sig = dip_signal(&i).unwrap();
         assert_eq!(sig.gates.no_filing, GateStatus::Pass);

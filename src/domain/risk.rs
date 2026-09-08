@@ -113,6 +113,15 @@ pub fn frame(
         stop_multiple,
         sizing,
     } = spec;
+    // A futures point is a contract multiplier's worth of dollars, which this
+    // frame does not carry; sizing one as a share would understate the loss.
+    if let Ok(t) = crate::domain::entities::ticker::Ticker::parse(ticker) {
+        if t.class() == crate::domain::values::asset_class::AssetClass::Future {
+            return Err(fail(
+                "futures need a contract multiplier OpenIntel does not carry yet; frame the underlying instead",
+            ));
+        }
+    }
     if !(budget_usd.is_finite() && budget_usd > 0.0) {
         return Err(fail("budget must be a positive number"));
     }
@@ -295,6 +304,24 @@ mod tests {
         .unwrap();
         assert_eq!(tiny.units, 0.0);
         assert!(tiny.note.unwrap().contains("millionth"));
+    }
+
+    #[test]
+    fn futures_are_refused_until_a_multiplier_exists() {
+        let err = frame(
+            "ES=F",
+            &bars(),
+            FrameSpec {
+                direction: Direction::Long,
+                entry: 106.0,
+                budget_usd: 200.0,
+                stop_multiple: 2.0,
+                sizing: Sizing::WholeShares,
+            },
+            at(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("contract multiplier"));
     }
 
     #[test]

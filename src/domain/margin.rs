@@ -68,6 +68,16 @@ pub fn margin_frame(risk: &RiskFrame, inputs: &MarginInputs) -> Result<MarginFra
     if risk.direction != Direction::Long {
         return Err(fail("margin framing supports long dip entries only"));
     }
+    // Reg-T buying power and maintenance calls are an equity model.
+    let class = crate::domain::entities::ticker::Ticker::parse(&risk.ticker)
+        .map(|t| t.class())
+        .unwrap_or(crate::domain::values::asset_class::AssetClass::Equity);
+    if class != crate::domain::values::asset_class::AssetClass::Equity {
+        return Err(fail(format!(
+            "margin framing is equity-only (Reg-T); {} has no buying-power model here",
+            class.as_str()
+        )));
+    }
     if !(inputs.equity_usd.is_finite() && inputs.equity_usd > 0.0) {
         return Err(fail("equity must be a positive number"));
     }
@@ -166,6 +176,14 @@ mod tests {
             equity_usd: equity,
             ..MarginInputs::default()
         }
+    }
+
+    #[test]
+    fn non_equity_frames_are_refused() {
+        let mut r = risk(10);
+        r.ticker = "BTC-USD".into();
+        let err = margin_frame(&r, &inputs(10_000.0)).unwrap_err();
+        assert!(err.to_string().contains("equity-only"));
     }
 
     #[test]

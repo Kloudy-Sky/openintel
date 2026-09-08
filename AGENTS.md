@@ -26,6 +26,7 @@ I love to build, and I focus on building complex things as simple as possible. C
 
 ## Glossary
 
+- **symbol** — Yahoo's form, validated by `Ticker::parse`, carrying its `AssetClass`: `AAPL` (equity), `BTC-USD` or bare `BTC` (crypto), `EURUSD=X` (forex), `ES=F` (future). Every surface accepts all four; the clock, sizing, and gates branch on the class, and a gate with no evidence source for a class reports `unknown`.
 - **verdict** — the tiered dip outcome: `no_setup` / `watch` / `high_confidence`.
 - **gate** — one three-valued check (`GateStatus`) feeding a verdict.
 - **session** — `Intraday` or `PostClose`; intraday runs cap at `watch` because the day bar isn't final.

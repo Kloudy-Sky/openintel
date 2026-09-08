@@ -89,7 +89,7 @@ impl SocialDataSource for RedditSource {
     async fn fetch(&self, ticker: &Ticker, limit: usize) -> Result<Vec<SocialPost>, DomainError> {
         let bearer = self.ensure_token().await?;
         let fetched_at = Utc::now();
-        let cashtag = format!("${}", ticker.as_str());
+        let cashtag = format!("${}", ticker.base());
         let limit_str = limit.min(100).to_string();
         // `.query()` is behind reqwest's `query` feature, which this crate does not enable;
         // build the query string manually via the re-exported `url::Url` instead.

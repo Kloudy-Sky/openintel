@@ -265,9 +265,9 @@ pub struct TradeReviewReport {
     pub notes: Vec<String>,
 }
 
-/// Grade the whole journal. Equity trades get forward returns (raw and
-/// SPY-adjusted); options grade on realized P&L plus the underlying's
-/// direction; crypto grades on realized P&L only (no bar path yet).
+/// Grade the whole journal. Equity, crypto, and forex trades get forward
+/// returns from Yahoo bars (SPY-adjusted for equities only); options grade on
+/// realized P&L plus the underlying's direction.
 pub async fn review_trades(
     path: &Path,
     bars_src: &dyn BarSource,
@@ -284,20 +284,10 @@ pub async fn review_trades(
     let mut notes = Vec::new();
     let mut errors = outcome.errors;
 
-    // Bars for every equity ticker and option underlying, plus SPY. Crypto
-    // symbols don't parse as tickers — skipped with a note, graded on P&L.
+    // Bars for every instrument's symbol (the underlying for options), plus SPY.
     let mut symbols: HashSet<String> = HashSet::new();
     for t in &outcome.trades {
-        match &t.instrument {
-            Instrument::Equity { .. } | Instrument::Option { .. } => {
-                symbols.insert(t.instrument.symbol().to_string());
-            }
-            Instrument::Crypto { symbol } => {
-                notes.push(format!(
-                    "{symbol}: crypto graded on realized P&L only — no bar path yet"
-                ));
-            }
-        }
+        symbols.insert(t.instrument.symbol().to_string());
     }
     let mut symbols: Vec<String> = symbols.into_iter().collect();
     symbols.sort();

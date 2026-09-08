@@ -3,9 +3,20 @@ use chrono::{DateTime, Utc};
 use crate::domain::entities::ticker::Ticker;
 use crate::domain::error::DomainError;
 use crate::domain::ports::bar_source::BarSource;
-use crate::domain::risk::{frame, Direction, RiskFrame};
+use crate::domain::risk::{frame, Direction, FrameSpec, RiskFrame, Sizing};
+use crate::domain::values::asset_class::AssetClass;
 
 pub const DEFAULT_STOP_MULTIPLE: f64 = 2.0;
+
+/// The optional knobs on a risk frame; every field defaults to "decide from
+/// the data": last close as entry, 2×ATR stop, sizing by asset class.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RiskOptions {
+    pub stop_multiple: Option<f64>,
+    pub entry: Option<f64>,
+    /// Fractional units instead of whole shares; None = fractional for crypto and forex only.
+    pub fractional: Option<bool>,
+}
 
 /// Fetch bars, default the entry to the last close, run the pure frame math.
 /// Clock injected at this edge; all validation errors are clean messages.
@@ -13,14 +24,19 @@ pub async fn risk_frame(
     ticker_raw: &str,
     direction: Direction,
     budget_usd: f64,
-    stop_multiple: Option<f64>,
-    entry: Option<f64>,
+    options: RiskOptions,
     bars: &dyn BarSource,
     now: DateTime<Utc>,
 ) -> Result<RiskFrame, DomainError> {
     let ticker = Ticker::parse(ticker_raw)?;
+    let sizing = match (options.fractional, ticker.class()) {
+        (Some(true), _) => Sizing::Fractional,
+        (Some(false), _) => Sizing::WholeShares,
+        (None, AssetClass::Crypto | AssetClass::Forex) => Sizing::Fractional,
+        (None, _) => Sizing::WholeShares,
+    };
     let history = bars.bars(&ticker).await?;
-    let entry = match entry {
+    let entry = match options.entry {
         Some(e) => e,
         None => {
             history
@@ -35,10 +51,13 @@ pub async fn risk_frame(
     frame(
         ticker.as_str(),
         &history,
-        direction,
-        entry,
-        budget_usd,
-        stop_multiple.unwrap_or(DEFAULT_STOP_MULTIPLE),
+        FrameSpec {
+            direction,
+            entry,
+            budget_usd,
+            stop_multiple: options.stop_multiple.unwrap_or(DEFAULT_STOP_MULTIPLE),
+            sizing,
+        },
         now,
     )
 }
@@ -90,8 +109,7 @@ mod tests {
             "nvda",
             Direction::Long,
             200.0,
-            None,
-            None,
+            RiskOptions::default(),
             &FixedBars(history()),
             at(),
         )
@@ -109,8 +127,11 @@ mod tests {
             "NVDA",
             Direction::Short,
             100.0,
-            Some(1.0),
-            Some(110.0),
+            RiskOptions {
+                stop_multiple: Some(1.0),
+                entry: Some(110.0),
+                fractional: None,
+            },
             &FixedBars(history()),
             at(),
         )
@@ -121,8 +142,7 @@ mod tests {
             "$$$",
             Direction::Long,
             100.0,
-            None,
-            None,
+            RiskOptions::default(),
             &FixedBars(history()),
             at()
         )
@@ -132,8 +152,7 @@ mod tests {
             "NVDA",
             Direction::Long,
             100.0,
-            None,
-            None,
+            RiskOptions::default(),
             &FixedBars(vec![]),
             at()
         )

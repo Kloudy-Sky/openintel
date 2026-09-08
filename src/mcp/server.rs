@@ -80,13 +80,24 @@ impl OpenIntelServer {
                        and the NYSE session state (pre_market / open / post_close / closed with the \
                        holiday or weekend reason / unknown outside the vendored calendar), plus the \
                        date of the last completed session (the newest daily bar) and the next open. \
-                       No network, no arguments. Call this FIRST in a conversation and again whenever \
+                       Pass asset_class crypto (24/7) or forex/future (Sunday 17:00 to Friday 17:00 ET) \
+                       for those markets. No network. Call this FIRST in a conversation and again whenever \
                        the user asks about now or today: any price, verdict, or scan fetched under an \
                        earlier session state is expired and must be re-fetched, never quoted from memory."
     )]
-    async fn market_clock(&self) -> Result<CallToolResult, ErrorData> {
-        let json = serde_json::to_string_pretty(&crate::domain::clock::market_clock(Utc::now()))
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    async fn market_clock(
+        &self,
+        Parameters(args): Parameters<tools::MarketClockArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let class = args
+            .asset_class
+            .map(tools::AssetClassArg::class)
+            .unwrap_or(crate::domain::values::asset_class::AssetClass::Equity);
+        let json = serde_json::to_string_pretty(&crate::domain::clock::market_clock_for(
+            Utc::now(),
+            class,
+        ))
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
@@ -105,7 +116,8 @@ impl OpenIntelServer {
                        speculation report (net sentiment, speculation index, crowding, \
                        alignment = confirming/diverging/quiet). On a ≤ -4% down day the output \
                        also carries dip_signal — the same gated setup verdict dip_scan computes \
-                       (capped at watch in this mode). Read-only — does not trade."
+                       (capped at watch in this mode). Symbols: AAPL, BTC-USD or BTC, EURUSD=X, \
+                       ES=F. Read-only — does not trade."
     )]
     async fn analyze_ticker(
         &self,
@@ -193,8 +205,10 @@ impl OpenIntelServer {
 
     #[tool(
         description = "Deterministic risk calculator: given a ticker, a per-trade risk budget in \
-                       USD, and a direction, returns an ATR(14)-based stop level, the whole-share \
-                       size that caps a stop-out at the budget, max loss, and 1R/2R/3R reference \
+                       USD, and a direction, returns an ATR(14)-based stop level, the size that caps a stop-out at the \
+                       budget (whole shares for equities unless fractional is true; fractional \
+                       units by default for BTC-USD-style crypto and EURUSD=X forex, which \
+                       Robinhood's agentic rail cannot execute), max loss, and 1R/2R/3R reference \
                        levels. It does NOT recommend trades — combine it with analyze_ticker / \
                        x_pulse, present the numbers to the user, and get their explicit approval \
                        before any execution step. Read-only — does not trade."

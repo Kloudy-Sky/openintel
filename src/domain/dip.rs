@@ -111,11 +111,16 @@ pub fn apply_floor(
 }
 
 fn floor_reason(row: &MoverRow, floor: &QualityFloor, now_ms: i64) -> Option<String> {
+    // A coin's unit price and venue say nothing about quality; cap, volume,
+    // and age still do.
+    let equity = crate::domain::entities::ticker::Ticker::parse(&row.symbol)
+        .map(|t| t.class() == crate::domain::values::asset_class::AssetClass::Equity)
+        .unwrap_or(true);
     let ex = row.exchange.to_ascii_lowercase();
-    if ex.contains("otc") || ex.contains("pink") {
+    if equity && (ex.contains("otc") || ex.contains("pink")) {
         return Some(format!("off-exchange venue ({})", row.exchange));
     }
-    if row.price < floor.min_price {
+    if equity && row.price < floor.min_price {
         return Some(format!("price {:.2} < {:.2}", row.price, floor.min_price));
     }
     match row.market_cap {

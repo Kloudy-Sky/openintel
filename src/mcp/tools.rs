@@ -428,6 +428,9 @@ pub struct RiskToolArgs {
     pub stop_multiple: Option<f64>,
     /// Entry price override (default: last close).
     pub entry: Option<f64>,
+    /// Size in fractional units (six decimals) instead of whole shares.
+    /// Defaults to true for crypto and forex symbols, false for equities.
+    pub fractional: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -451,19 +454,23 @@ pub async fn run_risk_frame(
         &args.ticker,
         direction,
         args.budget_usd,
-        args.stop_multiple,
-        args.entry,
+        crate::application::risk::RiskOptions {
+            stop_multiple: args.stop_multiple,
+            entry: args.entry,
+            fractional: args.fractional,
+        },
         bars,
         chrono::Utc::now(),
     )
     .await?;
     let summary = format!(
-        "{} {:?} — entry {:.2} · stop {:.2} · {} shares · max loss ${:.2} (≤ ${:.2}) · 1R {:.2}",
+        "{} {:?} — entry {:.2} · stop {:.2} · {} {} · max loss ${:.2} (≤ ${:.2}) · 1R {:.2}",
         frame.ticker,
         frame.direction,
         frame.entry,
         frame.stop,
-        frame.shares,
+        frame.units,
+        frame.unit,
         frame.max_loss_usd,
         frame.budget_usd,
         frame.targets[0]
@@ -670,6 +677,7 @@ pub enum ScreenArg {
     Gainers,
     Losers,
     Actives,
+    Crypto,
 }
 
 impl ScreenArg {
@@ -679,6 +687,7 @@ impl ScreenArg {
             ScreenArg::Gainers => ScreenKind::DayGainers,
             ScreenArg::Losers => ScreenKind::DayLosers,
             ScreenArg::Actives => ScreenKind::MostActives,
+            ScreenArg::Crypto => ScreenKind::Crypto,
         }
     }
 }
@@ -687,7 +696,7 @@ impl ScreenArg {
 pub struct DiscoverToolArgs {
     /// "movers" (default) or "chatter" (mention velocity from the listening set).
     pub mode: Option<DiscoverModeArg>,
-    /// Screens to pull: "gainers", "losers", "actives" (default: all three).
+    /// Screens to pull: "gainers", "losers", "actives" (default: all three), or "crypto" for the largest coins.
     pub screens: Option<Vec<ScreenArg>>,
     /// Rows pulled per screen (1-100, default 25).
     pub count: Option<usize>,
@@ -801,6 +810,36 @@ pub async fn run_discover(
     })
 }
 
+// ------------------------------------------------------------ clock
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AssetClassArg {
+    Equity,
+    Crypto,
+    Forex,
+    Future,
+}
+
+impl AssetClassArg {
+    pub fn class(self) -> crate::domain::values::asset_class::AssetClass {
+        use crate::domain::values::asset_class::AssetClass;
+        match self {
+            AssetClassArg::Equity => AssetClass::Equity,
+            AssetClassArg::Crypto => AssetClass::Crypto,
+            AssetClassArg::Forex => AssetClass::Forex,
+            AssetClassArg::Future => AssetClass::Future,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct MarketClockArgs {
+    /// Which market: "equity" (NYSE, default), "crypto" (24/7), "forex" or "future"
+    /// (Sunday 17:00 to Friday 17:00 ET).
+    pub asset_class: Option<AssetClassArg>,
+}
+
 // ------------------------------------------------------------ brief
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -862,6 +901,8 @@ pub enum InstrumentTypeArg {
     Equity,
     Option,
     Crypto,
+    /// Journaled for the record; Robinhood's agentic rail cannot execute forex.
+    Forex,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -873,9 +914,9 @@ pub enum OptionKindArg {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LogTradeToolArgs {
-    /// "equity", "option" (long only), or "crypto".
+    /// "equity", "option" (long only), "crypto", or "forex" (journal only).
     pub instrument_type: InstrumentTypeArg,
-    /// Ticker for equity, underlying for option, symbol for crypto.
+    /// Ticker for equity, underlying for option, BTC or BTC-USD for crypto, EURUSD for forex.
     pub symbol: String,
     /// Option only: strike price.
     pub strike: Option<f64>,
@@ -918,6 +959,7 @@ fn instrument_from(
     match args.instrument_type {
         InstrumentTypeArg::Equity => Ok(Instrument::Equity { ticker: symbol }),
         InstrumentTypeArg::Crypto => Ok(Instrument::Crypto { symbol }),
+        InstrumentTypeArg::Forex => Ok(Instrument::Forex { pair: symbol }),
         InstrumentTypeArg::Option => {
             let strike = args
                 .strike
@@ -1419,6 +1461,7 @@ mod tests {
                 direction: Some(RiskDirectionArg::Long),
                 stop_multiple: Some(2.0),
                 entry: None,
+                fractional: None,
             },
             &FixedBars,
         )

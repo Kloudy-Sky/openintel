@@ -107,7 +107,7 @@ impl SocialDataSource for BlueskySource {
                 message: format!("bad search url: {e}"),
             })?;
         url.query_pairs_mut()
-            .append_pair("q", ticker.as_str())
+            .append_pair("q", ticker.base())
             .append_pair("sort", "latest")
             .append_pair("limit", &limit_str);
 

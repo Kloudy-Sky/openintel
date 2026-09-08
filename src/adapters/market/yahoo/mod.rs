@@ -142,6 +142,7 @@ impl MoversSource for YahooMarketSource {
             ScreenKind::DayGainers => "day_gainers",
             ScreenKind::DayLosers => "day_losers",
             ScreenKind::MostActives => "most_actives",
+            ScreenKind::Crypto => "all_cryptocurrencies_us",
         };
         let count = count.clamp(1, MAX_SCREENER_ROWS);
         let url = format!("{SCREENER_URL}?scrIds={scr_id}&count={count}");

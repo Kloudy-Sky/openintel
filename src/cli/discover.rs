@@ -52,6 +52,7 @@ impl ScreenArg {
             ScreenArg::Gainers => ScreenKind::DayGainers,
             ScreenArg::Losers => ScreenKind::DayLosers,
             ScreenArg::Actives => ScreenKind::MostActives,
+            ScreenArg::Crypto => ScreenKind::Crypto,
         }
     }
 }

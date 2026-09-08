@@ -25,15 +25,20 @@ pub async fn run(args: &JournalArgs) -> Result<String, DomainError> {
     let path = default_path_or_err()?;
     match &args.command {
         JournalCommand::Log(log) => {
-            let instrument = match (&log.option, log.crypto) {
-                (Some(_), true) => return Err(fail("--option and --crypto are exclusive")),
-                (None, true) => Instrument::Crypto {
+            let instrument = match (&log.option, log.crypto, log.forex) {
+                (Some(_), true, _) | (Some(_), _, true) | (None, true, true) => {
+                    return Err(fail("--option, --crypto, and --forex are exclusive"))
+                }
+                (None, true, false) => Instrument::Crypto {
                     symbol: log.symbol.to_ascii_uppercase(),
                 },
-                (None, false) => Instrument::Equity {
+                (None, false, true) => Instrument::Forex {
+                    pair: log.symbol.to_ascii_uppercase(),
+                },
+                (None, false, false) => Instrument::Equity {
                     ticker: log.symbol.to_ascii_uppercase(),
                 },
-                (Some(kind), false) => Instrument::Option {
+                (Some(kind), false, false) => Instrument::Option {
                     underlying: log.symbol.to_ascii_uppercase(),
                     strike: log.strike.ok_or_else(|| fail("--option needs --strike"))?,
                     expiry: log

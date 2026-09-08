@@ -1,5 +1,6 @@
 //! Grade folded trades: R-multiples against the original plan, discipline
-//! metrics (did the exit honor the plan?), and forward returns for equities.
+//! metrics (did the exit honor the plan?), and forward returns wherever bars
+//! exist (equity, crypto, forex), SPY-adjusted for equities only.
 //! Pure — bars are fetched at the application edge and passed in.
 //!
 //! Honesty gates: overall conclusions need n ≥ 30 closed trades, per-bucket
@@ -27,7 +28,7 @@ pub struct GradedTrade {
     pub realized_r: Option<f64>,
     pub realized_pnl_usd: Option<f64>,
     pub close_reason: Option<CloseReason>,
-    /// Equity only: 1/5/10-day forward returns from entry, raw and SPY-adjusted.
+    /// 1/5/10-day forward returns from entry where bars exist; SPY-adjusted for equities.
     pub forward: Option<ForwardReturns>,
     pub forward_vs_spy: Option<ForwardReturns>,
     /// Options only: did the underlying move the thesis direction by day 5?
@@ -65,12 +66,16 @@ pub fn grade(
 
     let entry_date = trade.opened_at.date_naive();
     let is_equity = matches!(trade.instrument, Instrument::Equity { .. });
-    let forward = match (is_equity, underlying_bars) {
+    let has_bar_path = matches!(
+        trade.instrument,
+        Instrument::Equity { .. } | Instrument::Crypto { .. } | Instrument::Forex { .. }
+    );
+    let forward = match (has_bar_path, underlying_bars) {
         (true, Some(bars)) => Some(forward_returns(entry_date, trade.entry, bars)),
         _ => None,
     };
     let forward_vs_spy = match (&forward, spy_bars) {
-        (Some(fwd), Some(spy)) => {
+        (Some(fwd), Some(spy)) if is_equity => {
             let base = spy
                 .iter()
                 .find(|b| b.date >= entry_date)

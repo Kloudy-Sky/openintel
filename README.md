@@ -25,7 +25,7 @@ claude mcp add --scope user openintel -- openintel mcp             # 4. wire the
 claude mcp add --scope user --transport http robinhood-trading https://agent.robinhood.com/mcp/trading   # 5. wire execution (broker's MCP)
 ```
 
-Then, in a chat: *"call open_positions, then run discover and tell me what has evidence."* Or skip the agent and use the CLI directly. Other agents add the same two MCP commands in their own settings. Offline or unconfigured sources degrade with a note, never a fabricated value.
+Then, in a chat: *"call market_clock and open_positions, then run discover and tell me what has evidence."* Or skip the agent and use the CLI directly. Other agents add the same two MCP commands in their own settings. Offline or unconfigured sources degrade with a note, never a fabricated value.
 
 ## Cheat sheet
 
@@ -33,6 +33,7 @@ Every capability, both surfaces. Every MCP tool is read-only toward markets and 
 
 | Question | CLI | MCP tool | Cost |
 |---|---|---|---|
+| What day is it, is the market open? | `clock` | `market_clock` | free, no network |
 | Is this ticker crowded? | `analyze AAPL` | `analyze_ticker` · `scan_watchlist` · `compare_tickers` | free |
 | Where are trades today? | `discover` | `discover` | free |
 | Is this dip a setup? | `dip` · `dip NVDA` | `dip_scan` | free |
@@ -209,13 +210,16 @@ You don't need a bot, a memory system, or an always-on agent. Three small pieces
 ```markdown
 # Trading rules
 - Wallet: $5,000 agentic sub-account. Max risk per trade: $65 (1.3%).
-- Call `open_positions` first in every session.
+- Call `market_clock`, then `open_positions`, first in every session.
+- A price or verdict fetched under an earlier market state is expired. Re-fetch, never quote it.
 - Never place a trade without my explicit approval in this chat.
 - Log every approved trade with `log_trade` in the same breath it's placed.
 - Read today's digest in ~/.openintel/digests/ before scanning.
 ```
 
 A complete starter lives in [`examples/trading-desk/`](examples/trading-desk/): session order (anchor the date, read positions, read the digest), freshness rules so a next-day question triggers a fresh call instead of yesterday's numbers, money rules, and voice. Copy both files, edit the numbers.
+
+The clock is what makes the next-day problem go away: `market_clock` costs nothing, returns the session state and the date of the newest daily bar, and the server tells the agent to call it first and treat anything fetched under an earlier state as expired.
 
 **2. The journal is the memory.** `log_trade` at entry, `open_positions` at the start of the next chat, `review_trades` when the record is big enough to grade. A conversational "learning" memory would remember hunches with no grade attached; the journal remembers theses and scores them against what the market did.
 

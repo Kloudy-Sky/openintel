@@ -38,6 +38,15 @@ pub enum Command {
 
     /// Surface today's movers with evidence attached (period extremes, catalyst gates — never picks)
     Discover(DiscoverArgs),
+
+    /// Market clock: date, weekday, and NYSE session state (pre-market, open, post-close, closed)
+    Clock(ClockArgs),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct ClockArgs {
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
 }
 
 #[derive(clap::Args, Debug)]

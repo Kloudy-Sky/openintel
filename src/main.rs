@@ -89,6 +89,16 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::OptionFrame(args) => match openintel::cli::option::run(&args).await {
+            Ok(rendered) => {
+                println!("{rendered}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Clock(args) => match openintel::cli::clock::run(&args) {
             Ok(rendered) => {
                 println!("{rendered}");

@@ -3,6 +3,7 @@ pub mod brief;
 pub mod chatter;
 pub mod dip;
 pub mod discover;
+pub mod option;
 pub mod pulse;
 pub mod request;
 pub mod review;

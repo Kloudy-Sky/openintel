@@ -42,6 +42,7 @@ Every capability, both surfaces. Every MCP tool is read-only toward markets and 
 | What's my listening set talking about? | `discover --chatter` | `discover` with `mode: chatter` | free (X leg paid, opt-in) |
 | What did that X account just post? | `pulse TSLA` | `x_pulse` | **paid**, opt-in, confirmed first |
 | How much can I lose on this idea? | `risk NVDA --budget 200` | `risk_frame` | free |
+| How does a long option fit my budget? | `option NVDA --kind call --strike 200 --expiry 2026-10-16 --premium 4 --budget 1000` | `option_frame` | free |
 | What am I holding and why? | `journal positions` | `open_positions` | free |
 | Log, amend, close a trade | `journal log` · `amend` · `close` | `log_trade` · `update_trade` | free |
 | How's my record, honestly? | `journal review` | `review_trades` | free |
@@ -200,6 +201,19 @@ Billing is per post returned (about $0.005, deduped over a 24h UTC day, prepaid 
 Turns a trade idea into exact numbers. `openintel risk NVDA --budget 200` returns an ATR(14)-based stop, the size that caps a stop-out at your budget, max loss, and 1R / 2R / 3R reference levels. Equities size in whole shares unless you pass `--fractional`; crypto and forex size in fractional units (six decimals) by default, so `openintel risk BTC --budget 200` returns a coin fraction. Deterministic math over free Yahoo daily bars; it never recommends taking the trade. Margin framing stays equity-only: the agentic rail has no crypto margin.
 
 Run intraday, the entry default is the live price and ATR includes today's still-forming bar. Re-run near the close for settled numbers. MCP: `risk_frame`, whose contract requires presenting the numbers and getting your explicit approval before any execution step.
+
+</details>
+
+<details>
+<summary><b>Option</b> · defined-risk frame for a long call or put</summary>
+
+The premium is the whole loss, and the rest is the arithmetic an agent tends to skip. Give it the underlying, the kind, strike, expiry, the premium your broker's chain quotes (live, so it stays an input here), and a budget:
+
+```bash
+openintel option NVDA --kind call --strike 200 --expiry 2026-10-16 --premium 4 --budget 1000
+```
+
+It returns the contracts that fit the budget, the cost (the max loss, paid up front), breakeven, the percent move from spot to breakeven, calendar and trading days to expiry, ATR(14) and an ATR-scaled range through expiry with breakeven expressed in those ranges, realized vol, and IV rank when a source provides it (keyless sources don't; the note says so). Under three weeks to expiry it warns about time decay. The range is a scale for the move the trade needs, never a forecast, and nothing here rates the odds. Equities and ETFs only. MCP: `option_frame`, same approval contract as `risk_frame`.
 
 </details>
 

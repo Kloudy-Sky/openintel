@@ -44,6 +44,38 @@ pub enum Command {
 
     /// Today's dated evidence with no ticker: clock, macro releases, earnings, overnight filings and headlines, chatter (never picks)
     Brief(BriefArgs),
+
+    /// Defined-risk frame for a long call or put: contracts to a budget, breakeven, the move it needs (never the odds)
+    #[command(name = "option")]
+    OptionFrame(OptionFrameArgs),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct OptionFrameArgs {
+    /// Underlying equity or ETF ticker, e.g. NVDA
+    pub underlying: String,
+
+    /// call or put (long only)
+    #[arg(long, value_enum)]
+    pub kind: OptionKindArg,
+
+    #[arg(long)]
+    pub strike: f64,
+
+    /// Expiry, YYYY-MM-DD
+    #[arg(long)]
+    pub expiry: String,
+
+    /// Quoted premium per share from the broker's chain (the contract costs premium × 100)
+    #[arg(long)]
+    pub premium: f64,
+
+    /// Budget in USD: the whole premium is the max loss
+    #[arg(long)]
+    pub budget: f64,
+
+    #[arg(long, value_enum, default_value_t = FormatArg::Table)]
+    pub format: FormatArg,
 }
 
 #[derive(clap::Args, Debug)]

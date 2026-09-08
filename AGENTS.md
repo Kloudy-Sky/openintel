@@ -30,7 +30,7 @@ I love to build, and I focus on building complex things as simple as possible. C
 - **verdict** — the tiered dip outcome: `no_setup` / `watch` / `high_confidence`.
 - **gate** — one three-valued check (`GateStatus`) feeding a verdict.
 - **session** — `Intraday` or `PostClose`; intraday runs cap at `watch` because the day bar isn't final.
-- **frame** — a deterministic per-trade calculation (`RiskFrame`, `MarginFrame`): exact numbers, no opinion.
+- **frame** — a deterministic per-trade calculation (`RiskFrame`, `MarginFrame`, `OptionFrame`): exact numbers, no opinion.
 - **journal** — an append-only JSONL log under `~/.openintel/`, graded later against forward returns.
 - **pulse** — the paid, opt-in X influencer catalyst feed. Every read costs real money.
 - **clock** — the NYSE session state for an injected instant: `pre_market` / `open` / `post_close` / `closed` (with the reason) / `unknown` outside the vendored calendar. `market_clock` is the tool; agents call it first so stale data is visible.

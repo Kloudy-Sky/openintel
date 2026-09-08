@@ -126,12 +126,17 @@ pub fn option_frame(
         OptionKind::Call => spec.strike + spec.premium,
         OptionKind::Put => spec.strike - spec.premium,
     };
-    if breakeven <= 0.0 {
-        return Err(fail("premium exceeds the strike; a put cannot break even"));
+    if !(breakeven.is_finite() && breakeven > 0.0) {
+        return Err(fail(
+            "breakeven must be a finite positive price (a put's premium cannot exceed its strike)",
+        ));
     }
 
     let mut notes = Vec::new();
     let per_contract = spec.premium * CONTRACT_MULTIPLIER;
+    if !per_contract.is_finite() {
+        return Err(fail("premium is too large to price a contract"));
+    }
     let contracts = (spec.budget_usd / per_contract).floor() as u64;
     if contracts == 0 {
         notes.push(format!(
@@ -333,5 +338,10 @@ mod tests {
         assert!(option_frame(&bad, MarketContext::default(), &bars(), now()).is_err());
         bad.premium = 0.0;
         assert!(option_frame(&bad, MarketContext::default(), &bars(), now()).is_err());
+        // finite inputs whose derived values overflow are refused, never serialized as inf/NaN
+        let mut huge = spec(OptionKind::Call, ymd(2026, 10, 16));
+        huge.strike = f64::MAX;
+        huge.premium = f64::MAX;
+        assert!(option_frame(&huge, MarketContext::default(), &bars(), now()).is_err());
     }
 }

@@ -32,13 +32,16 @@ I love to build, and I focus on building complex things as simple as possible. C
 - **frame** — a deterministic per-trade calculation (`RiskFrame`, `MarginFrame`): exact numbers, no opinion.
 - **journal** — an append-only JSONL log under `~/.openintel/`, graded later against forward returns.
 - **pulse** — the paid, opt-in X influencer catalyst feed. Every read costs real money.
+- **clock** — the NYSE session state for an injected instant: `pre_market` / `open` / `post_close` / `closed` (with the reason) / `unknown` outside the vendored calendar. `market_clock` is the tool; agents call it first so stale data is visible.
+- **brief** — the day's dated evidence with no ticker: clock, vendored macro releases, the earnings calendar, overnight filings and headlines for the tickers passed, last chatter counts. Evidence, never proposals.
 - **composition roots** — `main.rs` and `mcp::server::serve()`, the only places adapters are constructed.
 
 ## The ways to hurt yourself
 
 1. **Spending real money.** The `#[ignore]`d X tests and any `pulse` run bill a real API (~$0.05 minimum per call). Run them only when the developer explicitly asks.
 2. **Touching real local state.** `~/.openintel/` holds the developer's real journals and the OS keychain holds real credentials. Tests write to temp dirs (see the existing journal tests) and leave the keychain to the `#[ignore]`d test that exists for it.
-3. **Trusting free endpoints as stable.** Yahoo's endpoints are keyless and unofficial; their failure mode must stay a clean error with a note, never a panic or a fabricated value. SEC EDGAR is official — keep the `OPENINTEL_SEC_CONTACT` identification honored.
+3. **Trusting free endpoints as stable.** Yahoo's and Nasdaq's endpoints are keyless and unofficial (Nasdaq also refuses non-browser user agents); their failure mode must stay a clean error with a note, never a panic or a fabricated value. SEC EDGAR is official — keep the `OPENINTEL_SEC_CONTACT` identification honored.
+4. **Letting the vendored calendars lapse.** The NYSE holiday table in `domain/clock.rs` (2026–2027) and the macro release calendar in `domain/macro_calendar_2026.json` (2026) are data with coverage windows. Past coverage the answer is `unknown`: honest, and useless. Each December, refresh both from the exchange and agency schedules and move the coverage window and its tests with them.
 
 ## Feature workflow
 

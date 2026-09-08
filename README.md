@@ -378,4 +378,4 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-Tests marked `#[ignore]` hit live networks (Yahoo, EDGAR, Reddit, Bluesky, X, keychain) and are excluded by default. The X one spends real money; run it only on purpose.
+Tests marked `#[ignore]` hit live networks (Yahoo, Nasdaq, EDGAR, Reddit, Bluesky, X, keychain) and are excluded by default. The X one spends real money; run it only on purpose.

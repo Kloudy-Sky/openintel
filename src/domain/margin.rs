@@ -91,8 +91,9 @@ pub fn margin_frame(risk: &RiskFrame, inputs: &MarginInputs) -> Result<MarginFra
 
     let buying_power = inputs.equity_usd * leverage;
     let bp_shares = (buying_power / risk.entry).floor() as u64;
-    let shares = risk.shares.min(bp_shares);
-    let capped_by_buying_power = shares < risk.shares;
+    let risk_shares = risk.units.floor() as u64;
+    let shares = risk_shares.min(bp_shares);
+    let capped_by_buying_power = shares < risk_shares;
     if capped_by_buying_power {
         notes.push("buying power, not the risk budget, capped this size".into());
     }
@@ -134,7 +135,7 @@ pub fn margin_frame(risk: &RiskFrame, inputs: &MarginInputs) -> Result<MarginFra
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::risk::RiskFrame;
+    use crate::domain::risk::{RiskFrame, Sizing};
     use chrono::TimeZone;
 
     /// entry 100, ATR 4, 2xATR stop at 92, risk-budget size 500 shares.
@@ -146,8 +147,10 @@ mod tests {
             atr: 4.0,
             stop_multiple: 2.0,
             stop: 92.0,
-            risk_per_share: 8.0,
-            shares,
+            risk_per_unit: 8.0,
+            units: shares as f64,
+            unit: "shares",
+            sizing: Sizing::WholeShares,
             max_loss_usd: shares as f64 * 8.0,
             budget_usd: shares as f64 * 8.0,
             targets: [108.0, 116.0, 124.0],

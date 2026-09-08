@@ -159,8 +159,8 @@ fn write_sizing(
     if let Some(risk) = risk {
         let _ = writeln!(
             out,
-            "  size: {} sh @ {:.2} · stop {:.2} · max loss ${:.2}",
-            risk.shares, risk.entry, risk.stop, risk.max_loss_usd
+            "  size: {} {} @ {:.2} · stop {:.2} · max loss ${:.2}",
+            risk.units, risk.unit, risk.entry, risk.stop, risk.max_loss_usd
         );
     }
     if let Some(m) = margin {
@@ -441,8 +441,10 @@ mod tests {
                 atr: 2.0,
                 stop_multiple: 2.0,
                 stop: 83.4,
-                risk_per_share: 4.0,
-                shares: 62,
+                risk_per_unit: 4.0,
+                units: 62.0,
+                unit: "shares",
+                sizing: crate::domain::risk::Sizing::WholeShares,
                 max_loss_usd: 248.0,
                 budget_usd: 250.0,
                 targets: [91.4, 95.4, 99.4],
@@ -455,7 +457,7 @@ mod tests {
             notes: vec![],
         };
         let t = render_ticker_table(&report);
-        assert!(t.contains("size: 62 sh @ 87.40"));
+        assert!(t.contains("size: 62 shares @ 87.40"));
     }
 
     #[test]

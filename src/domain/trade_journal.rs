@@ -22,8 +22,9 @@ pub enum OptionKind {
     Put,
 }
 
-/// What was traded. Matches the instruments a Robinhood agentic account can
-/// hold (long equities, long options, crypto). Schema is deliberately free of
+/// What was traded. Equities, long options, and crypto are what a Robinhood
+/// agentic account can hold; forex is journaled for the record even though
+/// that rail cannot execute it. Schema is deliberately free of
 /// OpenIntel-specific fields so the journal can stand alone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -40,6 +41,9 @@ pub enum Instrument {
     Crypto {
         symbol: String,
     },
+    Forex {
+        pair: String,
+    },
 }
 
 impl Instrument {
@@ -49,6 +53,7 @@ impl Instrument {
             Instrument::Equity { ticker } => ticker,
             Instrument::Option { underlying, .. } => underlying,
             Instrument::Crypto { symbol } => symbol,
+            Instrument::Forex { pair } => pair,
         }
     }
 
@@ -57,6 +62,7 @@ impl Instrument {
             Instrument::Equity { .. } => "equity",
             Instrument::Option { .. } => "option",
             Instrument::Crypto { .. } => "crypto",
+            Instrument::Forex { .. } => "forex",
         }
     }
 
@@ -82,11 +88,27 @@ impl Instrument {
                 kind,
             },
             Instrument::Crypto { symbol } => {
-                let symbol = symbol.trim().to_ascii_uppercase();
-                if symbol.is_empty() {
-                    return Err(fail("crypto symbol is required"));
+                let parsed = Ticker::parse(&symbol)?;
+                if parsed.class() != crate::domain::values::asset_class::AssetClass::Crypto {
+                    return Err(fail(format!(
+                        "{symbol} is not a crypto symbol (use BTC or BTC-USD)"
+                    )));
                 }
-                Instrument::Crypto { symbol }
+                Instrument::Crypto {
+                    symbol: parsed.as_str().to_string(),
+                }
+            }
+            Instrument::Forex { pair } => {
+                let raw = pair.trim().to_ascii_uppercase();
+                let yahoo = if raw.ends_with("=X") {
+                    raw
+                } else {
+                    format!("{raw}=X")
+                };
+                let parsed = Ticker::parse(&yahoo)?;
+                Instrument::Forex {
+                    pair: parsed.as_str().to_string(),
+                }
             }
         })
     }
@@ -107,6 +129,7 @@ impl Instrument {
                 format!("{underlying} {strike} {k} {expiry}")
             }
             Instrument::Crypto { symbol } => symbol.clone(),
+            Instrument::Forex { pair } => pair.clone(),
         }
     }
 }

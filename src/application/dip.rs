@@ -23,7 +23,8 @@ use crate::domain::ports::market_data_source::MarketDataSource;
 use crate::domain::ports::movers_source::MoversSource;
 use crate::domain::ports::news_source::NewsSource;
 use crate::domain::ports::social_data_source::SocialDataSource;
-use crate::domain::risk::{frame, Direction, RiskFrame};
+use crate::domain::risk::{frame, Direction, FrameSpec, RiskFrame, Sizing};
+use crate::domain::values::asset_class::AssetClass;
 use crate::domain::values::bar::Bar;
 use crate::domain::values::mover::MoverRow;
 use crate::domain::values::source_kind::SourceKind;
@@ -172,6 +173,18 @@ async fn spx_change(bars_src: &dyn BarSource) -> Result<f64, DomainError> {
 
 /// Social-only sentiment for the divergence component. Any failure (including
 /// "no posts") degrades to None — the domain scores divergence 0 with a note.
+/// Yahoo's news search on a crypto or forex symbol returns unrelated items,
+/// so the headline gate can't be verified for them: fail closed, skip the call.
+pub(crate) fn no_news_feed(class: AssetClass) -> DomainError {
+    DomainError::SourceFailure {
+        name: "news".into(),
+        message: format!(
+            "no company news feed for {}: the headline gate cannot be verified",
+            class.as_str()
+        ),
+    }
+}
+
 pub(crate) async fn sentiment_for(
     ticker: &str,
     social: &[Box<dyn SocialDataSource>],
@@ -215,6 +228,9 @@ async fn check(
 ) -> Result<(DipSignal, Vec<Bar>), DomainError> {
     let ticker = Ticker::parse(ticker_raw)?;
     let session = session_for(now);
+    let equity = ticker.class() == AssetClass::Equity;
+    // SPY is no reference for a coin or a currency pair.
+    let spx_change_pct = if equity { spx_change_pct } else { None };
 
     let bars = deps.bars.bars(&ticker).await?;
     let (prior, drop_bar) = split_history(&bars)?;
@@ -224,7 +240,12 @@ async fn check(
         None => change_pct_from(prior, &drop_bar)?,
     };
 
-    let filings = {
+    let filings = if ticker.class() != AssetClass::Equity {
+        GateEvidence::Unavailable(format!(
+            "no filings registry for {}: the filing gate cannot be verified",
+            ticker.class().as_str()
+        ))
+    } else {
         let since = drop_date.pred_opt().unwrap_or(drop_date);
         match deps.filings.recent_filings(&ticker, since).await {
             Ok(filings) => GateEvidence::Available(filings),
@@ -232,7 +253,12 @@ async fn check(
         }
     };
 
-    let (headlines, company_names) = match deps.news.headlines(&ticker, HEADLINE_COUNT).await {
+    let news = if equity {
+        deps.news.headlines(&ticker, HEADLINE_COUNT).await
+    } else {
+        Err(no_news_feed(ticker.class()))
+    };
+    let (headlines, company_names) = match news {
         // Undated headlines are kept — they MIGHT be same-day, and dropping
         // them could hide a catalyst (fail closed, not open).
         Ok(fetch) => (
@@ -474,7 +500,22 @@ fn risk_and_margin(
         Some(b) => b.close,
         None => return (None, None),
     };
-    let risk = match frame(ticker, bars, Direction::Long, entry, budget, 2.0, now) {
+    let sizing = match Ticker::parse(ticker).map(|t| t.class()) {
+        Ok(AssetClass::Crypto | AssetClass::Forex) => Sizing::Fractional,
+        _ => Sizing::WholeShares,
+    };
+    let risk = match frame(
+        ticker,
+        bars,
+        FrameSpec {
+            direction: Direction::Long,
+            entry,
+            budget_usd: budget,
+            stop_multiple: 2.0,
+            sizing,
+        },
+        now,
+    ) {
         Ok(r) => r,
         Err(e) => {
             notes.push(format!("{ticker}: risk frame unavailable: {e}"));
@@ -760,7 +801,7 @@ mod tests {
         assert!((risk.budget_usd - 100.0).abs() < 1e-9); // 1% of 10k
         let margin = c.margin.as_ref().unwrap();
         assert_eq!(margin.leverage, 2.0);
-        assert!(margin.shares <= risk.shares);
+        assert!((margin.shares as f64) <= risk.units);
 
         let line = std::fs::read_to_string(&journal).unwrap();
         assert!(line.contains("\"ticker\":\"GOOD\""));

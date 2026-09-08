@@ -21,8 +21,11 @@ pub async fn run(args: &RiskArgs) -> Result<String, DomainError> {
         &args.ticker,
         direction,
         args.budget,
-        Some(args.stop_mult),
-        args.entry,
+        crate::application::risk::RiskOptions {
+            stop_multiple: Some(args.stop_mult),
+            entry: args.entry,
+            fractional: args.fractional.then_some(true),
+        },
         &bars,
         Utc::now(),
     )
@@ -51,6 +54,13 @@ fn render_json(frame: &RiskFrame) -> Result<String, DomainError> {
     })
 }
 
+fn size_text(f: &RiskFrame) -> String {
+    match f.sizing {
+        crate::domain::risk::Sizing::WholeShares => format!("{:.0}", f.units),
+        crate::domain::risk::Sizing::Fractional => format!("{:.6}", f.units),
+    }
+}
+
 fn render_table(f: &RiskFrame) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
@@ -70,13 +80,15 @@ fn render_table(f: &RiskFrame) -> String {
     let _ = writeln!(out, "  entry:          {:>10.2}", f.entry);
     let _ = writeln!(
         out,
-        "  stop:           {:>10.2}   ({}×ATR = {:.2}/share)",
-        f.stop, f.stop_multiple, f.risk_per_share
+        "  stop:           {:>10.2}   ({}×ATR = {:.2}/unit)",
+        f.stop, f.stop_multiple, f.risk_per_unit
     );
     let _ = writeln!(
         out,
-        "  size:           {:>10} shares   (notional ${:.2})",
-        f.shares, f.notional_usd
+        "  size:           {:>10} {}   (notional ${:.2})",
+        size_text(f),
+        f.unit,
+        f.notional_usd
     );
     let _ = writeln!(
         out,
@@ -109,8 +121,10 @@ mod tests {
             atr: 4.0,
             stop_multiple: 2.0,
             stop: 98.0,
-            risk_per_share: 8.0,
-            shares: 25,
+            risk_per_unit: 8.0,
+            units: 25.0,
+            unit: "shares",
+            sizing: crate::domain::risk::Sizing::WholeShares,
             max_loss_usd: 200.0,
             budget_usd: 200.0,
             targets: [114.0, 122.0, 130.0],
@@ -137,7 +151,7 @@ mod tests {
     #[test]
     fn table_shows_zero_share_note() {
         let mut f = frame();
-        f.shares = 0;
+        f.units = 0.0;
         f.max_loss_usd = 0.0;
         f.note = Some("budget too small for one share at this stop distance".into());
         assert!(render_table(&f).contains("note: budget too small"));
@@ -146,7 +160,8 @@ mod tests {
     #[test]
     fn json_has_frame_framing_disclaimer() {
         let j = render_json(&frame()).unwrap();
-        assert!(j.contains("\"shares\": 25"));
+        assert!(j.contains("\"units\": 25.0"));
+        assert!(j.contains("\"unit\": \"shares\""));
         assert!(j.contains("calculator, not advice"));
         assert!(j.contains("Not financial advice"));
     }

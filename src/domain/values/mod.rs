@@ -1,3 +1,4 @@
+pub mod asset_class;
 pub mod bar;
 pub mod earnings_row;
 pub mod filing;

@@ -6,6 +6,8 @@ pub enum ScreenKind {
     DayGainers,
     DayLosers,
     MostActives,
+    /// Largest cryptocurrencies by market cap (a universe, not a mover ranking).
+    Crypto,
 }
 
 impl ScreenKind {
@@ -14,6 +16,7 @@ impl ScreenKind {
             ScreenKind::DayGainers => "gainers",
             ScreenKind::DayLosers => "losers",
             ScreenKind::MostActives => "most active",
+            ScreenKind::Crypto => "crypto",
         }
     }
 }

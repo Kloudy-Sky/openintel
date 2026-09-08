@@ -58,8 +58,32 @@ pub struct BriefArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct ClockArgs {
+    /// Which market's clock: equity (NYSE), crypto (24/7), forex or future (Sun 17:00 to Fri 17:00 ET)
+    #[arg(long, value_enum, default_value_t = AssetArg::Equity)]
+    pub asset: AssetArg,
+
     #[arg(long, value_enum, default_value_t = FormatArg::Table)]
     pub format: FormatArg,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum AssetArg {
+    Equity,
+    Crypto,
+    Forex,
+    Future,
+}
+
+impl AssetArg {
+    pub fn class(self) -> crate::domain::values::asset_class::AssetClass {
+        use crate::domain::values::asset_class::AssetClass;
+        match self {
+            AssetArg::Equity => AssetClass::Equity,
+            AssetArg::Crypto => AssetClass::Crypto,
+            AssetArg::Forex => AssetClass::Forex,
+            AssetArg::Future => AssetClass::Future,
+        }
+    }
 }
 
 #[derive(clap::Args, Debug)]
@@ -162,6 +186,10 @@ pub struct RiskArgs {
     #[arg(long)]
     pub entry: Option<f64>,
 
+    /// Size in fractional units instead of whole shares (default for crypto and forex)
+    #[arg(long)]
+    pub fractional: bool,
+
     #[arg(long, value_enum, default_value_t = FormatArg::Table)]
     pub format: FormatArg,
 }
@@ -244,6 +272,7 @@ pub enum ScreenArg {
     Gainers,
     Losers,
     Actives,
+    Crypto,
 }
 
 #[derive(clap::Args, Debug)]
@@ -362,9 +391,13 @@ pub struct JournalLogArgs {
     #[arg(long, requires = "option")]
     pub expiry: Option<String>,
 
-    /// The instrument is crypto
-    #[arg(long, conflicts_with_all = ["option", "strike", "expiry"])]
+    /// The instrument is crypto (BTC or BTC-USD)
+    #[arg(long, conflicts_with_all = ["option", "strike", "expiry", "forex"])]
     pub crypto: bool,
+
+    /// The instrument is a forex pair (EURUSD or EURUSD=X); journaled only, no execution rail here
+    #[arg(long, conflicts_with_all = ["option", "strike", "expiry", "crypto"])]
+    pub forex: bool,
 
     /// Skip the same-day duplicate guard
     #[arg(long = "allow-duplicate")]

@@ -6,7 +6,10 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, TimeZone, Utc, Weekday};
 use chrono_tz::America::New_York;
 use serde::Serialize;
 
+use crate::domain::values::asset_class::AssetClass;
+
 const OPEN: NaiveTime = NaiveTime::from_hms_opt(9, 30, 0).unwrap();
+const FX_ROLL: NaiveTime = NaiveTime::from_hms_opt(17, 0, 0).unwrap();
 const CLOSE: NaiveTime = NaiveTime::from_hms_opt(16, 0, 0).unwrap();
 const EARLY_CLOSE: NaiveTime = NaiveTime::from_hms_opt(13, 0, 0).unwrap();
 
@@ -67,6 +70,7 @@ impl MarketState {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MarketClock {
+    pub asset_class: AssetClass,
     pub now_utc: DateTime<Utc>,
     /// The same instant in New York, RFC 3339 with its offset (DST-aware).
     pub now_et: String,
@@ -126,12 +130,16 @@ fn step_trading_day(from: NaiveDate, days: i64) -> Option<NaiveDate> {
     }
 }
 
+/// The NYSE clock: what every equity surface means by "the market".
 pub fn market_clock(now: DateTime<Utc>) -> MarketClock {
+    market_clock_for(now, AssetClass::Equity)
+}
+
+fn base_clock(now: DateTime<Utc>, class: AssetClass) -> MarketClock {
     let et = New_York.from_utc_datetime(&now.naive_utc());
     let date = et.date_naive();
-    let time = et.time();
-    let coverage = format!("{} to {}", COVERAGE.0, COVERAGE.1);
-    let base = MarketClock {
+    MarketClock {
+        asset_class: class,
         now_utc: now,
         now_et: et.to_rfc3339(),
         date_et: date,
@@ -140,9 +148,91 @@ pub fn market_clock(now: DateTime<Utc>) -> MarketClock {
         reason: None,
         prior_close_date: None,
         next_open_date: None,
-        calendar_coverage: coverage,
+        calendar_coverage: format!("{} to {}", COVERAGE.0, COVERAGE.1),
         note: None,
+    }
+}
+
+/// Crypto never closes; its daily bars roll at 00:00 UTC, so the "prior
+/// session" for overnight windows is the previous UTC day.
+fn crypto_clock(now: DateTime<Utc>) -> MarketClock {
+    let utc_date = now.date_naive();
+    MarketClock {
+        state: MarketState::Open,
+        reason: Some("trades continuously; daily bars roll at 00:00 UTC".into()),
+        prior_close_date: utc_date.pred_opt(),
+        next_open_date: None,
+        calendar_coverage: "not applicable: no exchange calendar".into(),
+        ..base_clock(now, AssetClass::Crypto)
+    }
+}
+
+fn previous_weekday(date: NaiveDate) -> Option<NaiveDate> {
+    let mut d = date;
+    loop {
+        d = d.pred_opt()?;
+        if !matches!(d.weekday(), Weekday::Sat | Weekday::Sun) {
+            return Some(d);
+        }
+    }
+}
+
+/// Forex runs Sunday 17:00 ET to Friday 17:00 ET. Futures borrow the same
+/// window as an approximation and say so; CME hours differ by product.
+fn fx_clock(now: DateTime<Utc>, class: AssetClass) -> MarketClock {
+    let base = base_clock(now, class);
+    let et = New_York.from_utc_datetime(&now.naive_utc());
+    let (date, time) = (et.date_naive(), et.time());
+    let closed = match date.weekday() {
+        Weekday::Sat => true,
+        Weekday::Fri => time >= FX_ROLL,
+        Weekday::Sun => time < FX_ROLL,
+        _ => false,
     };
+    let note = (class == AssetClass::Future).then(|| {
+        "futures use the forex session as an approximation; CME hours differ by product".to_string()
+    });
+    if closed {
+        let friday = previous_weekday(date.succ_opt().unwrap_or(date))
+            .filter(|d| d.weekday() == Weekday::Fri)
+            .or_else(|| previous_weekday(date));
+        let sunday = (0..7)
+            .filter_map(|i| date.checked_add_signed(chrono::Duration::days(i)))
+            .find(|d| d.weekday() == Weekday::Sun);
+        return MarketClock {
+            state: MarketState::Closed,
+            reason: Some("weekend (session runs Sunday 17:00 to Friday 17:00 ET)".into()),
+            prior_close_date: friday,
+            next_open_date: sunday,
+            calendar_coverage: "Sunday 17:00 to Friday 17:00 ET, no holiday table".into(),
+            note,
+            ..base
+        };
+    }
+    MarketClock {
+        state: MarketState::Open,
+        reason: Some("session runs Sunday 17:00 to Friday 17:00 ET".into()),
+        prior_close_date: previous_weekday(date),
+        next_open_date: None,
+        calendar_coverage: "Sunday 17:00 to Friday 17:00 ET, no holiday table".into(),
+        note,
+        ..base
+    }
+}
+
+pub fn market_clock_for(now: DateTime<Utc>, class: AssetClass) -> MarketClock {
+    match class {
+        AssetClass::Equity => equity_clock(now),
+        AssetClass::Crypto => crypto_clock(now),
+        AssetClass::Forex | AssetClass::Future => fx_clock(now, class),
+    }
+}
+
+fn equity_clock(now: DateTime<Utc>) -> MarketClock {
+    let et = New_York.from_utc_datetime(&now.naive_utc());
+    let date = et.date_naive();
+    let time = et.time();
+    let base = base_clock(now, AssetClass::Equity);
 
     let Some(trading_today) = is_trading_day(date) else {
         return MarketClock {
@@ -292,6 +382,51 @@ mod tests {
             .contains("outside the vendored NYSE calendar"));
         assert_eq!(c.prior_close_date, None);
         assert_eq!(is_trading_day(ymd(2025, 12, 31)), None);
+    }
+
+    #[test]
+    fn crypto_is_always_open_with_a_utc_prior_day() {
+        let c = market_clock_for(et(2026, 9, 7, 11, 0), AssetClass::Crypto);
+        assert_eq!(c.state, MarketState::Open);
+        assert_eq!(c.asset_class, AssetClass::Crypto);
+        // 11:00 ET on 09-07 is 15:00 UTC on 09-07, so the prior UTC day is 09-06
+        assert_eq!(c.prior_close_date, Some(ymd(2026, 9, 6)));
+        assert_eq!(c.next_open_date, None);
+    }
+
+    #[test]
+    fn forex_session_boundaries() {
+        assert_eq!(
+            market_clock_for(et(2026, 9, 5, 12, 0), AssetClass::Forex).state,
+            MarketState::Closed
+        );
+        assert_eq!(
+            market_clock_for(et(2026, 9, 4, 17, 30), AssetClass::Forex).state,
+            MarketState::Closed
+        );
+        assert_eq!(
+            market_clock_for(et(2026, 9, 4, 16, 59), AssetClass::Forex).state,
+            MarketState::Open
+        );
+        assert_eq!(
+            market_clock_for(et(2026, 9, 6, 16, 59), AssetClass::Forex).state,
+            MarketState::Closed
+        );
+        assert_eq!(
+            market_clock_for(et(2026, 9, 6, 17, 0), AssetClass::Forex).state,
+            MarketState::Open
+        );
+        // Labor Day is not a forex holiday
+        let mon = market_clock_for(et(2026, 9, 7, 11, 0), AssetClass::Forex);
+        assert_eq!(mon.state, MarketState::Open);
+        assert_eq!(mon.prior_close_date, Some(ymd(2026, 9, 4)));
+        let sat = market_clock_for(et(2026, 9, 5, 12, 0), AssetClass::Forex);
+        assert_eq!(sat.prior_close_date, Some(ymd(2026, 9, 4)));
+        assert_eq!(sat.next_open_date, Some(ymd(2026, 9, 6)));
+        assert!(market_clock_for(et(2026, 9, 9, 12, 0), AssetClass::Future)
+            .note
+            .unwrap()
+            .contains("approximation"));
     }
 
     #[test]

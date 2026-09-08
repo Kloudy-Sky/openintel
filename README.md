@@ -29,11 +29,11 @@ Then, in a chat: *"call market_clock and open_positions, then run discover and t
 
 ## Cheat sheet
 
-Every capability, both surfaces. Every MCP tool is read-only toward markets and brokers; the journal tools write only your local journal.
+Every capability, both surfaces. Every MCP tool is read-only toward markets and brokers; the journal tools write only your local journal. Symbols are Yahoo's form and carry their asset class: `AAPL` or `BRK.B` (equity), `BTC-USD` or bare `BTC` (crypto), `EURUSD=X` (forex), `ES=F` (future). Crypto never closes, forex runs Sunday 17:00 to Friday 17:00 ET, and the clock, sizing, and gates know the difference.
 
 | Question | CLI | MCP tool | Cost |
 |---|---|---|---|
-| What day is it, is the market open? | `clock` | `market_clock` | free, no network |
+| What day is it, is the market open? | `clock` · `clock --asset crypto` | `market_clock` | free, no network |
 | What's on today's calendar and what moved overnight? | `brief --tickers ADSK,EFX` | `brief` | free |
 | Is this ticker crowded? | `analyze AAPL` | `analyze_ticker` · `scan_watchlist` · `compare_tickers` | free |
 | Where are trades today? | `discover` | `discover` | free |
@@ -90,7 +90,7 @@ On a ≤ −4% down day the report also carries a `dip_signal` (see Dip). MCP: `
 <details>
 <summary><b>Discover</b> · movers with evidence, never picks</summary>
 
-Answers "where are trades today?" without a ticker. Pulls Yahoo's predefined screens (gainers, losers, most actives, keyless), applies the same quality floor as Dip, and annotates a bounded slice with evidence:
+Answers "where are trades today?" without a ticker. Pulls Yahoo's predefined screens (gainers, losers, most actives, and `crypto` for the largest coins, all keyless), applies the same quality floor as Dip (a coin's unit price and venue are not judged; its cap, volume, and age are), and annotates a bounded slice with evidence:
 
 - **Tape:** day change, RVOL, ATR-stretch vs SMA20, RSI(14).
 - **Period extremes:** distance in ATRs to the 3-month and ~1-year high/low. A cheap proxy for where the crowd's reference points sit, not support or resistance. The output states the actual span covered.
@@ -100,6 +100,7 @@ Answers "where are trades today?" without a ticker. Pulls Yahoo's predefined scr
 ```bash
 openintel discover                          # all three screens
 openintel discover --screens losers --deep 5
+openintel discover --screens crypto --deep 5   # largest coins, same evidence
 openintel discover --format json
 ```
 
@@ -146,7 +147,7 @@ openintel dip --equity 25000 --leverage 2     # adds ATR-stop sizing + margin me
 openintel dip --review                        # grade past scans against forward returns
 ```
 
-`high_confidence` means **conformance to the setup template, never probability of profit**. Zero candidates is a normal result. Intraday runs always cap at `watch` because the day bar isn't final; run after the close for real verdicts. Keyword hits in headlines that clearly reference the company confirm a catalyst; hits only in generic market-roundup headlines cap at `watch` instead of killing the candidate.
+`high_confidence` means **conformance to the setup template, never probability of profit**. Zero candidates is a normal result. A crypto or forex symbol caps at `watch`: there is no filings registry, no company news feed, and no index proxy, and each gate says so rather than passing. Intraday runs always cap at `watch` because the day bar isn't final; run after the close for real verdicts. Keyword hits in headlines that clearly reference the company confirm a catalyst; hits only in generic market-roundup headlines cap at `watch` instead of killing the candidate.
 
 **The score is v0 and unvalidated.** Every scan appends a line to `~/.openintel/dip_journal.jsonl` (opt out with `--no-journal`). `dip --review` grades that journal against subsequent prices: 1/5/10-trading-day raw and SPY-adjusted returns per verdict, win rates, and a score-to-return correlation. Until the graded sample is meaningful (n ≥ 30, and only ~3 months of entries are gradable per run) the review says so instead of pretending.
 
@@ -196,7 +197,7 @@ Billing is per post returned (about $0.005, deduped over a 24h UTC day, prepaid 
 <details>
 <summary><b>Risk</b> · ATR stop, size, and R levels for one idea</summary>
 
-Turns a trade idea into exact numbers. `openintel risk NVDA --budget 200` returns an ATR(14)-based stop, the whole-share size that caps a stop-out at your budget, max loss, and 1R / 2R / 3R reference levels. Deterministic math over free Yahoo daily bars; it never recommends taking the trade.
+Turns a trade idea into exact numbers. `openintel risk NVDA --budget 200` returns an ATR(14)-based stop, the size that caps a stop-out at your budget, max loss, and 1R / 2R / 3R reference levels. Equities size in whole shares unless you pass `--fractional`; crypto and forex size in fractional units (six decimals) by default, so `openintel risk BTC --budget 200` returns a coin fraction. Deterministic math over free Yahoo daily bars; it never recommends taking the trade. Margin framing stays equity-only: the agentic rail has no crypto margin.
 
 Run intraday, the entry default is the live price and ATR includes today's still-forming bar. Re-run near the close for settled numbers. MCP: `risk_frame`, whose contract requires presenting the numbers and getting your explicit approval before any execution step.
 
@@ -217,7 +218,7 @@ openintel journal positions                  # every open trade with its thesis 
 openintel journal review                     # grade the whole record
 ```
 
-The review grades realized **R vs the original stop** (amendments never soften the grade), win rates, **discipline flags** (widened stops, exits beyond the planned stop), and for equities 1/5/10-trading-day forward returns, raw and SPY-adjusted, bucketed by setup tag and instrument. Honesty gates: per-bucket numbers appear only at n ≥ 10 closed trades and overall conclusions need n ≥ 30; below that the report calls itself anecdote. Options grade on realized P&L plus the underlying's direction (historical option prices aren't available keyless); crypto on realized P&L only. Long-only, matching what a broker's agentic account can hold.
+The review grades realized **R vs the original stop** (amendments never soften the grade), win rates, **discipline flags** (widened stops, exits beyond the planned stop), and for equities 1/5/10-trading-day forward returns, raw and SPY-adjusted, bucketed by setup tag and instrument. Honesty gates: per-bucket numbers appear only at n ≥ 10 closed trades and overall conclusions need n ≥ 30; below that the report calls itself anecdote. Options grade on realized P&L plus the underlying's direction (historical option prices aren't available keyless); crypto and forex get forward returns from Yahoo bars without the SPY adjustment. Long-only. Forex (`--forex EURUSD`) is journaled for the record: Robinhood's agentic rail cannot execute it.
 
 In an agent chat the MCP tools are the primary surface: `log_trade` journals the entry in the same moment you approve the trade (frozen thesis, required stop, risk-of-wallet snapshot, same-day duplicate guard), `update_trade` amends or closes, `open_positions` gives the next conversation the full context of what's held and why, and `review_trades` grades the record.
 
@@ -292,7 +293,7 @@ Connecting an AI agent to a brokerage MCP means **an AI can place real trades wi
 - **You are fully responsible for every trade placed.** This software has no warranty and is not financial advice. Nothing here is a strategy shown to be profitable.
 - **Only fund money you can afford to lose entirely.** Use a dedicated broker *agentic sub-account* and fund a deliberately small wallet. **That balance is your hard blast-radius cap.** The agent cannot spend beyond it.
 - **Keep the broker's approval-required mode on.** Review and approve trades before they execute. Do not authorize unattended or autonomous trading until you genuinely trust the setup. Connecting also grants the agent broad **read** access to your accounts, which is a privacy surface.
-- **Scope and status:** Robinhood's Agentic Trading is a **US** product covering equities, options, and crypto as of September 2026; check its current terms and scope yourself. OpenIntel itself is early software (live market data via Yahoo; Reddit and Bluesky sentiment live when configured); the intelligence layer is meant to be iterated on.
+- **Scope and status:** Robinhood's Agentic Trading is a **US** product covering equities, options, and crypto as of September 2026; check its current terms and scope yourself. It has no forex rail: OpenIntel can analyze and journal a currency pair, and nothing here can trade one. OpenIntel itself is early software (live market data via Yahoo; Reddit and Bluesky sentiment live when configured); the intelligence layer is meant to be iterated on.
 
 By design, **OpenIntel never executes trades, touches a broker, or holds credentials.** Execution happens only through the broker's own MCP, gated by the broker's controls and your approval. That boundary *is* the safety model. Keep it.
 

@@ -122,11 +122,23 @@ async fn ticker_evidence(
     since: DateTime<Utc>,
     deps: &BriefDeps<'_>,
 ) -> TickerEvidence {
-    let filings = match deps.filings.recent_filings(ticker, since_date).await {
-        Ok(f) => GateEvidence::Available(f),
-        Err(e) => GateEvidence::Unavailable(e.to_string()),
+    let filings = if ticker.class() != crate::domain::values::asset_class::AssetClass::Equity {
+        GateEvidence::Unavailable(format!(
+            "no filings registry for {}: the filing gate cannot be verified",
+            ticker.class().as_str()
+        ))
+    } else {
+        match deps.filings.recent_filings(ticker, since_date).await {
+            Ok(f) => GateEvidence::Available(f),
+            Err(e) => GateEvidence::Unavailable(e.to_string()),
+        }
     };
-    let (headlines, company_names) = match deps.news.headlines(ticker, HEADLINE_COUNT).await {
+    let news = if ticker.class() == crate::domain::values::asset_class::AssetClass::Equity {
+        deps.news.headlines(ticker, HEADLINE_COUNT).await
+    } else {
+        Err(crate::application::dip::no_news_feed(ticker.class()))
+    };
+    let (headlines, company_names) = match news {
         Ok(fetch) => (
             GateEvidence::Available(fetch.headlines),
             fetch.company_names,

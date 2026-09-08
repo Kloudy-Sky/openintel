@@ -91,16 +91,24 @@ async fn announce(outcome: &PollOutcome, notifier: Option<&NtfyNotifier>) {
     }
 }
 
-/// Append everything still pending; on failure keep it for the next tick,
-/// so an event reaches `recent_events` once the disk recovers.
+/// Append what is pending one event per write, draining each on success, so
+/// a failure mid-batch neither loses an event nor writes one twice; the rest
+/// waits for the next tick.
 fn persist(pending: &mut Vec<Event>, events_path: Option<&std::path::Path>) {
     let Some(path) = events_path else {
         pending.clear();
         return;
     };
-    match append_events(path, pending) {
-        Ok(()) => pending.clear(),
-        Err(e) => eprintln!("watch: {e}; {} event(s) held for retry", pending.len()),
+    while let Some(first) = pending.first() {
+        match append_events(path, std::slice::from_ref(first)) {
+            Ok(()) => {
+                pending.remove(0);
+            }
+            Err(e) => {
+                eprintln!("watch: {e}; {} event(s) held for retry", pending.len());
+                return;
+            }
+        }
     }
 }
 

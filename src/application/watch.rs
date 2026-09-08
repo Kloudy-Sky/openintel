@@ -59,11 +59,12 @@ pub struct WatchRequest {
     pub move_threshold_atr: f64,
 }
 
-/// ATR per ticker, fetched from daily bars once per process: the scale of a
-/// move does not change within a session.
+/// ATR per ticker, fetched from daily bars once per session date: the scale
+/// of a move does not change within a session, and a watch that runs for
+/// days must not keep the first day's number.
 #[derive(Default)]
 pub struct WatchCache {
-    atr: BTreeMap<String, f64>,
+    atr: BTreeMap<String, (chrono::NaiveDate, f64)>,
 }
 
 #[derive(Debug)]
@@ -75,17 +76,20 @@ pub struct PollOutcome {
 
 async fn atr_for(
     ticker: &Ticker,
+    date: chrono::NaiveDate,
     cache: &mut WatchCache,
     bars: &dyn BarSource,
 ) -> Result<f64, DomainError> {
-    if let Some(a) = cache.atr.get(ticker.as_str()) {
-        return Ok(*a);
+    if let Some((cached_for, a)) = cache.atr.get(ticker.as_str()) {
+        if *cached_for == date {
+            return Ok(*a);
+        }
     }
     let history = bars.bars(ticker).await?;
     let a = atr(&history, ATR_PERIOD)
         .filter(|a| a.is_finite() && *a > 0.0)
         .ok_or_else(|| fail(format!("{}: not enough history for ATR", ticker.as_str())))?;
-    cache.atr.insert(ticker.as_str().to_string(), a);
+    cache.atr.insert(ticker.as_str().to_string(), (date, a));
     Ok(a)
 }
 
@@ -149,7 +153,7 @@ pub async fn poll(
     for obs in observations {
         let symbol = obs.ticker.as_str().to_string();
         match obs.quote {
-            Ok((last, prior_close)) => match atr_for(&obs.ticker, cache, deps.bars).await {
+            Ok((last, prior_close)) => match atr_for(&obs.ticker, today, cache, deps.bars).await {
                 Ok(a) => events.extend(move_events(
                     state,
                     &symbol,
@@ -353,6 +357,46 @@ mod tests {
 
         let second = poll(&req, &deps, &mut state, &mut cache, tuesday_open()).await;
         assert!(second.events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn atr_is_refetched_when_the_session_date_changes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct CountingBars(AtomicUsize);
+        #[async_trait]
+        impl BarSource for CountingBars {
+            async fn bars(&self, _t: &Ticker) -> Result<Vec<Bar>, DomainError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(history())
+            }
+        }
+        let bars = CountingBars(AtomicUsize::new(0));
+        let filings = MockFilingsSource(Ok(Vec::new()));
+        let news = MockNewsSource(Ok(NewsFetch::default()));
+        let deps = WatchDeps {
+            bars: &bars,
+            market: &MockMarketSource,
+            news: &news,
+            filings: &filings,
+        };
+        let req = WatchRequest {
+            tickers: vec![Ticker::parse("AAPL").unwrap()],
+            move_threshold_atr: 1.0,
+        };
+        let mut state = WatchState::default();
+        let mut cache = WatchCache::default();
+        poll(&req, &deps, &mut state, &mut cache, tuesday_open()).await;
+        poll(&req, &deps, &mut state, &mut cache, tuesday_open()).await;
+        assert_eq!(bars.0.load(Ordering::SeqCst), 1);
+        poll(
+            &req,
+            &deps,
+            &mut state,
+            &mut cache,
+            tuesday_open() + chrono::Duration::days(1),
+        )
+        .await;
+        assert_eq!(bars.0.load(Ordering::SeqCst), 2);
     }
 
     #[test]

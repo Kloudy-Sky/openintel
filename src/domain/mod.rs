@@ -1,3 +1,4 @@
+pub mod brief;
 pub mod chatter;
 pub mod clock;
 pub mod dip;
@@ -6,6 +7,7 @@ pub mod discover;
 pub mod engine;
 pub mod entities;
 pub mod error;
+pub mod macro_calendar;
 pub mod margin;
 pub mod ports;
 pub mod risk;

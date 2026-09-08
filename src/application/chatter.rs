@@ -93,7 +93,7 @@ pub struct ChatterReport {
     pub notes: Vec<String>,
 }
 
-fn read_baseline(path: &Path) -> Vec<BaselineLine> {
+pub(crate) fn read_baseline(path: &Path) -> Vec<BaselineLine> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
     };

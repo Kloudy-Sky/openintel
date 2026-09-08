@@ -1,6 +1,8 @@
 pub mod bar;
+pub mod earnings_row;
 pub mod filing;
 pub mod headline;
+pub mod macro_release;
 pub mod mover;
 pub mod polarity;
 pub mod post_signal;

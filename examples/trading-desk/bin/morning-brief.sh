@@ -18,7 +18,7 @@ NTFY="https://ntfy.sh/$TOPIC"
 
 push() { curl -fsS --max-time 20 -o /dev/null -H "Title: $1" -d "$2" "$NTFY"; }
 
-OPENINTEL="mcp__openintel__analyze_ticker,mcp__openintel__scan_watchlist,mcp__openintel__compare_tickers,mcp__openintel__list_sources,mcp__openintel__risk_frame,mcp__openintel__open_positions,mcp__openintel__review_trades"
+OPENINTEL="mcp__openintel__market_clock,mcp__openintel__brief,mcp__openintel__analyze_ticker,mcp__openintel__scan_watchlist,mcp__openintel__compare_tickers,mcp__openintel__list_sources,mcp__openintel__risk_frame,mcp__openintel__open_positions,mcp__openintel__review_trades"
 ROBINHOOD="mcp__robinhood-trading__get_accounts,mcp__robinhood-trading__get_equity_positions,mcp__robinhood-trading__get_equity_quotes,mcp__robinhood-trading__get_equity_news,mcp__robinhood-trading__get_earnings_calendar,mcp__robinhood-trading__get_earnings_results,mcp__robinhood-trading__get_equity_historicals,mcp__robinhood-trading__get_equity_fundamentals,mcp__robinhood-trading__get_equity_technical_indicators,mcp__robinhood-trading__get_sec_filing,mcp__robinhood-trading__get_sec_filing_index,mcp__robinhood-trading__get_index_quotes,mcp__robinhood-trading__get_portfolio,mcp__robinhood-trading__get_equity_orders,mcp__robinhood-trading__search"
 
 claude -p "$(cat prompts/morning.md)" \

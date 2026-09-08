@@ -47,6 +47,7 @@ Every capability, both surfaces. Every MCP tool is read-only toward markets and 
 | Log, amend, close a trade | `journal log` · `amend` · `close` | `log_trade` · `update_trade` | free |
 | How's my record, honestly? | `journal review` | `review_trades` | free |
 | Which sources are live? | | `list_sources` | free |
+| What happened since I last looked? | `watch --tickers ADSK,BTC` | `recent_events` | free |
 
 ## Things it will never do
 
@@ -127,6 +128,22 @@ openintel brief --format json
 ```
 
 A leg that can't be fetched is an error line. No ranking, no proposals: the agent reasons, this lists. MCP: `brief` with `tickers`.
+
+</details>
+
+<details>
+<summary><b>Watch</b> · dated events as they are seen, never orders</summary>
+
+The live-event source. `openintel watch` polls the names you hold and the ones you pass, every minute by default, and emits one JSON line per new fact: a catalyst-form SEC filing, a company-referencing catalyst headline, a price move through each whole ATR step from the prior close, a chatter velocity flag from a read-only pass over the free listening feeds, and a change in the equity market's session state. Each event carries the poll time that saw it, which is the latency ceiling of a keyless watch: minute-level, never a feed.
+
+```bash
+openintel watch --tickers ADSK,EFX,BTC                       # plus open journal positions, every 60s
+openintel watch --interval 30 --move-atr 0.5 --chatter-every 15
+openintel watch --ntfy-topic "$OPENINTEL_NTFY_TOPIC"         # push each event to your phone
+openintel watch --once                                       # one poll, then exit
+```
+
+Events append to `~/.openintel/events.jsonl` and an agent reads them back with the `recent_events` MCP tool ("what happened since the open"). Each fact is reported once per session; a restart re-reports at most one poll's worth. The chatter pass never writes the baseline, so a loop cannot fake a day of lines. Nothing here places, suggests, or prepares an order; on an always-on box, a systemd user service is the right home, not cron.
 
 </details>
 

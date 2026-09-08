@@ -35,6 +35,7 @@ I love to build, and I focus on building complex things as simple as possible. C
 - **pulse** — the paid, opt-in X influencer catalyst feed. Every read costs real money.
 - **clock** — the NYSE session state for an injected instant: `pre_market` / `open` / `post_close` / `closed` (with the reason) / `unknown` outside the vendored calendar. `market_clock` is the tool; agents call it first so stale data is visible.
 - **brief** — the day's dated evidence with no ticker: clock, vendored macro releases, the earnings calendar, overnight filings and headlines for the tickers passed, last chatter counts. Evidence, never proposals.
+- **event** — one dated fact the `watch` loop saw (filing, catalyst headline, ATR move, chatter velocity, market state), appended to `~/.openintel/events.jsonl` and read back by `recent_events`. Reported once; never a recommendation.
 - **composition roots** — `main.rs` and `mcp::server::serve()`, the only places adapters are constructed.
 
 ## The ways to hurt yourself

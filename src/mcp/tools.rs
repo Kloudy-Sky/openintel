@@ -749,6 +749,7 @@ pub async fn run_chatter(
             .unwrap_or(crate::application::chatter::DEFAULT_X_READ_CAP)
             .clamp(1, 100),
         baseline_path: crate::application::chatter::default_baseline_path(),
+        write_baseline: true,
     };
     let report = crate::application::chatter::chatter(&req, feeds, market, Utc::now()).await?;
     let spent: f64 = report
